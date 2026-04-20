@@ -87,5 +87,5 @@ Surface the assumptions you made in a short note at the bottom of the ticket bod
 ## What this skill does not do
 
 - Does not create the ticket on the backend. Output is a markdown block the operator pastes.
-- Does not decompose a PRD into multiple tickets. That is `prd-to-tasks`.
+- Does not decompose a PRD into multiple tickets. That is `prd-to-frds`, then `frd-to-blueprint` per FRD, then `blueprint-to-tasks` per blueprint.
 - Does not move the ticket to Ready. Operator does that manually after reviewing your scope.
