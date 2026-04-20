@@ -1,0 +1,16 @@
+/* Applied via cssclasses: [wide-mermaid] frontmatter on a note. */
+
+.wide-mermaid {
+  --file-line-width: 1200px;
+}
+
+/* Cap mermaid diagrams at 1200px but let them render at their natural
+   size otherwise. No stretching to fill. */
+.wide-mermaid .mermaid,
+.wide-mermaid .mermaid svg {
+  max-width: 1200px !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  display: block !important;
+}

@@ -1,0 +1,608 @@
+---
+cssclasses:
+  - wide-mermaid
+---
+
+# Coding Harness
+
+## 1. Overview
+
+A reusable harness for running long-horizon coding work through Claude Code autonomously, with verification as the primary correctness gate. The harness drives the Claude Code CLI as a subprocess from a Python orchestrator, pulls tasks from a pluggable backend (GitHub Projects to start; Software Factory later), and enforces a layered verification stack (tests, spec-judge, behavioral) before any task is marked done.
+
+The user plans and prioritizes tasks; the harness executes them.
+
+## 2. Goals & Non-Goals
+
+### Goals
+- Solve verification as a first-class concern so long-running autonomous work becomes trustworthy.
+- Drive Claude Code via its CLI to leverage the Claude Max subscription and inherit every Claude Code improvement for free.
+- Keep the orchestration surface small: thin Python loop + rich in-session hooks/skills/agents.
+- Pluggable task backends. GitHub Projects first; Software Factory second.
+- Pull-based execution: the user stays in the planning loop; agents only execute pre-defined tickets.
+- Polished, self-maintainable documentation and code for long-term single-operator use.
+
+### Non-Goals
+- Multi-user, team, or OSS-release polish. Personal tool.
+- Cross-agent portability (Cursor, Aider, Codex). Claude Code only.
+- Autonomous sprint planning or task decomposition. The user decomposes work.
+- L1-only or L2-only shapes. This is an L3 (autonomous loop) product.
+- Token-level cost optimization. Subscription model; wall-clock time is the budget unit.
+- Replacing Claude Code features (Plan Mode, subagents via Task tool) with reimplementations. Use them where they fit.
+
+## 3. Design Principles
+
+1. **Verification and generation quality are co-equal.** The harness must confirm that the agent did the thing (verification), *and* that the resulting code is maintainable enough to build on forever (quality). A passing test suite on unmaintainable code is a failure mode the harness must prevent.
+2. **Claude Code is the runtime.** The orchestrator never makes direct Anthropic API calls. Every model interaction happens through `claude -p`.
+3. **In-session work uses hooks; cross-session work uses Python.** Hooks are deterministic and reactive. The Python orchestrator is the only thing that initiates sessions, transitions state, and enforces budgets.
+4. **The code is ground truth.** Reviewers never trust generator self-reports. They read `git diff` and run gates.
+5. **Pull-based, not plan-based.** The harness never invents work. It consumes a queue the user maintains.
+6. **Backends are pluggable.** Task source, comment mirror, and repository operations hide behind adapter interfaces.
+7. **Machine-readable state for agents; human-readable mirror for the operator.** Agents read and write JSON; a sync script projects updates into the task backend's native comment surface (GitHub issue comments, SF threads, etc.).
+
+## 4. Architecture
+
+### 4.1 Component map
+
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 40, 'padding': 10}}}%%
+flowchart TB
+    Op([Operator])
+    Planning[(Planning backend<br/>GitHub Projects / SF)]
+    Repo[(GitHub repo<br/>commits, PRs, comments)]
+
+    subgraph Harness [Coding Harness]
+      direction TB
+      Orch[Orchestrator<br/>orchestrator/main.py]
+      Gen[Generator session<br/>claude -p subprocess]
+      Sync[Sync script<br/>orchestrator/sync.py]
+      State[(harness/state/)]
+      Logs[(harness/logs/)]
+
+      Orch -->|spawns| Gen
+      Orch -->|writes| State
+      Orch -->|writes| Logs
+      Sync -->|reads| State
+    end
+
+    Op -->|creates & prioritizes tickets| Planning
+    Op -->|reviews & merges PR| Repo
+    Planning <-->|tickets + status| Orch
+    Gen -->|commits, opens PR| Repo
+    Sync -->|mirrors state as PR comments| Repo
+```
+
+### 4.2 Layers of responsibility
+
+| Concern | Owner |
+|---|---|
+| Task queue, priority, dependencies | Task backend (GitHub Project) |
+| Next-task selection, status transitions, budget enforcement, session lifecycle | Python orchestrator |
+| Cross-session memory, handoff context | `harness/state/<id>.json` |
+| In-session enforcement: verification gates, formatting, context injection, preventing premature stop | Claude Code hooks |
+| Reusable capabilities: how to write a plan, how to verify, how to review | Skills |
+| Operator-invoked entry points | Slash commands |
+| Role-specialized session prompts | Agents (`.claude/agents/*.md`) |
+| Ground truth about what changed | Git |
+| Human audit trail | Task backend's native comments (via sync script) |
+
+## 5. Task Lifecycle
+
+One ticket, end to end. Two phases: **planning** (shape the ticket) and **execution** (build the thing).
+
+### 5.1 Planning phase
+
+1. **Operator starts from a product document** (PRD, feature brief, prose). In a Claude Code session, invokes the `prd-to-tasks` skill to break it into a set of discrete ticket stubs. Reviews and edits the list.
+2. **Operator creates tickets** on the planning backend (GitHub issue or SF work order) from those stubs. Each ticket starts in `Backlog`.
+3. **Operator fleshes out each ticket** by invoking `scope-task` on it. This produces a body in the standard scoped-task format (§5.1.1). Operator reviews and edits.
+4. **Operator moves a ticket to `Ready`** when its scope is solid enough for an autonomous generator to execute without asking questions.
+
+#### 5.1.1 Scoped-task format
+
+Every ticket body the generator executes against must be in this shape. The `scope-task` skill produces it; operators edit it in place. Consistent format means the generator always knows where to find each piece of information.
+
+```markdown
+## Goal
+One sentence describing what this ticket delivers.
+
+## In scope
+- Bullet list of what is included.
+
+## Out of scope
+- Explicit list of what this ticket does NOT cover, especially things a reasonable reader might assume are included. Forces the scope boundary to be thought through.
+
+## Depends on
+- #<other-ticket> — one line explaining what this task needs from it.
+(Empty if no dependencies.)
+
+## Produces
+- Interfaces, modules, artifacts, or contracts this ticket makes available for downstream tasks. What can other tickets assume exists after this is done?
+
+## Acceptance criteria
+- [ ] Observable outcomes, each verifiable by the reviewer's gates.
+- [ ] ...
+
+## Implementation notes (non-binding)
+Optional. Hints about files, approach, libraries. Never prescriptive — the generator owns implementation choices.
+```
+
+**Scope is the load-bearing concept.** All scopes across all tickets must compose into the whole project without gaps or overlap. `In scope` + `Out of scope` + `Produces` are the fields that carry this contract. If scoping is sloppy, tasks either leave gaps (nothing covers area X) or double up (two tickets both produce X differently). Either failure mode wastes iteration cycles and produces incoherent code.
+
+### 5.2 Execution phase
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 40, 'padding': 10}}}%%
+flowchart TB
+    subgraph Plan [Planning]
+      direction TB
+      Op1([Operator])
+      PS1[prd-to-tasks]
+      PS2[scope-task]
+      Tix[(Backlog tickets)]
+      Op1 --> PS1
+      Op1 --> PS2
+      PS1 --> Tix
+      PS2 --> Tix
+    end
+
+    Tix -. move to Ready .-> Run([python -m orchestrator run])
+    Run --> Orch{{Orchestrator}}
+    Orch -->|spawn claude -p| Gen
+
+    Gen["<b>Generator session</b><br/>━━━━━━━<br/><i>skills</i><br/>• autonomous-execution<br/>• open-task-pr<br/>━━━━━━━<br/><i>hook</i><br/>• Stop → spawn reviewers"]
+
+    Gen -->|on Stop, Task-tool fan-out| Rev
+
+    Rev["<b>Reviewer subagents</b><br/>━━━━━━━<br/>Tests<br/>Playwright<br/>spec-judge<br/>regression-judge<br/>security-judge<br/>quality-judge"]
+
+    Rev --> D{All pass?}
+    D -->|any fail| Gen
+    D -->|all pass| Post{{Post-processing}}
+    Post --> State[(State file)]
+    Post --> PR[(GitHub PR)]
+    State --> Merge([Operator merges PR])
+    PR --> Merge
+    Merge -.->|next task| Orch
+```
+
+The diagram shows the architecture you described: orchestrator spawns one generator session; the generator, on its `Stop` hook, fans out to reviewer subagents via the Task tool; verdicts fan back in to a decision node; fails loop back to the generator (same session, continues working), passes fall through to orchestrator post-processing.
+
+Each reviewer subagent additionally pulls in `autonomous-execution` (omitted from the diagram for space — it's a universal dependency like the generator's).
+
+4. **Operator invokes the orchestrator.** It queries the backend, takes the topmost Ready ticket, moves it to `In Progress`, and initializes `harness/state/<id>.json` with `execution.branch = "task/<task_id>"`. Exits cleanly if no Ready tickets.
+5. **Orchestrator spawns one generator session** — `claude -p "<prompt>"` with the ticket body and scoped-task contents injected inline. A single subprocess per task; the generator handles the gen/review cycle internally.
+6. **Generator does the work** on branch `task/<task_id>`. On its first pass it commits, pushes, and opens a PR (title from the ticket, body with `Closes #N`). Its `autonomous-execution` posture means it proceeds without asking questions or waiting for input.
+7. **Generator fans out reviewer subagents via the Task tool** when it believes its pass is ready for verification. One subagent per gate: `tests`, `playwright`, `spec-judge`, `regression-judge`, `security-judge`, `quality-judge`. Each subagent runs in a fresh Claude Code context with only the inputs its gate needs (diff, ticket body, etc.) and returns a structured verdict (`pass | fail | not_run`) plus a short rationale.
+8. **Generator aggregates the verdicts** from all reviewer subagents.
+    - **If any gate `fail`:** the generator reads the rationales, makes fixes, pushes more commits, and fans out the reviewer subagents again. This retry loop is internal to the generator session — no new `claude -p` subprocess is spawned.
+    - **If all gates `pass`:** the generator emits a final summary to stdout and exits.
+    - **Budget:** the orchestrator enforces a wall-clock cap on the generator subprocess as the outer backstop. Inside, the generator is told to try-and-fix until it runs out of time or verdict cycles.
+9. **Orchestrator post-processes the generator session** (one time, after it exits):
+    - Runs `gh pr list --head task/<task_id>` to populate `execution.pr_url` and `execution.pr_number`.
+    - Captures stdout into `current.last_output`; rotates the prior `current` to `history`.
+    - Posts the final summary as a PR comment.
+10. **Operator reviews the PR and merges** when satisfied. The harness never auto-merges.
+11. **On the next orchestrator invocation**, the orchestrator checks each `In Progress` task for a merged PR; any it finds are transitioned to `Done`. Then it picks up the next Ready ticket. Queue drain continues until nothing is Ready.
+
+#### 5.2.1 Gap filing
+
+Any execution-phase session can file a gap ticket when it encounters out-of-scope missing work. The capability is how the harness stays honest about what it's seeing without blowing ticket scope.
+
+**When it fires** (agent judgment, guided by `autonomous-execution`):
+- Generator finds a prerequisite that isn't in place ("this endpoint needs a shared auth middleware that doesn't exist yet; not in scope for this ticket").
+- Generator notices a latent bug adjacent to the area being changed.
+- Reviewer sees a concern outside the ticket's declared `In scope` — code smell, test gap, security issue in unrelated code — something important but not this ticket's job.
+
+**What the agent does:** calls the `file-gap` skill with a title, a body describing the gap, and (optionally) a category hint like `refactor | bug | security | infra`.
+
+**What the skill does mechanically:**
+1. Creates a new ticket via `backend.add_comment`-style adapter call (implementation: `gh issue create --label gap ...` for GitHub).
+2. Body includes: description, back-reference to the originating ticket (e.g. `Discovered while working on #42`), and category label.
+3. Adds the new ticket to the project in the `Backlog` column.
+4. Returns the new ticket's URL to the agent so it can mention it in its final output.
+
+**What the skill does NOT do:**
+- Does not promote the gap to `Ready` — operator triages.
+- Does not affect the current iteration's verdict — gap filing is a side effect, not a gate signal.
+- Does not trigger a new session — the orchestrator ignores the new ticket until a future `run` picks it up (and only if the operator moves it to Ready).
+- Does not dedupe (v1). If two sessions file similar gaps, both exist. Operator merges/closes during triage.
+
+**Where gaps show up:**
+- Planning backend: filterable by `gap` label in the Backlog.
+- Originating PR: the agent mentions `Filed #99 for [...]` in its prose, which lands in the PR comments.
+- State file `history[]`: the prose is preserved there too.
+
+**Guardrails for in-scope vs gap:** the agent checks the ticket's `In scope` / `Out of scope` fields (§5.1.1) before filing. If the work plausibly falls under the ticket's scope, it's in-line — don't file. If it's plausibly out, file. When ambiguous, file (cheap, reversible) and continue.
+
+## 6. Components
+
+### 6.1 Python orchestrator
+
+Entry point: `python -m orchestrator run` or `make run`.
+
+Responsibilities:
+- Load `config.yaml` (backend choice, repo, caps, paths).
+- Instantiate the configured `TaskBackend` adapter.
+- Main flow (invoked by the operator; not a daemon):
+  1. Detect any `In Progress` tickets whose PR was merged since the last run. For each, `backend.update_status(id, "done")`.
+  2. `backend.get_next_ready_task()` — returns task or None.
+  3. If None: exit 0.
+  4. `backend.update_status(id, "in_progress")`.
+  5. Initialize or load `harness/state/<id>.json`; set `execution.branch = "task/<task_id>"`.
+  6. Build generator prompt (ticket body + scoped-task body + any prior `current.last_output` + branch info) and spawn `claude -p "<prompt>"` as a single subprocess. Generator handles the gen/review retry loop internally via Task-tool reviewer subagents.
+  7. Enforce a wall-clock cap on the subprocess; kill and mark the task as `exhausted` if it exceeds the cap.
+  8. After the subprocess exits:
+     - `gh pr list --head task/<id>` → populate `execution.pr_url` / `execution.pr_number`.
+     - Rotate state: prior `current` → `history`; new `current.last_output` = captured stdout.
+     - Post `current.last_output` as a PR comment.
+  9. By default, drain the queue: repeat from step 1 until no Ready tickets remain. A `--one` flag stops after a single task.
+
+Scope constraints:
+- No direct LLM calls. All model interactions happen via `claude -p` subprocesses.
+- No edits to application source files. Only writes inside `harness/`.
+- Everything else is permitted: subprocess management, prompt construction, stdout capture, state-file rotation, `gh`/`git` queries to refresh `execution.pr_*` and detect merges, PR comment posting, status transitions.
+
+Target: ≤ 400 lines of Python. The inner gen/review loop moving into the generator session cuts orchestrator surface substantially.
+
+### 6.2 Task backend adapter
+
+The adapter layer hides backend-specific identifiers and API shapes behind a canonical `Task` type. Skills, hooks, agents, and the orchestrator core **only see canonical fields**. Backend-specific identifiers live in an opaque `handles` dict that only the adapter itself reads or writes.
+
+Interface (`orchestrator/backends/base.py`):
+
+```python
+Status = Literal["backlog", "ready", "in_progress", "in_review", "done"]
+
+class Container(TypedDict):
+    kind: str            # e.g. "github_project", "sf_project"
+    id: str
+    name: str
+
+class Task(TypedDict):
+    task_id: str                      # harness-stable id (e.g. "gh-42", "sf-<uuid>")
+    kind: str                         # backend kind
+    primary_id: str                   # backend's canonical unique id as a string
+    display_id: str                   # human-friendly reference ("#42", "WO-5")
+    title: str
+    body_markdown: str                # full ticket body; the spec-judge reads criteria from here
+    status: Status
+    location: str | None              # browsable URL if the backend has one
+    container: Container
+    handles: dict                     # adapter-private; opaque to everything else
+
+class TaskBackend(Protocol):
+    """Planning-phase operations: tickets, status, planning comments."""
+    def get_next_ready_task(self) -> Task | None: ...
+    def get_task(self, task_id: str) -> Task: ...
+    def update_status(self, task_id: str, status: Status) -> None: ...
+    def add_comment(self, task_id: str, body: str) -> None: ...
+    def get_ordered_ready(self) -> list[Task]: ...
+```
+
+Scope: the `TaskBackend` covers **planning** only — tickets, status, and planning-phase comments. It never touches code, branches, or PRs.
+
+**Code surface (execution phase) is always GitHub** and is not abstracted. A small `orchestrator/git_ops.py` module wraps `git` and `gh` for branch, push, PR-open, and PR-comment operations. The planning backend is pluggable (GitHub Projects or SF); the code backend is fixed because SF is a planning replacement, not a git hosting replacement.
+
+Adapter responsibilities:
+- Translate backend-native states into the canonical `Status` enum. GitHub maps from project column names; SF maps from the `backlog/ready/in_progress/in_review/completed` lifecycle.
+- Populate `handles` with every identifier the adapter itself needs on subsequent calls (e.g. `project_item_id` for GitHub, `work_order_id` + `project_id` for SF).
+- Never leak backend-specific jargon into `Task` fields other than `handles`.
+
+Adapters:
+- `github.py` — implemented via `gh` CLI subprocess calls. No `PyGithub` dependency.
+- `software_factory.py` — deferred; to be implemented against the `sf-platform` API when needed.
+
+Backend is selected in `config.yaml`. Each adapter defines its own config block:
+
+```yaml
+# GitHub
+backend:
+  kind: github
+  repo: owner/name
+  project_number: 3
+
+# Software Factory
+backend:
+  kind: software_factory
+  base_url: https://sf.internal
+  project_id: 0f1e2d3c-4b5a-6978-8765-432101234567
+```
+
+### 6.3 State file schema
+
+One file per task at `harness/state/<task_id>.json`. Owned by the orchestrator; updated by hooks inside sessions.
+
+The entire `harness/` directory (`state/`, `logs/`, `cache/`, `index.md`) is **committed to git**. It is a permanent record of every task, every iteration, every verdict, and every hook firing — treated as first-class project artifact, not runtime scratch. Future uses include training data, fine-tuning signals, failure-mode analysis, and operator audit. Log files are the only entries that may be compressed or pruned on a documented retention policy; state files are never deleted.
+
+Format:
+
+```json
+{
+  "task_id": "gh-42",
+  "backend": {
+    "kind": "github",
+    "primary_id": "42",
+    "display_id": "#42",
+    "title": "Add login endpoint",
+    "location": "https://github.com/owner/repo/issues/42",
+    "container": { "kind": "github_project", "id": "PVT_abc", "name": "Harness Tasks" },
+    "handles": {
+      "issue_number": 42,
+      "project_item_id": "PVTI_xyz"
+    }
+  },
+  "created_at": "2026-04-18T10:00:00Z",
+  "updated_at": "2026-04-18T10:45:12Z",
+  "status": "in_progress",
+  "session_count": 1,
+
+  "limits": {
+    "max_wall_minutes": 120
+  },
+
+  "execution": {
+    "branch": "task/gh-42",
+    "pr_url": "https://github.com/owner/repo/pull/123",
+    "pr_number": 123
+  },
+
+  "current": {
+    "last_role": "generator",
+    "last_output": "Ran all six reviewer subagents after three internal fix passes.\n\nRound 1: tests pass, spec-judge failed on acceptance criterion 2 — /login accepted empty passwords. Added pydantic validation and a test for empty/missing fields.\n\nRound 2: spec-judge passed, quality-judge flagged duplication between validation logic in /login and /signup. Extracted shared validator into auth/validators.py.\n\nRound 3: all six gates passed. PR https://github.com/owner/repo/pull/123 is ready for operator review."
+  },
+
+  "verification": {
+    "tests":              { "result": "pass", "ran_at": "2026-04-18T10:43:00Z" },
+    "playwright":         { "result": "pass", "ran_at": "2026-04-18T10:44:00Z" },
+    "spec_judge":         { "result": "pass", "ran_at": "2026-04-18T10:44:10Z" },
+    "regression_judge":   { "result": "pass", "ran_at": "2026-04-18T10:44:20Z" },
+    "security_judge":     { "result": "pass", "ran_at": "2026-04-18T10:44:30Z" },
+    "quality_judge":      { "result": "pass", "ran_at": "2026-04-18T10:44:40Z" }
+  },
+
+  "history": [
+    { "session": 1, "at": "2026-04-18T10:45:00Z", "verdict": "pass", "output": "(full text of the generator's final summary for this session)" }
+  ],
+
+  "mirror": {
+    "last_posted_session": 1,
+    "last_mirrored_at": "2026-04-18T10:45:30Z"
+  }
+}
+```
+
+Field rules:
+- `task_id` is the harness-stable identifier used everywhere in `harness/` paths, log names, and cross-references. Format: `<kind>-<primary_id>` (e.g. `gh-42`, `sf-0f1e2d3c...`).
+- `backend.*` mirrors the canonical `Task` contract from §6.2. It is refreshed whenever the adapter is consulted; never edited by hand.
+- `backend.handles` is adapter-private. Skills, hooks, and agents must never read it. The adapter is the only code that interprets its contents.
+- `status` uses the canonical enum: `backlog` | `ready` | `in_progress` | `in_review` | `done`. Adapters translate backend-native states into this enum.
+- `session_count` — how many generator sessions this task has required. Usually 1; increments only if the orchestrator has to respawn (timeout, crash).
+- `limits.max_wall_minutes` — outer time cap on the generator subprocess. The orchestrator kills the subprocess if it exceeds this. Internal retry count is not capped explicitly; wall time is the backstop.
+- `current.last_output` — the full verbatim stdout of the most recent generator session.
+- `current.last_role` — always `generator` (reviewer subagents don't produce top-level output). Retained for forward compatibility if we ever add other top-level roles.
+- `verification.<gate>.result` — populated by the orchestrator from the generator's final VERDICT block. Each `pass | fail | not_run`.
+- `history` — append-only, one entry per generator session. Carries the full `output` text and the session-level `verdict` (`pass | fail | exhausted`). Powers replay, audit, and future training data. Never truncated in place.
+- `execution.branch` is set by the orchestrator before spawning. `execution.pr_url` / `pr_number` are populated after the subprocess exits via `gh pr list`.
+- `mirror.last_posted_session` tracks which `history[]` sessions have been mirrored as PR comments.
+- All timestamps are ISO 8601 UTC.
+- Schema version implicit in the harness version; breaking changes require a migration step documented in the release notes.
+
+**Write access:**
+- The **orchestrator is the only writer** of the state file.
+- Per task: orchestrator spawns generator → generator runs (including internal reviewer fan-outs) → generator exits → orchestrator captures stdout, parses gate verdicts, rotates `current` into `history`, refreshes `execution.pr_*`, posts PR comment. Single rotation per orchestrator invocation per task.
+- The generator is told in its prompt to end its final message with a structured summary of the per-gate outcomes (see §6.5) so the orchestrator can populate `verification.*` deterministically.
+- Per-reviewer-subagent outputs are not directly written to the state file. They live in the Claude Code session transcript (which Claude Code persists on its own) and are referenced by the generator's final summary. If per-subagent persistence is later wanted, a `SubagentStop` hook can capture each subagent's return value into a sibling log file.
+
+### 6.4 Skills
+
+Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when and how to apply it.
+
+**Skills are for LLM-driven work only.** Deterministic mechanics (state-file rotation, iteration counting, history appending, PR comment posting) live in the orchestrator, not in skills. A skill exists in one of two shapes:
+
+- **Tool-wrappers** — reusable "here is how to do X" instructions plus a thin CLI recipe. The agent decides *when* to use the tool; the skill documents *how* consistently.
+- **LLM-as-judge** — pure prompting skills that produce a verdict. The judgment is the skill.
+
+**Orientation skill** (pulled in by every autonomously-invoked agent — generator, reviewer, any future execution-phase agent):
+
+- `autonomous-execution` *(orientation)* — sets the baseline posture for any session spawned via `claude -p`:
+  - No human is listening. No questions will be answered.
+  - When uncertain, make a reasonable decision with the information available and proceed. Prefer action over deliberation.
+  - Never end the session by asking a clarifying question, proposing a plan, or waiting for approval. Execute.
+  - Read the full state file and prior output before acting; the previous iteration usually contains the signal you need.
+  - Be decisive about naming, structure, and stylistic choices. Don't hedge.
+  - Block only if truly stuck (missing auth, broken tool, contradiction in the ticket). When blocked: document what you tried, what's missing, and what decision would unblock you, then stop. The orchestrator treats this as a failed iteration.
+
+**Execution-phase skills:**
+
+- `open-task-pr` *(tool-wrapper)* — how the generator opens a PR on its first internal pass: branch naming (`task/<task_id>`), commit, push, `gh pr create` with a standard title drawn from the ticket and a body with a `Closes #<n>` footer for GitHub. Idempotent (safe to call if a PR already exists). The orchestrator does not depend on this skill running — it always re-checks branch state via `gh pr list` afterward.
+- `file-gap` *(tool-wrapper)* — any execution-phase agent calls this when it discovers missing work (a prerequisite that wasn't scoped, a supporting abstraction needed, a latent bug found, a refactor that would unblock this or future tasks). Creates a new ticket in the planning backend's `Backlog` column with the `gap` label and a body that references the originating task. The operator triages these on their own cadence; they never auto-enter the execution queue.
+- `run-playwright-check` *(tool-wrapper)* — how to run Playwright against a locally-booted dev server and interpret exit codes, using a standard `scripts/with_server.py`-style wrapper.
+- `spec-judge` *(LLM-as-judge)* — compares `git diff` to the acceptance-criteria checklist and returns per-criterion pass/fail with reasoning. Invoked by the generator as a Task-tool subagent.
+- `regression-judge` *(LLM-as-judge)* — assesses whether the diff breaks or endangers code outside the changed lines (sibling call sites, shared utilities, implicit contracts, tests not modified but now exercising changed paths). Invoked by the generator as a Task-tool subagent.
+- `security-judge` *(LLM-as-judge)* — scans the diff for injection, auth/authz gaps, secret handling, input validation at boundaries, crypto misuse, unsafe deserialization, SSRF, common OWASP patterns. Invoked by the generator as a Task-tool subagent.
+- `quality-judge` *(LLM-as-judge)* — assesses structural and textual maintainability: module boundaries, layering, coupling, abstraction level; and naming, duplication, dead code, test quality, API shape, convention adherence. Invoked by the generator as a Task-tool subagent.
+
+Each judge runs as a Task-tool subagent in a fresh Claude Code context — the judge only sees the inputs the generator passes it (diff, ticket, etc.), not the generator's session history. Each subagent's return value feeds back into the generator; the generator aggregates all six into its final summary.
+
+**Generator ↔ reviewer communication** happens inside the generator's session, via Task-tool fan-out and return values. Each reviewer subagent returns its verdict + reason to the generator directly. No state-file round-trip needed within a task. The state file still persists the end-of-task summary across tasks for operator review and future training data.
+
+**Planning-phase skills** (operator-driven, in ad-hoc Claude Code sessions, no state file involved):
+
+- `prd-to-tasks` *(LLM work)* — takes a product-level document (PRD, feature brief, or prose spec) and proposes a set of discrete tickets that together deliver the whole thing. Output: a list of ticket stubs (titles + one-line goals). Operator reviews, edits, and creates them on the backend.
+- `scope-task` *(LLM work)* — takes one raw ticket idea and produces a fully-scoped ticket body in the standard format (see §5.1.1). The scope is the load-bearing part: all scopes across all tickets must compose into a coherent project without gaps or double-coverage. This skill encodes the discipline — it forces explicit `In scope` / `Out of scope` lines, names dependencies, and commits to the interfaces the task produces for downstream tickets.
+
+**Not skills** (and why):
+
+- State-file rotation, history append, iteration counter, PR comment mirror, `execution.pr_*` refresh, status column transitions — all deterministic, all orchestrator code.
+- Verdict parsing — deterministic trailer parse; orchestrator code.
+
+### 6.5 Hooks
+
+Configured in `.claude/settings.json`. All hooks log to `harness/logs/<task_id>/hooks.log`.
+
+Hooks only do work that **must** happen inside the session — context the orchestrator cannot provide from outside. State management stays in the orchestrator.
+
+- **`Stop` (generator)** — signals completion to the orchestrator; triggers the reviewer fan-out phase. No validation logic here in v1.
+- **`Stop` (reviewer subagents)** — defensively checks that each reviewer's output ends with a valid verdict line. If missing or malformed, the hook blocks completion with an error message telling the agent to append the verdict. Catches the failure mode where a reviewer forgets or mangles the verdict, so the aggregator doesn't have to guess.
+
+Not hooks (and why):
+
+- Context injection at session start — the orchestrator builds the full prompt (ticket body, scoped-task body, prior `current.last_output` if any) and passes it as the argument to `claude -p`. No `SessionStart` hook needed.
+- State rotation, `history` appending, iteration counting — orchestrator, after the subprocess exits.
+- PR comment mirroring — orchestrator (or a separate sync pass).
+- `SessionEnd` — nothing for hooks to do; the orchestrator owns post-session work.
+
+**Output formats.**
+
+*Generator final summary.* The generator's system prompt instructs it to end its final message (when it has decided all gates pass and it's exiting) with:
+
+```
+VERDICT:
+tests: pass | fail | not_run
+playwright: pass | fail | not_run
+spec_judge: pass | fail | not_run
+regression_judge: pass | fail | not_run
+security_judge: pass | fail | not_run
+quality_judge: pass | fail | not_run
+```
+
+All six keys must be present. The generator aggregates these from the reviewer subagents it ran most recently. Everything before this block is free-form prose (the generator's narrative across the session — what it built, what each reviewer round surfaced, what it fixed) and becomes `last_output`. The block itself is parsed deterministically by the orchestrator.
+
+*Reviewer subagent return value.* Each reviewer subagent (spawned via Task tool) is instructed to end its own return message with:
+
+```
+VERDICT: pass | fail | not_run
+REASON: <one-sentence summary>
+```
+
+The generator reads these to aggregate into its own final summary. The `Stop` hook on reviewer subagents validates this two-line format is present.
+
+### 6.6 Agents
+
+Under `.claude/agents/`. Role-specialized prompts. Split by phase.
+
+**Execution-phase — top-level agent.** Spawned by the orchestrator as a `claude -p` subprocess. Pulls in `autonomous-execution`. May call `file-gap`.
+
+- `generator` — implements a task end-to-end in a single session. Receives ticket + scoped-task body in the prompt. Writes code on `task/<task_id>`. Opens the PR on the first pass. When it believes its code is ready, fans out the reviewer subagents (§6.6 below) via the Task tool, aggregates their verdicts, fixes on any fail, and re-runs reviewers until all pass or time runs out. Emits a final summary (with the VERDICT block) and exits.
+
+**Execution-phase — reviewer subagents** (invoked by the generator via Task tool, not by the orchestrator). Each runs in a fresh Claude Code context. Each pulls in `autonomous-execution` and returns a `VERDICT` / `REASON` two-line tail.
+
+- `tests-runner` — runs `make test` (or equivalent) and reports pass/fail based on exit code. Thin wrapper; the "judgment" is just the test outcome.
+- `playwright-runner` — runs the Playwright suite via `run-playwright-check` and reports.
+- `spec-judge` — LLM-as-judge over `git diff` vs acceptance criteria.
+- `regression-judge` — LLM-as-judge over `git diff` + sibling code for unintended breakage.
+- `security-judge` — LLM-as-judge over `git diff` for OWASP-class issues.
+- `quality-judge` — LLM-as-judge over `git diff` for structural + textual maintainability.
+
+**Planning-phase agents** (operator-invoked, interactive Claude Code sessions, no state file). These are thin wrappers around the planning skills for convenience.
+
+- `task-breakdown` — drives `prd-to-tasks`: takes a product document and produces a list of ticket stubs for the operator to review and create.
+- `task-scoper` — drives `scope-task`: takes one ticket and fleshes it out into the standard scoped-task format (§5.1.1).
+
+**Utility:**
+
+- `index-updater` — regenerates `harness/index.md` from the backend. Invoked on a schedule and after any status transition.
+
+## 7. Verification Stack
+
+All six gates run as Task-tool subagents fanned out by the generator whenever it's ready to verify. Any gate failing sends the generator back to fix; all six passing lets the generator exit successfully. Gates enforce correctness (did it do the thing), safety (is it secure), and maintainability (is the code worth keeping — structurally and textually).
+
+Gates divide into:
+- **Execution gates** (deterministic; the subagent runs a command and reports exit code): `tests`, `playwright`.
+- **LLM-as-judge gates** (the subagent reads the diff and emits a verdict based on a focused prompt): `spec_judge`, `regression_judge`, `security_judge`, `quality_judge`.
+
+Each subagent runs in a fresh Claude Code context, so judges do not cross-contaminate and the generator's session context doesn't balloon with reviewer transcripts.
+
+### 7.1 Gate 1 — Tests *(execution)*
+- **What:** existing and newly-added test suites pass. Enforced via `make test`.
+- **Signal:** exit code + `pytest`/equivalent output.
+- **Blocking:** yes. Non-zero exit = fail.
+
+### 7.2 Gate 2 — Playwright *(execution)*
+- **What:** the running application behaves as the ticket specifies. A Playwright script exercises the feature end-to-end.
+- **Signal:** Playwright exit code + screenshot/trace artifacts.
+- **Blocking:** yes if the ticket has any UI-visible acceptance criterion. Skipped otherwise (detected by checklist content or a `skip-playwright` label).
+- **Implementation:** `run-playwright-check` skill. Uses a standard `scripts/with_server.py`-style wrapper that boots the dev server, runs the test, and tears down.
+
+### 7.3 Gate 3 — Spec judge *(LLM)*
+- **What:** LLM-as-judge comparing `git diff` against the acceptance-criteria checklist.
+- **Signal:** overall `pass` | `fail` | `not_run`. Per-criterion reasoning lives in the subagent's return value (surfaced through the generator's final summary).
+- **Blocking:** `fail` = fail.
+- **Implementation:** `spec-judge` skill. Reads only the ticket, the diff, and the acceptance criteria. Fresh context.
+
+### 7.4 Gate 4 — Regression judge *(LLM)*
+- **What:** LLM-as-judge assessing whether the diff breaks or endangers code outside the changed lines. Focuses on: shared utilities the diff modified, sibling call sites that rely on changed signatures, existing tests that weren't updated but now exercise changed paths, implicit contracts (types, docstrings, README claims).
+- **Signal:** overall `pass` | `fail` | `not_run`. Specific risks live in `last_output`.
+- **Blocking:** `fail` = fail.
+- **Implementation:** `regression-judge` skill. Reads the diff, the list of files the diff touches, and the contents of files that *reference* those files (via grep/import graph). Fresh context.
+
+### 7.5 Gate 5 — Security judge *(LLM)*
+- **What:** LLM-as-judge scanning the diff for security problems: injection (SQL, shell, template), auth/authz gaps, secret handling, input validation at boundaries, crypto misuse, unsafe deserialization, SSRF, common OWASP Top 10 patterns.
+- **Signal:** overall `pass` | `fail` | `not_run`.
+- **Blocking:** `fail` = fail.
+- **Implementation:** `security-judge` skill. Reads the diff with attention to boundaries (request handlers, shell-out, DB calls, file I/O). Fresh context.
+
+### 7.6 Gate 6 — Quality judge *(LLM)*
+- **What:** LLM-as-judge assessing long-term maintainability across two levels — **structural** (module boundaries, layering, coupling, correct placement, abstraction level — "is this the right shape?") and **textual** (naming, duplication, dead code, over-abstraction, test quality, public API shape, adherence to nearby repo conventions — "will I still want to read this in 6 months?").
+- **Signal:** overall `pass` | `fail` | `not_run`.
+- **Blocking:** `fail` = fail. The generator reads the subagent's rationale and fixes in the next internal iteration.
+- **Implementation:** `quality-judge` skill. Reads the diff, a view of the repo's top-level module/directory structure (for structural judgment), and a small sample of surrounding code (for convention detection). Explicitly does *not* re-verify correctness — that's for gates 1–4.
+
+### 7.7 Gate ordering and short-circuiting
+Fastest-first: tests → playwright → spec-judge → regression-judge → security-judge → quality-judge. A short-circuit on any failure skips slower gates for the current iteration.
+
+Judges may also run in parallel if the implementation supports it (e.g. Task-tool fan-out). Order matters only for the fail-fast short-circuit.
+
+### 7.8 On pass
+- Reviewer's VERDICT trailer has all six gates = `pass`.
+- The PR already exists (generator opened it on its first internal pass).
+- Orchestrator posts a final pass-comment on the PR summarizing the verdict, and notifies the operator that the PR is ready for merge.
+- Status stays `In Progress` until the operator merges the PR. On merge, the next `python -m orchestrator run` detects the merged PR and moves the ticket to `Done`.
+- Merge is always operator-driven. The harness never auto-merges.
+
+## 8. Deferred / Open Questions
+
+- **Software Factory adapter.** Interface is defined; implementation pending a project that needs it.
+- **Distribution mechanism.** Copy-per-project initially. Reconsider as a Claude Code plugin, Python package, or git submodule after the second project.
+- **Offline mode.** Today the harness requires the backend to be reachable. A `local_markdown` backend could fill this gap.
+- **Failure-recovery heuristics.** When should the orchestrator respawn a generator vs give up? Start with a single wall-clock cap and manual operator triage on exhaustion; refine based on observed failure modes.
+- **Multiple concurrent tasks.** v1 runs one task at a time. Worktree-based parallelism is plausible but deferred.
+- **Review column.** Omitted from the status model for v1. Add if PR review becomes a meaningful bottleneck.
+- **Blocked state.** Omitted. Dependencies are modeled informally via operator judgment for now.
+- **Non-web task shapes.** Behavioral gate is web-shaped via Playwright. Library/CLI-shaped tasks need a different behavioral surface (pure `pytest` output suffices for some; TBD).
+- **Sprint planning skills.** The harness does not plan, but the user does. A companion skill set for planning lives outside this PRD for now.
+
+## 9. Milestones
+
+### v0.1 — End-to-end skeleton
+- GitHub backend, one-task-at-a-time.
+- Generator session driven by the orchestrator; reviewer subagents driven by the generator via Task tool. All pull in `autonomous-execution`.
+- Tests gate only.
+- Generator opens the PR on its first internal pass.
+- Sync script posts each history entry as a PR comment.
+- State file schema implemented.
+- Hooks: `Stop` on reviewer subagents validates verdict line.
+- `file-gap` skill wired up (label + comment creation, no dedup).
+
+### v0.2 — Spec + quality judges
+- `spec-judge` gate live.
+- `quality-judge` gate live (covers structural + textual).
+- Status transitions fully automated end-to-end.
+
+### v0.3 — Behavioral gate
+- Playwright gate live for web tasks.
+- Wall-clock budget cap enforced on generator subprocess.
+- `index-updater` agent and `harness/index.md`.
+
+### v0.4 — Regression + security judges
+- `regression-judge` gate live.
+- `security-judge` gate live.
+- Parallel judge execution via Task-tool fan-out (if it pays off).
+
+### v1.0 — Polish
+- Software Factory adapter (if a real need appears).
+- Planning-phase skills: `prd-to-tasks`, `scope-task`.
+- Operator documentation (`README.md`, `docs/` with runbook).
+- Failure-mode catalog based on first 20 real tasks.
+
+---
+
+*Version: 0.1-draft · Last updated: 2026-04-19*
