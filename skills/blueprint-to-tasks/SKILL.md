@@ -1,6 +1,6 @@
 ---
 name: blueprint-to-tasks
-description: Breaks a feature blueprint (produced by `frd-to-blueprint`) into a set of discrete work-order stubs the operator can turn into work-order directories under `projects/{slug}/work-orders/{phase}/{wo-n}/`. Reads the corresponding FRD as secondary context. Use when the operator has an approved blueprint and needs it decomposed into actionable units of work.
+description: Breaks a feature blueprint (produced by `frd-to-blueprint`) into a set of discrete work-order stubs the operator can turn into work-order directories under `work-orders/{phase-slug}/{wo-n}/` in the project repo. Reads the corresponding FRD as secondary context. Use when the operator has an approved blueprint and needs it decomposed into actionable units of work.
 ---
 
 # Blueprint to Tasks

@@ -10,8 +10,8 @@ autonomously. See [`PRD.md`](PRD.md) for the full design.
 - `orchestrator/` — Python entry points.
   - `sync_from_sf.py` — pulls requirements documents from a Software Factory
     deployment into a local project repo.
-- `projects/` — per-project document mirrors. `projects/_template/` is the
-  reference skeleton matching SF's entity model (PRD §6.2.1).
+- `project-template/` — reference skeleton matching SF's entity model
+  (PRD §6.2.1). Clone into a new repo to start a project. One repo per project.
 - `research/` — background notes from the design phase.
 
 ## Sync from Software Factory

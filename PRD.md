@@ -7,7 +7,9 @@ cssclasses:
 
 ## 1. Overview
 
-A reusable harness for running long-horizon coding work through Claude Code autonomously, with verification as the primary correctness gate. The harness drives the Claude Code CLI as a subprocess from a Python orchestrator, pulls tasks from a canonical local layout (filesystem mirror of Software Factory's entity model — see §6.2), and enforces a layered verification stack (tests, spec-judge, behavioral) before any task is marked done.
+A reusable harness for running long-horizon coding work through Claude Code autonomously, with verification as the primary correctness gate. The harness drives the Claude Code CLI as a subprocess from a Python orchestrator, pulls tasks from a canonical local layout at the project repo's root (filesystem mirror of Software Factory's entity model — see §6.2), and enforces a layered verification stack (tests, spec-judge, behavioral) before any task is marked done.
+
+**One repo per project.** The coding_harness repo itself is a reusable kit (orchestrator, skills, template). Each project the harness runs against is its own git repo, with `requirements/`, `work-orders/`, `blueprints/`, `artifacts/`, and `harness/` trees at its root. The orchestrator runs with the project repo as its working directory.
 
 Local files are the source of truth — for plans, blueprints, work orders, and execution state. They always exist regardless of which (if any) external backend is configured. External systems like Software Factory are optional outbound mirrors, never alternative queues.
 
@@ -19,7 +21,7 @@ The user plans and prioritizes tasks; the harness executes them.
 - Solve verification as a first-class concern so long-running autonomous work becomes trustworthy.
 - Drive Claude Code via its CLI to leverage the Claude Max subscription and inherit every Claude Code improvement for free.
 - Keep the orchestration surface small: thin Python loop + rich in-session hooks/skills/agents.
-- Local-first planner. The canonical task queue lives in `projects/{slug}/` as markdown + meta files, structured to mirror Software Factory's entity model so upload to SF (or any future external system) is mechanical.
+- Local-first planner. The canonical task queue lives at the project repo's root as markdown + meta files, structured to mirror Software Factory's entity model so upload to SF (or any future external system) is mechanical.
 - Pull-based execution: the user stays in the planning loop; agents only execute pre-defined work orders.
 - Polished, self-maintainable documentation and code for long-term single-operator use.
 
@@ -38,8 +40,8 @@ The user plans and prioritizes tasks; the harness executes them.
 3. **In-session work uses hooks; cross-session work uses Python.** Hooks are deterministic and reactive. The Python orchestrator is the only thing that initiates sessions, transitions state, and enforces budgets.
 4. **The code is ground truth.** Reviewers never trust generator self-reports. They read `git diff` and run gates.
 5. **Pull-based, not plan-based.** The harness never invents work. It consumes a queue the user maintains.
-6. **Local files are the source of truth; external backends are optional outbound mirrors.** The canonical task queue, plans, blueprints, and execution state live in `projects/{slug}/` and `harness/`. The orchestrator always reads from and writes to local files. Software Factory (or any future system) is a sync target the orchestrator can push to, never the queue itself. Local persists regardless of which mirrors are configured.
-7. **Machine-readable state for agents; human-readable artifacts for the operator.** Agents read and write JSON in `harness/state/`; the operator authors and reads markdown + meta files in `projects/`. A sync script projects updates into PR comments on GitHub (the unchanged code surface) and, when configured, into external mirrors.
+6. **Local files are the source of truth; external backends are optional outbound mirrors.** The canonical task queue, plans, blueprints, and execution state live at the project repo's root (`requirements/`, `work-orders/`, `blueprints/`, `artifacts/`, `harness/`). The orchestrator always reads from and writes to local files. Software Factory (or any future system) is a sync target the orchestrator can push to, never the queue itself. Local persists regardless of which mirrors are configured.
+7. **Machine-readable state for agents; human-readable artifacts for the operator.** Agents read and write JSON in `harness/state/`; the operator authors and reads markdown + meta files in the rest of the project repo. A sync script projects updates into PR comments on GitHub (the unchanged code surface) and, when configured, into external mirrors.
 
 ## 4. Architecture
 
@@ -49,7 +51,7 @@ The user plans and prioritizes tasks; the harness executes them.
 %%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 40, 'padding': 10}}}%%
 flowchart TB
     Op([Operator])
-    Local[(Local planner<br/>projects/{slug}/)]
+    Local[(Local planner<br/>project repo root)]
     Repo[(GitHub repo<br/>commits, PRs, comments)]
     Mirrors[(Optional outbound mirrors<br/>Software Factory, ...)]
 
@@ -79,8 +81,8 @@ flowchart TB
 
 | Concern | Owner |
 |---|---|
-| Task queue, priority, dependencies | Local planner (`projects/{slug}/work-orders/`) |
-| Plans, FRDs, blueprints | Local planner (`projects/{slug}/features/`, `projects/{slug}/blueprints/`) |
+| Task queue, priority, dependencies | Local planner (`work-orders/`) |
+| Plans, FRDs, blueprints | Local planner (`requirements/`, `blueprints/`) |
 | Next-task selection, status transitions, budget enforcement, session lifecycle | Python orchestrator |
 | Cross-session memory, handoff context | `harness/state/<id>.json` |
 | In-session enforcement: verification gates, formatting, context injection, preventing premature stop | Claude Code hooks |
@@ -98,7 +100,7 @@ One ticket, end to end. Two phases: **planning** (shape the ticket) and **execut
 ### 5.1 Planning phase
 
 1. **Operator starts from a product document** (PRD, feature brief, prose). In a Claude Code session, invokes `prd-to-frds` to decompose it into per-feature FRDs (single-feature PRDs may skip this), then `frd-to-blueprint` per FRD to produce a feature blueprint, then `blueprint-to-tasks` per blueprint to break it into discrete work-order stubs. Reviews and edits at each step. Foundation/shared blueprints are authored separately via `foundation-blueprint-authoring` and referenced by feature blueprints to avoid duplication.
-2. **Operator creates work-order files** at `projects/{slug}/work-orders/{phase-slug}/{wo-number}/` from those stubs. Each work order is a directory containing `description.md` plus a sibling `.work-order.meta.yaml` (id, status, priority, parent, sort-order, dependencies, blueprint links). Status starts at `backlog`.
+2. **Operator creates work-order files** at `work-orders/{phase-slug}/{wo-number}/` from those stubs. Each work order is a directory containing `description.md` plus a sibling `.work-order.meta.yaml` (id, status, priority, parent, sort-order, dependencies, blueprint links). Status starts at `backlog`.
 3. **Operator fleshes out each work order** by invoking `scope-task` on it. This produces a body in the standard scoped-task format (§5.1.1) which is written into the work-order's `description.md`. Operator reviews and edits.
 4. **Operator moves a work order to `ready`** by updating `status` in its `.work-order.meta.yaml` once the scope is solid enough for an autonomous generator to execute without asking questions.
 
@@ -140,14 +142,14 @@ flowchart TB
     subgraph Plan [Planning]
       direction TB
       Op1([Operator])
-      PRD[PRD<br/>overview/]
+      PRD[PRD<br/>requirements/overview/]
       PS0[prd-to-frds]
-      FRD[FRDs<br/>features/*/requirements/]
+      FRD[FRDs<br/>requirements/features/]
       PS1[frd-to-blueprint]
-      BP[Feature blueprints<br/>features/*/blueprint/]
+      BP[Feature blueprints<br/>blueprints/ - layout TBD]
       PS2[blueprint-to-tasks]
       PS3[scope-task]
-      WO[(Backlog work orders<br/>work-orders/{phase}/{wo-n}/)]
+      WO[("Backlog work orders<br/>work-orders/{phase}/{wo-n}/")]
       Op1 --> PRD
       PRD --> PS0
       PS0 --> FRD
@@ -210,7 +212,7 @@ Any execution-phase session can file a gap work order when it encounters out-of-
 
 **What the skill does mechanically:**
 1. Allocates the next `wo-<n>` number for the project.
-2. Creates `projects/{slug}/work-orders/_inbox/{wo-n}/` containing `description.md` (the body) and `.work-order.meta.yaml` (`status: backlog`, `type` from the category hint, `parent_id` set to the originating work order's id).
+2. Creates `work-orders/_inbox/{wo-n}/` containing `description.md` (the body) and `.work-order.meta.yaml` (`status: backlog`, `type` from the category hint, `parent_id` set to the originating work order's id).
 3. Description includes a back-reference (e.g. `Discovered while working on wo-42`).
 4. Returns the new work order's path to the agent so it can mention it in its final output.
 
@@ -221,7 +223,7 @@ Any execution-phase session can file a gap work order when it encounters out-of-
 - Does not dedupe (v1). If two sessions file similar gaps, both exist. Operator merges/closes during triage.
 
 **Where gaps show up:**
-- Local planner: under `projects/{slug}/work-orders/_inbox/`, distinguished by their `_inbox` phase placement and `parent_id` back-reference.
+- Local planner: under `work-orders/_inbox/`, distinguished by their `_inbox` phase placement and `parent_id` back-reference.
 - Originating PR: the agent mentions `Filed wo-99 for [...]` in its prose, which lands in the PR comments.
 - State file `history[]`: the prose is preserved there too.
 
@@ -234,8 +236,8 @@ Any execution-phase session can file a gap work order when it encounters out-of-
 Entry point: `python -m orchestrator run` or `make run`.
 
 Responsibilities:
-- Load `config.yaml` (project root, mirrors, repo, caps, paths).
-- Instantiate `LocalPlanner(project_root)` and any configured `Mirror` adapters.
+- Load `config.yaml` from the project repo root (mirrors, repo, caps, paths).
+- Instantiate `LocalPlanner()` (defaults to CWD = project repo root) and any configured `Mirror` adapters.
 - Main flow (invoked by the operator; not a daemon):
   1. Detect any `in_progress` work orders whose PR was merged since the last run (matched by branch name `task/<task_id>`). For each, `planner.update_status(task_id, "done")` and notify mirrors.
   2. `planner.get_next_ready()` — returns work order or None.
@@ -259,36 +261,47 @@ Target: ≤ 400 lines of Python. The inner gen/review loop moving into the gener
 
 ### 6.2 Local planner + optional outbound mirrors
 
-The canonical task queue lives on disk under `projects/{slug}/`. The orchestrator reads from and writes to this layout directly — there is no abstraction layer between the orchestrator and the local files, because there is only one queue. The pluggability that previously sat at the queue level moves to a separate, optional outbound sync layer: zero or more `Mirror` adapters that push local state to external systems (Software Factory, GitHub Projects, etc.). Mirrors are convenience; local persists regardless.
+The canonical task queue lives on disk at the project repo's root. One repo per project. The orchestrator reads from and writes to this layout directly — there is no abstraction layer between the orchestrator and the local files, because there is only one queue. The pluggability that previously sat at the queue level moves to a separate, optional outbound sync layer: zero or more `Mirror` adapters that push local state to external systems (Software Factory, GitHub Projects, etc.). Mirrors are convenience; local persists regardless.
 
 #### 6.2.1 On-disk layout
 
-The shape mirrors Software Factory's entity model so that upload to SF (or any system that adopts a similar shape) is mechanical:
+The shape mirrors Software Factory's entity model so that upload to SF (or any system that adopts a similar shape) is mechanical. Everything below lives at the project repo's root:
 
 ```
-projects/{slug}/
-  features/{feature-slug}/
-    .feature.meta.yaml                  # id, parent_id, position
-    requirements/
-      document.md                       # FRD
-      .requirements.meta.yaml           # id, feature_id
-    blueprint/
-      document.md                       # feature blueprint
-      .blueprint.meta.yaml              # id, blueprint_type=FEATURE, feature_node_id
-      code-links/                       # BlueprintCodeChunkLink rows (deferred)
-    children/                           # nested FeatureNodes (recursive)
-  overview/{section-slug}/...           # PRD / Product Overview tree
-  blueprints/{blueprint-slug}/...       # Foundation + System Diagram blueprints
+<project-repo-root>/
+  requirements/
+    overview/{section-slug}/
+      .overview.meta.yaml              # id, parent_id, position, title
+      .requirements.meta.yaml          # id
+      document.md                      # PRD section body
+      children/{child-slug}/...        # nested OverviewNodes (recursive, only if present)
+    features/{feature-slug}/
+      .feature.meta.yaml               # id, parent_id, position, title
+      .requirements.meta.yaml          # id
+      document.md                      # FRD body
+      children/{child-slug}/...        # nested FeatureNodes (recursive, only if present)
+  blueprints/...                       # foundation + per-feature blueprints; layout TBD (§8)
   work-orders/{phase-slug}/
-    .phase.meta.yaml                    # phase id, name, sort_order
+    .phase.meta.yaml                   # phase id, name, sort_order
     {wo-number}/
-      description.md                    # scoped-task body (§5.1.1)
-      .work-order.meta.yaml             # id, status, priority, type, parent_id, sort_order, blocked_by[], blueprint_ids[]
-      children/                         # subtasks
-  artifacts/{folder-slug}/...           # Artifact folder tree
+      description.md                   # scoped-task body (§5.1.1)
+      .work-order.meta.yaml            # id, status, priority, type, parent_id, sort_order, blocked_by[], blueprint_ids[]
+      children/                        # subtasks
+  artifacts/{folder-slug}/...          # Artifact folder tree
+  harness/
+    state/<task_id>.json               # §6.3
+    logs/<task_id>/...                 # hook/session logs
 ```
 
-A reference skeleton lives at `projects/_template/` for cloning. Risks inherent to mirroring a DB shape onto a filesystem (FK resolution at upload time, mutual-exclusivity validation, ordering encoded in metadata not filename order) are upload-API concerns and don't affect local read/write.
+**Key shape facts** (matching the bnl-pre-packpilot reference repo and the `sync_from_sf.py` output):
+- `requirements/` is the single top-level parent for both product-overview and feature-requirements trees. `overview/` and `features/` live as siblings inside it, not at the repo root.
+- Each node directory holds its meta + `document.md` flat. There is no nested `requirements/` or `blueprint/` subdirectory inside an individual node.
+- `.requirements.meta.yaml` contains only `{id}`. Parent references are encoded by directory structure and by `parent_id` in the `.overview.meta.yaml` / `.feature.meta.yaml` file.
+- `children/` exists only when a node has actual children; absent otherwise.
+
+A reference skeleton lives at `project-template/` inside this kit repo. Clone it into a new project repo to start. Risks inherent to mirroring a DB shape onto a filesystem (FK resolution at upload time, mutual-exclusivity validation, ordering encoded in metadata not filename order) are upload-API concerns and don't affect local read/write.
+
+Blueprint, work-order, and artifact subtrees are sketched above but their concrete shapes are still TBD (§8) — only `requirements/` has been pinned to the real SF-mirrored layout so far.
 
 **Versioning:** none locally. Git history is the audit trail. SF maintains immutable per-save snapshots (`RequirementsDocumentVersion`, `BlueprintDocumentVersion`, `WorkOrderVersion`); when the upload API ships, the mirror serializes only the current document state and lets SF create the version on its end.
 
@@ -314,7 +327,7 @@ class WorkOrder(TypedDict):
     path: Path                    # absolute path to the work-order directory
 
 class LocalPlanner:
-    def __init__(self, project_root: Path): ...
+    def __init__(self, project_root: Path = Path.cwd()): ...  # project repo root
     def get_next_ready(self) -> WorkOrder | None: ...
     def get(self, task_id: str) -> WorkOrder: ...
     def update_status(self, task_id: str, status: Status) -> None: ...   # writes through to .work-order.meta.yaml
@@ -343,11 +356,10 @@ Mirror constraints:
 - Failures are logged but never block orchestrator progress. Local is the source of truth; mirrors are convenience.
 - A mirror failure does not roll back local state. The next successful push reconciles.
 
-`config.yaml` example:
+`config.yaml` lives at the project repo's root. Example:
 
 ```yaml
-project:
-  root: projects/billing-revamp
+# project repo root is implicit (CWD when orchestrator runs).
 
 mirrors:                           # empty list = local-only (v0.1 default)
   - kind: software_factory
@@ -372,9 +384,8 @@ Format:
   "task_id": "wo-42",
   "local": {
     "title": "Add login endpoint",
-    "project_slug": "billing-revamp",
     "phase_slug": "phase-1-core",
-    "path": "projects/billing-revamp/work-orders/phase-1-core/42/",
+    "path": "work-orders/phase-1-core/42/",
     "blueprint_ids": ["bp-uuid-1"]
   },
   "created_at": "2026-04-18T10:00:00Z",
@@ -419,7 +430,7 @@ Format:
 
 Field rules:
 - `task_id` is the harness-stable identifier used everywhere in `harness/` paths, log names, and cross-references. Format: `wo-<n>` (per-project work-order number).
-- `local.*` is a denormalized snapshot of the work order's location and identity in `projects/{project_slug}/`. Refreshed by the orchestrator from `.work-order.meta.yaml` on every read; never edited by hand. The on-disk meta file is canonical; this block is a convenience copy.
+- `local.*` is a denormalized snapshot of the work order's location and identity in the project repo. `path` is relative to the project repo root. Refreshed by the orchestrator from `.work-order.meta.yaml` on every read; never edited by hand. The on-disk meta file is canonical; this block is a convenience copy.
 - `status` uses the canonical enum: `backlog` | `ready` | `in_progress` | `in_review` | `done`. Mirrors `.work-order.meta.yaml`.
 - `session_count` — how many generator sessions this task has required. Usually 1; increments only if the orchestrator has to respawn (timeout, crash).
 - `limits.max_wall_minutes` — outer time cap on the generator subprocess. The orchestrator kills the subprocess if it exceeds this. Internal retry count is not capped explicitly; wall time is the backstop.
@@ -460,7 +471,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 **Execution-phase skills:**
 
 - `open-task-pr` *(tool-wrapper)* — how the generator opens a PR on its first internal pass: branch naming (`task/<task_id>`), commit, push, `gh pr create` with a standard title drawn from the work order and a body referencing the work-order id and local path. Idempotent (safe to call if a PR already exists). The orchestrator does not depend on this skill running — it always re-checks branch state via `gh pr list` afterward.
-- `file-gap` *(tool-wrapper)* — any execution-phase agent calls this when it discovers missing work (a prerequisite that wasn't scoped, a supporting abstraction needed, a latent bug found, a refactor that would unblock this or future work orders). Creates a new local work order in `projects/{slug}/work-orders/_inbox/{wo-n}/` with `status: backlog` and a body that references the originating work order. The operator triages these on their own cadence; they never auto-enter the execution queue.
+- `file-gap` *(tool-wrapper)* — any execution-phase agent calls this when it discovers missing work (a prerequisite that wasn't scoped, a supporting abstraction needed, a latent bug found, a refactor that would unblock this or future work orders). Creates a new local work order in `work-orders/_inbox/{wo-n}/` with `status: backlog` and a body that references the originating work order. The operator triages these on their own cadence; they never auto-enter the execution queue.
 - `run-playwright-check` *(tool-wrapper)* — how to run Playwright against a locally-booted dev server and interpret exit codes, using a standard `scripts/with_server.py`-style wrapper.
 - `spec-judge` *(LLM-as-judge)* — compares `git diff` to the acceptance-criteria checklist and returns per-criterion pass/fail with reasoning. Invoked by the generator as a Task-tool subagent.
 - `regression-judge` *(LLM-as-judge)* — assesses whether the diff breaks or endangers code outside the changed lines (sibling call sites, shared utilities, implicit contracts, tests not modified but now exercising changed paths). Invoked by the generator as a Task-tool subagent.
@@ -473,11 +484,11 @@ Each judge runs as a Task-tool subagent in a fresh Claude Code context — the j
 
 **Planning-phase skills** (operator-driven, in ad-hoc Claude Code sessions, no state file involved):
 
-- `prd-authoring` *(LLM work)* — interactive PRD (Product Overview) authoring. Helps the operator draft and refine `projects/{slug}/overview/{section}/requirements/document.md`. Optional — operators can write the PRD by hand.
-- `prd-to-frds` *(LLM work)* — decomposes a PRD into a set of FRDs (Feature Requirements Documents), one per feature. Each FRD lands at `projects/{slug}/features/{feature}/requirements/document.md`. For single-feature PRDs the operator may skip this and treat the PRD as the FRD.
-- `frd-to-blueprint` *(LLM work)* — takes one FRD and produces a feature blueprint that resolves architectural decisions (data model, API contracts, library choices, module layout). Reads `projects/{slug}/blueprints/` first to reuse foundation/shared blueprints instead of duplicating shared concerns. Output: `projects/{slug}/features/{feature}/blueprint/document.md`.
-- `foundation-blueprint-authoring` *(LLM work)* — interactive authoring of project-wide blueprints — foundation patterns (auth, data model, error handling) and system diagrams. Output lands at `projects/{slug}/blueprints/{slug}/document.md` with `blueprint_type` set to FOUNDATION or SYSTEM_DIAGRAM in the meta file.
-- `blueprint-to-tasks` *(LLM work)* — takes an approved feature blueprint (with the corresponding FRD as secondary context) and proposes a set of discrete work-order stubs that together deliver it. Output: a numbered list of stubs (titles + one-line goals), grouped into phases. Operator reviews, edits, and creates them as work-order directories under `projects/{slug}/work-orders/{phase}/{wo-n}/`.
+- `prd-authoring` *(LLM work)* — interactive PRD (Product Overview) authoring. Helps the operator draft and refine `requirements/overview/{section-slug}/document.md`. Optional — operators can write the PRD by hand.
+- `prd-to-frds` *(LLM work)* — decomposes a PRD into a set of FRDs (Feature Requirements Documents), one per feature. Each FRD lands at `requirements/features/{feature-slug}/document.md`. For single-feature PRDs the operator may skip this and treat the PRD as the FRD.
+- `frd-to-blueprint` *(LLM work)* — takes one FRD and produces a feature blueprint that resolves architectural decisions (data model, API contracts, library choices, module layout). Reads `blueprints/` first to reuse foundation/shared blueprints instead of duplicating shared concerns. Output: a feature blueprint under `blueprints/` — exact path TBD (§8).
+- `foundation-blueprint-authoring` *(LLM work)* — interactive authoring of project-wide blueprints — foundation patterns (auth, data model, error handling) and system diagrams. Output lands under `blueprints/` with `blueprint_type` set to FOUNDATION or SYSTEM_DIAGRAM in the meta file — exact path TBD (§8).
+- `blueprint-to-tasks` *(LLM work)* — takes an approved feature blueprint (with the corresponding FRD as secondary context) and proposes a set of discrete work-order stubs that together deliver it. Output: a numbered list of stubs (titles + one-line goals), grouped into phases. Operator reviews, edits, and creates them as work-order directories under `work-orders/{phase-slug}/{wo-n}/`.
 - `scope-task` *(LLM work)* — takes one raw work-order idea and produces a fully-scoped body in the standard format (see §5.1.1), written to the work order's `description.md`. The scope is the load-bearing part: all scopes across all work orders must compose into a coherent project without gaps or double-coverage. This skill encodes the discipline — it forces explicit `In scope` / `Out of scope` lines, names dependencies, and commits to the interfaces the work order produces for downstream work.
 
 **Not skills** (and why):
@@ -624,7 +635,7 @@ Judges may also run in parallel if the implementation supports it (e.g. Task-too
 ## 9. Milestones
 
 ### v0.1 — End-to-end skeleton
-- Local planner (`projects/{slug}/work-orders/`) as the queue. No external mirrors.
+- Local planner (`work-orders/` at project repo root) as the queue. No external mirrors.
 - One-task-at-a-time.
 - Generator session driven by the orchestrator; reviewer subagents driven by the generator via Task tool. All pull in `autonomous-execution`.
 - Tests gate only.
