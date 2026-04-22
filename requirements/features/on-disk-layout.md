@@ -35,9 +35,9 @@ The operator needs this feature because a consistent, versioned, git-committed o
 **User Story.** As a generator author, I want the orchestrator to handle meta-file materialisation, so that generators can focus on content and not on meta bookkeeping.
 - **AC-LAYOUT-003.1** — Generators shall write only visible `<slug>.md` content files.
 - **AC-LAYOUT-003.2** — The orchestrator shall materialise the two dotted-hidden meta files per node after the generator exits.
-- **AC-LAYOUT-003.3** — The orchestrator shall derive each meta file's `title` field from the first H1 of the corresponding content file.
-- **AC-LAYOUT-003.4** — The orchestrator shall set `id` and `parent_id` to `null` in newly-materialised meta files, leaving them for later mirror sync to populate.
-- **AC-LAYOUT-003.5** — Each meta file shall also carry a `position` field used by mirrors to render deterministic ordering.
+- **AC-LAYOUT-003.3** — In newly-materialised `.<slug>.overview.meta.yaml` and `.<slug>.feature.meta.yaml` files, the orchestrator shall populate four fields: `id: null`, `parent_id: null`, `position: <discovery order among siblings, starting at 0>`, and `title: <first H1 of the corresponding content file>`.
+- **AC-LAYOUT-003.4** — In newly-materialised `.<slug>.requirements.meta.yaml` files, the orchestrator shall populate exactly one field: `id: null`. No other fields shall appear in this meta file.
+- **AC-LAYOUT-003.5** — The `id` and `parent_id` fields remain `null` locally; an external mirror (for example, Software Factory) is expected to populate them on sync. The `position` field orders siblings deterministically so mirrors can render stable ordering.
 
 ### REQ-LAYOUT-004 — Node removal cleans up siblings and empty children dirs
 **User Story.** As an operator, I want deleting a node's content file to fully remove the node, so that stale metas and empty directories do not linger.

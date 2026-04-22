@@ -35,10 +35,11 @@ The operator needs this loop because hand-decomposing a PRD into correctly-scope
 
 ### REQ-RL-003 — Meta-file materialisation
 **User Story.** As an operator, I want the orchestrator to materialise the hidden meta files so generators do not have to think about them, so that the generator's job stays focused on content.
-- **AC-RL-003.1** — After the generator exits, the orchestrator shall materialise `.<slug>.overview.meta.yaml`, `.<slug>.feature.meta.yaml`, and `.<slug>.requirements.meta.yaml` files alongside each visible content file as appropriate to the tree.
-- **AC-RL-003.2** — The orchestrator shall derive each meta file's `title` field from the first H1 of the corresponding content file.
-- **AC-RL-003.3** — The orchestrator shall set `id` and `parent_id` to `null` in newly-materialised meta files, leaving them for later mirror sync to populate.
-- **AC-RL-003.4** — When the operator removes a node by deleting its `<slug>.md`, the orchestrator shall remove the sibling meta files and clean up any now-empty `<slug>_children/` directory.
+- **AC-RL-003.1** — For each overview node (a visible `<slug>.md` file under `requirements/overview/` or its recursive `<slug>_children/` directories), the orchestrator shall materialise two sibling meta files: `.<slug>.overview.meta.yaml` and `.<slug>.requirements.meta.yaml`.
+- **AC-RL-003.2** — For each feature node (a visible `<slug>.md` file under `requirements/features/` or its recursive `<slug>_children/` directories), the orchestrator shall materialise two sibling meta files: `.<slug>.feature.meta.yaml` and `.<slug>.requirements.meta.yaml`.
+- **AC-RL-003.3** — In newly-materialised `.<slug>.overview.meta.yaml` and `.<slug>.feature.meta.yaml` files, the orchestrator shall populate `id: null`, `parent_id: null`, `position: <discovery order among siblings, starting at 0>`, and `title: <first H1 of the corresponding content file>`.
+- **AC-RL-003.4** — In newly-materialised `.<slug>.requirements.meta.yaml` files, the orchestrator shall populate `id: null` and no other fields.
+- **AC-RL-003.5** — When the operator removes a node by deleting its `<slug>.md`, the orchestrator shall remove the sibling meta files and clean up any now-empty `<slug>_children/` directory.
 
 ### REQ-RL-004 — Iterative editing
 **User Story.** As an operator, I want the generator to read the existing tree and edit only what needs changing, so that regenerating from scratch every run doesn't destroy prior good work.
@@ -66,7 +67,7 @@ The operator needs this loop because hand-decomposing a PRD into correctly-scope
 **User Story.** As an operator, I want the orchestrator to decide retry vs pass vs exhaust deterministically, so that the loop converges without operator intervention when the PRD is clear enough.
 - **AC-RL-007.1** — The orchestrator shall parse each reviewer's trailing `VERDICT:` line to extract pass or fail.
 - **AC-RL-007.2** — On any reviewer fail, the orchestrator shall re-spawn the generator with aggregated reviewer feedback as context.
-- **AC-RL-007.3** — The orchestrator shall apply a hook (`Stop` on reviewer subagents) to validate the two-line verdict format.
+- **AC-RL-007.3** — The orchestrator shall apply a `Stop` hook on reviewer subagents that validates the reviewer's final chat message ends with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`; the hook shall block completion if the trailing line is missing or malformed.
 
 ### REQ-RL-008 — Dual completion condition
 **User Story.** As an operator, I want the loop to exit `awaiting_clarification` when open PRD questions remain, so that I know when to edit the PRD versus when the tree is fully accepted.

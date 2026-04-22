@@ -69,7 +69,7 @@ The operator needs this loop because blueprint authoring is where architectural 
 **User Story.** As an operator, I want the orchestrator to decide retry vs pass vs exhaust deterministically, so that the loop converges without operator intervention when the FRD inputs and resolved decisions are clear enough.
 - **AC-BL-008.1** — The orchestrator shall parse each reviewer's trailing `VERDICT:` line to extract pass or fail.
 - **AC-BL-008.2** — On any reviewer fail, the orchestrator shall re-spawn the generator with aggregated reviewer feedback as context.
-- **AC-BL-008.3** — The orchestrator shall apply a `Stop` hook on reviewer subagents to validate the two-line verdict format.
+- **AC-BL-008.3** — The orchestrator shall apply a `Stop` hook on reviewer subagents that validates the reviewer's final chat message ends with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`; the hook shall block completion if the trailing line is missing or malformed.
 
 ### REQ-BL-009 — Artifact commit and audit trail
 **User Story.** As an operator, I want the approved tree committed to git, so that git history is the audit trail and no PR is needed for upstream-loop output.

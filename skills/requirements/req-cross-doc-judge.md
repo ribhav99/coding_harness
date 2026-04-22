@@ -13,6 +13,7 @@ You judge consistency across the entire `requirements/` tree. Critical issues on
 - **Terminology drift.** The same concept is named differently across docs (e.g. "User" in one FRD, "Account" in another, with no distinction intended).
 - **Significant duplication.** The same content appears in multiple docs that should consolidate or cross-reference instead.
 - **Broken cross-references.** A doc references another doc, feature, or section by name that doesn't exist in the tree.
+- **Fact-level consistency across ACs.** When a concrete fact appears in more than one AC across FRDs — a field list, a cardinality ("two files per node"), a path convention, a filename, an enum value — every AC stating that fact must agree literally, not just in spirit. One AC saying "three meta files" and another saying "two meta files" is a critical `CONFLICT` even if the surrounding prose reads fine. Check the precise wording, not just the narrative.
 
 ## What you don't check
 

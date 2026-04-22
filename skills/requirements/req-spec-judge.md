@@ -14,6 +14,7 @@ You judge structural conformance of every FRD and overview document. Critical is
 - **Acceptance criteria** use `AC-<ACRONYM>-NNN.N` IDs and start with "When… shall…" or equivalent testable phrasing. Use of `shall` / `should` / `may` for mandatory / recommended / optional.
 - **Each `requirements/overview/<slug>.md`** is narrative prose (complete paragraphs), not bullet lists.
 - **Every content file** opens with an H1 that is the human title of the section or feature.
+- **Within-doc fact-level consistency.** When a concrete fact appears in more than one AC inside the same FRD — a field list, a cardinality, a file count, an enum of values — every AC stating that fact must agree literally. One AC naming three file types and another naming two, or an AC saying "each meta file has a `title`" while a prior AC enumerates meta types only one of which has a `title`, is a `MALFORMED` finding. Check the precise wording across ACs, not just the narrative direction.
 
 ## What you don't check
 
