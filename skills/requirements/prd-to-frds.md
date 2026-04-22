@@ -38,7 +38,7 @@ Every invocation, you receive:
 
 - **`PRD.md`** at the project repo root. Authoritative. If missing, exit with `VERDICT: fail` and a one-sentence reason.
 - **The current on-disk state** of `requirements/overview/` and `requirements/features/` if they exist. Preserve nodes that are already correct; edit what needs changing; delete what no longer has PRD source.
-- **Optionally, review feedback and prior-attempt context.** If present: your prior summary, reviewer verdict JSONs, and any push-back notes you wrote on earlier attempts. These only appear when your previous output failed review and you're being asked to respond.
+- **Optionally, review feedback and prior-attempt context.** If present: your prior summary, reviewer review files (prose ending in a `VERDICT:` line), and any push-back notes you wrote on earlier attempts. These only appear when your previous output failed review and you're being asked to respond.
 
 ## Responding to review feedback
 

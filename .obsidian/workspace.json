@@ -106,7 +106,7 @@
             }
           }
         ],
-        "currentTab": 2
+        "currentTab": 6
       }
     ],
     "direction": "vertical"
@@ -179,7 +179,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "skills/requirements/prd-to-frds.md",
+                "file": "skills/requirements/req-spec-judge.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -189,7 +189,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for prd-to-frds"
+              "title": "Backlinks for req-spec-judge"
             }
           },
           {
@@ -198,12 +198,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "skills/requirements/prd-to-frds.md",
+                "file": "skills/requirements/req-spec-judge.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from prd-to-frds"
+              "title": "Outgoing links from req-spec-judge"
             }
           },
           {
@@ -241,13 +241,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "skills/requirements/prd-to-frds.md",
+                "file": "skills/requirements/req-spec-judge.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of prd-to-frds"
+              "title": "Outline of req-spec-judge"
             }
           }
         ]
@@ -268,8 +268,13 @@
       "bases:Create new base": false
     }
   },
-  "active": "d9b30a21a80b72cf",
+  "active": "697731c72d3813d7",
   "lastOpenFiles": [
+    "skills/requirements/req-scoping-judge.md",
+    "skills/requirements/req-cross-doc-judge.md",
+    "skills/requirements/req-spec-judge.md",
+    "skills/requirements/req-coverage-judge.md",
+    "skills/requirements/prd-to-frds.md",
     "project-template/requirements/overview/example-section_children/example-child-section.md",
     "project-template/requirements/overview/example-section_children",
     "project-template/requirements/overview/example-section.md",
@@ -280,11 +285,6 @@
     "project-template/requirements/features/example-feature/children/example-child-feature/example-child-feature.md",
     "project-template/requirements/overview/example-section/example-section.md",
     "project-template/requirements/features/example-feature/example-feature.md",
-    "skills/requirements/req-coverage-judge.md",
-    "skills/requirements/req-spec-judge.md",
-    "skills/requirements/req-scoping-judge.md",
-    "skills/requirements/req-cross-doc-judge.md",
-    "skills/requirements/prd-to-frds.md",
     "BLUEPRINT.md",
     "PRD.md",
     "skills/coding/tests-runner.md",

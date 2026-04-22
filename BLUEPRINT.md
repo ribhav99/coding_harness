@@ -137,24 +137,23 @@ For each attempt of a loop, the orchestrator:
 1. **Spawns the generator.** Builds a prompt containing:
    - The generator's skill (e.g. `prd-to-frds`).
    - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `_decisions-pending.md`; etc.).
-   - On retry attempts: prior attempt's generator summary + every reviewer's JSON verdict + accumulated push-back notes (§2.3).
+   - On retry attempts: prior attempt's generator summary + every reviewer's review + accumulated push-back notes (§2.3).
    - Attempt counter and remaining budget.
    Spawns `claude -p "<prompt>"`. Wall-clock cap enforced per subprocess.
 
 2. **Generator works and exits.** Reads inputs, writes or edits artifact files on disk, emits a stdout summary describing what it did and what it chose not to do (including any push-back on prior reviews), exits. Generator does not commit to git — the orchestrator owns commits.
 
-3. **Spawns each reviewer** as a separate `claude -p` subprocess. Each reviewer's prompt contains:
+3. **Spawns each reviewer** as a separate `claude -p` subprocess, invoked with `--disallowedTools Write,Edit,NotebookEdit,Bash` so the reviewer can't mutate the tree even if its skill prompt or the artifacts it reads contain adversarial instructions. Denylist (not allowlist) so future Claude Code tool additions don't silently break the harness — we only care about blocking the mutation surface. Each reviewer's prompt contains:
    - The reviewer's skill (e.g. `req-coverage-judge`).
    - The generator's stdout summary from step 2.
    - Only the artifacts that reviewer needs to judge its rubric (e.g. coverage-judge gets `PRD.md` + the requirements tree; spec-judge gets only the FRDs it's checking).
-   - Output path for its JSON verdict.
    Reviewers can run serially or in parallel — v0.1 runs them serially for simplicity.
 
-4. **Reviewers write verdicts** to a stable scratch path, `harness/state/reviews/<reviewer-name>.json` (format in §7.3). The reviewer skill only needs to know this one path; it doesn't know the current attempt number. Stdout is for logging; the JSON file is the contract.
+4. **Reviewers output reviews to stdout.** The reviewer's final chat message — captured as subprocess stdout — is the review. It ends with a `VERDICT: pass` or `VERDICT: fail` line. Reviewers don't write to any file; the orchestrator captures stdout and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` (§1.3). The reviewer skill has no path to remember.
 
-5. **Orchestrator aggregates.** Reads every reviewer JSON for this attempt. Three outcomes:
+5. **Orchestrator aggregates.** Greps the trailing `VERDICT:` line from every reviewer's captured stdout for this attempt. Three outcomes:
    - **All pass** → commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`), write a final state entry, exit 0.
-   - **Any fail and attempt < cap** → assemble retry context (all JSONs + prior summary + current on-disk state), spawn generator again (attempt N+1).
+   - **Any fail and attempt < cap** → assemble retry context (all reviews + prior summary + current on-disk state), spawn generator again (attempt N+1).
    - **Any fail and attempt ≥ cap** → write `exhausted` verdict, leave files on disk uncommitted, exit 1 for operator inspection.
 
 Blueprint loop has a fourth outcome (§1.5).
@@ -165,37 +164,21 @@ Within a single orchestrator invocation, attempts do not commit. The generator w
 
 Exception: per-work-order execution in the coding loop commits as part of its PR flow. That's the existing per-WO model.
 
-### 1.3 Reviewer output JSON format
+### 1.3 Reviewer output format
 
-Every reviewer writes this shape to `harness/state/reviews/<reviewer-name>.json` (a stable scratch path the reviewer knows). Before spawning the reviewer, the orchestrator removes any prior file at that path; after the reviewer exits, the orchestrator reads the JSON and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.json` for audit. The reviewer never sees or names the attempt directory.
+Every reviewer outputs its review as its final chat message. The orchestrator captures that via `claude -p` stdout, greps the final line for `VERDICT: pass|fail`, and writes the full captured stdout to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` for audit. Reviewers don't touch the filesystem; they don't know the archive path or the current attempt number.
 
-```json
-{
-  "reviewer": "req-coverage-judge",
-  "loop": "requirements",
-  "attempt": 2,
-  "ran_at": "2026-04-22T10:15:00Z",
-  "verdict": "fail",
-  "summary": "PRD §3 describes three personas but no requirements/overview/personas/ node exists.",
-  "findings": [
-    {
-      "severity": "critical",
-      "category": "MISSING",
-      "location": "requirements/overview/",
-      "description": "PRD §3 enumerates three personas in detail; the tree has no personas/ overview node.",
-      "suggestion": "Create requirements/overview/personas/ with the three personas from PRD §3."
-    }
-  ]
-}
-```
+Shape (enforced by the reviewer skill; see `skills/requirements/req-*-judge.md`):
+
+- One or two sentences summarising what the reviewer found.
+- One short section per critical issue. Each section names the file path(s), states what's wrong in one or two sentences, gives the fix in one sentence, and tags a rubric category (`CONFLICT`, `MISSING`, `AMBIGUOUS`, `DUPLICATION`, `STALE`, or rubric-specific values like `COVERAGE`, `SCOPING`, `STRUCTURE`, `PARENT_CHILD`, `FABRICATED`, `BROKEN_REF`).
+- A single final line, on its own, containing exactly `VERDICT: pass` or `VERDICT: fail`.
 
 Rules:
-- `verdict`: `pass | fail | not_run`.
-- `category`: one of the review rubric values — `CONFLICT`, `MISSING`, `AMBIGUOUS`, `DUPLICATION`, `STALE`, or rubric-specific values (e.g. `COVERAGE`, `SCOPING`, `STRUCTURE`).
-- `severity`: `critical | minor`. Only `critical` counts toward `fail`.
-- `findings` is empty when `verdict: pass`.
-- `location` is a path relative to the project repo root or a logical reference (e.g. `requirements/features/auth.md`, `blueprints/_decisions-pending.md`).
-- `suggestion` is what the reviewer would do — the generator may accept, modify, or push back against it.
+- The orchestrator parses only the final `VERDICT:` line for loop control. Everything above it is free-form prose written for the next generator to read on retry.
+- Only critical issues appear in the body. Minor nits are noise.
+- Paths are relative to the project repo root.
+- No JSON, no schema, no retries on parse failure — the trailing line is grep-able and the full stdout travels as-is into the retry prompt and the archive file.
 
 ### 1.4 Retry context assembly
 
@@ -212,7 +195,7 @@ When the orchestrator spawns the generator for attempt N+1, the retry-context pr
 - ...
 
 ## Reviewer findings (attempt N)
-<inlined contents of every reviewer JSON with verdict=fail>
+<inlined stdout of every reviewer with VERDICT: fail>
 
 ## Prior push-back notes (all prior attempts)
 <accumulated push-backs from prior summaries — see §2.3>
@@ -335,9 +318,14 @@ for attempt in range(1, max_attempts + 1):
     review_results = []
     for reviewer in loop_reviewers(loop_name):
         rev_prompt = build_reviewer_prompt(loop_name, reviewer, attempt, state)
-        rev_result = spawn_claude(rev_prompt, wall_clock_cap)
-        verdict_json = read_verdict_json(loop_name, reviewer, attempt)
-        review_results.append(verdict_json)
+        rev_result = spawn_claude(
+            rev_prompt,
+            wall_clock_cap,
+            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash"],
+        )
+        verdict = parse_final_verdict_line(rev_result.stdout)  # "pass" | "fail"
+        archive_review_stdout(loop_name, reviewer, attempt, rev_result.stdout)
+        review_results.append({"reviewer": reviewer, "verdict": verdict, "body": rev_result.stdout})
     state.record_reviewer_verdicts(attempt, review_results)
 
     if all_pass(review_results):
@@ -579,9 +567,9 @@ The entire `harness/` directory is **committed to git** — first-class project 
 }
 ```
 
-### 7.4 Reviewer verdict JSON
+### 7.4 Reviewer review archive
 
-See §1.3. Reviewer writes to `harness/state/reviews/<reviewer-name>.json`; orchestrator archives to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.json` after reading. For per-loop reviews, `<task-id>` is omitted from the archive path.
+See §1.3. Reviewer outputs its review as stdout; the orchestrator captures stdout and writes it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`. For per-loop reviews, `<task-id>` is omitted from the archive path. There is no reviewer-owned scratch path — the archive is the only file, and the orchestrator is its only writer.
 
 ### 7.5 Field rules
 
@@ -592,7 +580,7 @@ See §1.3. Reviewer writes to `harness/state/reviews/<reviewer-name>.json`; orch
 - `limits` — per-subprocess wall-clock cap, per-invocation attempt cap. Both configurable.
 - `current.last_output` — verbatim stdout of the most recent generator session this invocation.
 - `attempts[]` — append-only log of attempts within a single invocation. Cleared to `[]` at the start of each new orchestrator invocation (history keeps the final per-invocation summary).
-- `verification.<gate>` — populated by the orchestrator from reviewer JSONs. `pass | fail | not_run`.
+- `verification.<gate>` — populated by the orchestrator from reviewer stdout (trailing `VERDICT:` line). `pass | fail | not_run`.
 - `history[]` — append-only across orchestrator invocations. One entry per invocation, preserving the final summary.
 - `execution.branch` — set by orchestrator before spawning. `execution.pr_url` / `pr_number` populated post-exit via `gh pr list`.
 - `open_decisions` — blueprint loop only. Zero is required for `pass`.
@@ -604,7 +592,7 @@ See §1.3. Reviewer writes to `harness/state/reviews/<reviewer-name>.json`; orch
 
 - **Orchestrator is the only writer.**
 - Per invocation: orchestrator loops through attempts, each attempt spawning a generator and every reviewer, rotating `current` → `attempts[]`, and on exit rolling `attempts[]`'s final entry into `history[]`.
-- Reviewer JSONs are written by reviewer subprocesses directly — the orchestrator just reads them.
+- Reviewer review archives are written by the orchestrator from captured subprocess stdout — reviewers don't touch the filesystem.
 - Per-reviewer and per-attempt outputs are preserved on disk (not in the state file) so audit and replay can reconstruct an invocation fully.
 
 ## 8. Verdict format
@@ -613,7 +601,7 @@ See §1.3. Reviewer writes to `harness/state/reviews/<reviewer-name>.json`; orch
 
 Generator ends its stdout summary with a `VERDICT:` line that the orchestrator parses.
 
-- **Upstream loops** (requirements, blueprint, sequence generation): generator emits `VERDICT: ready_for_review` on a normal attempt. It does *not* aggregate reviewer verdicts — the orchestrator does that from the JSONs.
+- **Upstream loops** (requirements, blueprint, sequence generation): generator emits `VERDICT: ready_for_review` on a normal attempt. It does *not* aggregate reviewer verdicts — the orchestrator does that from reviewer stdout.
 - **Requirements loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: requirements/_questions-pending.md`.
 - **Blueprint loop alternative exit**: `VERDICT: awaiting_decisions` with `open_decisions: N` and `decisions_file: blueprints/_decisions-pending.md`.
 - **Per-WO coding execution**: generator self-reports `VERDICT: ready_for_review` after opening/updating the PR; the orchestrator then spawns the six coding reviewers.
@@ -622,11 +610,11 @@ This is simpler than the prior model because the generator never aggregates cros
 
 ### 8.2 Reviewer output
 
-Primary contract is the JSON file (§1.3). Reviewer stdout is free-form logging for operator debugging.
+Primary contract is the reviewer's final chat message, captured as `claude -p` stdout (§1.3). The final line is `VERDICT: pass` or `VERDICT: fail` — the only machine-readable signal. Everything above it is prose written for the next generator to read on retry. Reviewers don't write to any file; the orchestrator captures stdout and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`.
 
 ### 8.3 Orchestrator aggregation
 
-Orchestrator reads every reviewer JSON for the attempt, computes `all_pass = all(v["verdict"] == "pass" for v in verdicts)`, and decides whether to retry, pass, or exhaust. All `verification.*` fields in state files are populated from the JSONs, not from the generator's summary.
+Orchestrator captures each reviewer subprocess's stdout, grep's the final `VERDICT:` line out of each, computes `all_pass = all(v == "pass" for v in verdicts)`, and decides whether to retry, pass, or exhaust. When retrying, it inlines the full captured stdout bodies into the generator's retry context (§1.4). All `verification.*` fields in state files are populated from these verdicts, not from the generator's summary.
 
 ## 9. Hooks
 
@@ -635,7 +623,7 @@ Configured in `.claude/settings.json`. Log to `harness/logs/<task_id-or-loop-nam
 Hooks do only what must happen inside the Claude Code session — context the orchestrator can't provide from outside. State management is in the orchestrator.
 
 - **`Stop` (generator)** — validates the stdout summary ends with a recognised `VERDICT:` line. Blocks completion if missing.
-- **`Stop` (reviewer)** — validates that the expected reviewer JSON file was written at the expected path. Blocks completion if missing.
+- **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed.
 
 Not hooks (and why):
 - Context injection at session start — orchestrator builds the full prompt and passes it as the argument to `claude -p`. No `SessionStart` hook.
@@ -658,7 +646,7 @@ Each carries its own autonomy posture (no clarifying questions, decide and proce
 
 ### 10.2 Reviewer subagents (orchestrator-spawned)
 
-Each writes its verdict JSON to the path the orchestrator supplies in the prompt.
+Each outputs its review as its final chat message, ending with a `VERDICT: pass` or `VERDICT: fail` line. The orchestrator captures stdout; reviewers don't touch the filesystem.
 
 - Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
 - Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.

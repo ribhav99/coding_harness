@@ -14,7 +14,7 @@ A reusable harness for running long-horizon software engineering work through Cl
 3. **Blueprint Loop** (autonomous, with non-blocking user bubble-ups). Produces technical blueprints from approved FRDs. When the generator hits a decision that requires operator judgment (tech stack, major architecture pattern), it records the decision in `blueprints/_decisions-pending.md` — pre-populated with options and pros/cons so the operator can scan and pick quickly — and keeps generating everything else, leaving TBD markers where the decision matters. The loop exits either when all reviewers pass and there are no open decisions (full pass), or when it has done as much as it can and can't make further progress without operator input (`awaiting_decisions`). The operator reviews the decisions doc at leisure, fills in choices, and re-triggers the loop. Cycle continues until all decisions are resolved and all reviewers pass.
 4. **Coding Loop** (autonomous). Auto-generates an ordered work-order sequence from approved blueprints, then executes each work order in dependency order on `task/<id>` branches with its own reviewer stack and PR-per-work-order flow. No phases — one continuous task sequence. This materially differs from SF's human-team model; our work orders are agent-consumed and can be much finer-grained, more ordered, and more mechanical.
 
-Each autonomous loop has the same shape: orchestrator spawns a generator → orchestrator spawns each reviewer → orchestrator aggregates verdicts → if any fail, orchestrator re-spawns the generator with the aggregated feedback → if all pass, artifact is committed. The orchestrator owns the loop; generators and reviewers are single-purpose subprocesses. Identical plumbing (state files, reviewer JSON verdicts, PR comment mirroring) across all three loops.
+Each autonomous loop has the same shape: orchestrator spawns a generator → orchestrator spawns each reviewer → orchestrator aggregates verdicts → if any fail, orchestrator re-spawns the generator with the aggregated feedback → if all pass, artifact is committed. The orchestrator owns the loop; generators and reviewers are single-purpose subprocesses. Identical plumbing (state files, reviewer review files, PR comment mirroring) across all three loops.
 
 The harness drives the Claude Code CLI as a subprocess from a Python orchestrator. Canonical state lives on disk at the project repo's root; the entity layout mirrors Software Factory's model so upload to SF is mechanical.
 
@@ -103,7 +103,7 @@ The project lives in a single git repo containing the operator's `PRD.md` at the
 
 ## 6. Project Lifecycle
 
-One project, end to end. Four stages: a manual PRD-authoring stage followed by three autonomous loops. Each autonomous loop uses the same mechanic — orchestrator spawns a generator, then spawns each reviewer, aggregates verdicts, re-spawns the generator with aggregated feedback on any fail, commits on all-pass. The three loops share state-file plumbing, reviewer JSON verdicts, PR-comment mirroring, and budget enforcement. They differ in generator skill, reviewer set, target artifact tree, and (for the blueprint loop) the dual completion condition (all reviewers pass AND decisions-doc empty).
+One project, end to end. Four stages: a manual PRD-authoring stage followed by three autonomous loops. Each autonomous loop uses the same mechanic — orchestrator spawns a generator, then spawns each reviewer, aggregates verdicts, re-spawns the generator with aggregated feedback on any fail, commits on all-pass. The three loops share state-file plumbing, reviewer review files, PR-comment mirroring, and budget enforcement. They differ in generator skill, reviewer set, target artifact tree, and (for the blueprint loop) the dual completion condition (all reviewers pass AND decisions-doc empty).
 
 ### 6.1 Stage 1 — Manual PRD authoring
 
@@ -310,7 +310,7 @@ A local-planner module reads and writes the on-disk layout as a single concrete 
 
 ### 7.3 State files
 
-All loop and per-work-order state is JSON under `harness/state/`. Reviewer verdicts are JSON under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/`. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
+All loop and per-work-order state is JSON under `harness/state/`. Reviewer reviews are archived under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` — the orchestrator captures each reviewer subprocess's stdout (the reviewer's final chat message ending in a `VERDICT:` line) and writes it there; reviewers themselves never touch the filesystem. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
 
 ### 7.4 Skills
 
@@ -321,7 +321,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 - **Tool-wrappers** — reusable "here is how to do X" instructions plus a thin CLI recipe. The agent decides *when* to use the tool; the skill documents *how* consistently.
 - **LLM-as-judge** — pure prompting skills that produce a verdict. The judgment is the skill.
 
-Each skill carries its own autonomy posture (no clarifying questions, decide and proceed, write to disk not to chat). There is no separate orientation skill — duplication of intent across skills is cheaper than maintaining a shared one given current skill count.
+Each skill carries its own autonomy posture: no clarifying questions mid-loop, decide and proceed. Generators write artifact files to disk; reviewers output their review as the subprocess's final chat message (captured by the orchestrator as stdout).
 
 **Manual-stage skill (operator-driven interactive Claude Code session):**
 
@@ -357,20 +357,20 @@ Each skill carries its own autonomy posture (no clarifying questions, decide and
 - `security-judge` *(reviewer, LLM-as-judge)* — OWASP-class issues in the diff.
 - `quality-judge` *(reviewer, LLM-as-judge)* — structural + textual maintainability of the diff.
 
-Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the generator's summary from that attempt. Reviewer verdicts land as JSON on disk; the orchestrator aggregates.
+Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the generator's summary from that attempt. Reviewers are spawned with `--disallowedTools Write,Edit,NotebookEdit,Bash` so they can't mutate the tree. The reviewer's final chat message is the review (captured by the orchestrator as stdout); the orchestrator greps the trailing `VERDICT:` line, archives the full stdout to disk, and aggregates.
 
 **Not skills** (and why):
 
 - State-file rotation, attempt counter, PR comment mirror, `execution.pr_*` refresh, status column transitions, decisions-file presence detection — all deterministic, all orchestrator code.
-- Verdict aggregation — orchestrator reads reviewer JSONs and computes pass/fail.
+- Verdict aggregation — orchestrator reads reviewer review files and computes pass/fail from their trailing `VERDICT:` lines.
 
 ### 7.5 Hooks and agents
 
-Hooks enforce output contracts (generator summary ends with a recognised `VERDICT:` line; reviewer wrote its JSON to the expected path). Agents are role-specialised prompts — one generator per loop (lead PM for requirements, lead engineer for blueprints, lead tech lead for sequence generation, IC for per-work-order execution) plus a reviewer subagent per rubric.
+Hooks enforce output contracts (generator summary ends with a recognised `VERDICT:` line; reviewer's final chat message ends with a `VERDICT: pass|fail` line). Agents are role-specialised prompts — one generator per loop (lead PM for requirements, lead engineer for blueprints, lead tech lead for sequence generation, IC for per-work-order execution) plus a reviewer subagent per rubric.
 
 ## 8. Verification Stacks
 
-Each autonomous loop has its own verification stack. The loop mechanic is identical (orchestrator spawns each reviewer as a subprocess after the generator exits; reviewers write JSON verdicts; orchestrator aggregates, re-spawns generator on any fail, commits on all-pass); the gates differ.
+Each autonomous loop has its own verification stack. The loop mechanic is identical (orchestrator spawns each reviewer as a subprocess after the generator exits; reviewers emit a prose review as their final chat message ending in a `VERDICT:` line; orchestrator captures stdout, archives it to disk, aggregates, re-spawns generator on any fail, commits on all-pass); the gates differ.
 
 Each reviewer subagent runs in a fresh Claude Code context — judges do not cross-contaminate and the generator's session context doesn't balloon with reviewer transcripts.
 
@@ -448,7 +448,7 @@ Fastest-first ordering for short-circuit: tests → playwright → spec → regr
 - **Non-web task shapes.** Playwright gate is web-shaped. Library/CLI work orders need a different behavioral surface (pure `pytest` sometimes suffices; TBD).
 - **Inbound mirror sync.** All mirrors are push-only in v1. Pulling external edits back to local is deferred.
 - **Ad-hoc review skills for blueprints / work orders / code.** For the PRD, the `prd-authoring` skill handles critique conversationally (see §6.1). Blueprint and work-order review currently only happen inside their respective autonomous loops; if the operator wants to critique mid-iteration or on a draft-before-loop basis, standalone overlay skills would be useful. Deferred until we see whether the loops' built-in reviewers are sufficient.
-- **Reviewer-name prefixing consistency.** Coding-loop execution reviewer skills use unprefixed names (`spec-judge`, `quality-judge`, …) for historical reasons; new loops use prefixes (`req-*`, `bp-*`, `wo-*`). Consider renaming the execution reviewers to `code-*` for uniformity once v0.4 ships.
+- **Reviewer-name prefixing consistency.** Coding-loop execution reviewers are unprefixed (`spec-judge`, `quality-judge`, …); other loops use `req-*` / `bp-*` / `wo-*` prefixes. Normalise to `code-*` for the execution reviewers in v1.0.
 
 ## 10. Milestones
 
