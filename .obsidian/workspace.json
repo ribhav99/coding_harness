@@ -20,8 +20,37 @@
               "icon": "lucide-file",
               "title": "PRD"
             }
+          },
+          {
+            "id": "176364f030a294b1",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/prd-authoring.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "prd-authoring"
+            }
+          },
+          {
+            "id": "f2e082a58c647aea",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/prd-to-frds.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "prd-to-frds"
+            }
           }
-        ]
+        ],
+        "currentTab": 2
       }
     ],
     "direction": "vertical"
@@ -94,7 +123,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "PRD.md",
+                "file": "skills/prd-to-frds.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +133,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for PRD"
+              "title": "Backlinks for prd-to-frds"
             }
           },
           {
@@ -113,12 +142,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "PRD.md",
+                "file": "skills/prd-to-frds.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from PRD"
+              "title": "Outgoing links from prd-to-frds"
             }
           },
           {
@@ -156,13 +185,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "PRD.md",
+                "file": "skills/prd-to-frds.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of PRD"
+              "title": "Outline of prd-to-frds"
             }
           }
         ]
@@ -183,8 +212,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "c7759d83ec6ff4b4",
+  "active": "f2e082a58c647aea",
   "lastOpenFiles": [
+    "skills/prd-authoring.md",
+    "PRD.md",
     "skills/prd-authoring/SKILL.md",
     "skills/tests-runner.md",
     "skills/spec-judge.md",
@@ -193,7 +224,6 @@
     "skills/regression-judge.md",
     "skills/quality-judge.md",
     "skills/prd-to-frds.md",
-    "skills/prd-authoring.md",
     "skills/playwright-runner.md",
     "skills/open-task-pr.md",
     "skills/frd-to-blueprint.md",
@@ -202,7 +232,6 @@
     "skills/blueprint-to-tasks.md",
     "skills/autonomous-execution.md",
     "skills/prd-to-frds/SKILL.md",
-    "PRD.md",
     "project-template/requirements/overview/example-section/children/example-child-section/document.md",
     "project-template/requirements/features/example-feature/children/example-child-feature/document.md",
     "project-template/requirements/overview/example-section/children/example-child-section",

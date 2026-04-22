@@ -199,7 +199,15 @@ The three loops share state-file plumbing, verdict-trailer format, PR-comment mi
 
 The operator opens a Claude Code session, invokes the `prd-authoring` skill, and drafts a single `PRD.md` at the project repo's root. One monolithic document in prose. The skill is modeled on SF's `requirements_agent` (role as expert PM, feature-unit scoping definition, clarification policy) but adapted for producing one file rather than navigating a live document tree.
 
-**Critique is conversational, not a separate skill.** Unlike SF — which exposes `review_document` and `review_across_documents` as discrete UI overlays — the harness keeps review inside the same authoring session. The operator just asks the agent to review what's written ("what's missing?", "critique this section", "check for contradictions") and the skill responds with the same CONFLICT / MISSING / AMBIGUOUS / DUPLICATION taxonomy SF uses, filtered to critical-only. This works because the operator is already conversing with the agent; forcing a skill boundary would be friction. The autonomous requirements loop downstream (`req-coverage-judge` etc.) catches anything that slipped through.
+**Critique is conversational, not a separate skill.** Unlike SF — which exposes `review_document` and `review_across_documents` as discrete UI overlays — the harness keeps review inside the same authoring session. The operator just asks the agent to review what's written ("what's missing?", "critique this section", "check for contradictions") and the skill responds with a five-category rubric, filtered to critical-only:
+
+- **CONFLICT** — direct contradictions within the PRD.
+- **MISSING** — critical product-level gaps blocking understanding.
+- **AMBIGUOUS** — genuine confusion about user experience or feature behavior.
+- **DUPLICATION** — significant duplicated content needing consolidation.
+- **STALE** — refactor residue that only makes sense against a prior version: `(unchanged)` / `(existing)` annotations, breadcrumbs like "previously…" or "the old X", references to renamed artifacts, external file/repo paths a fresh reader can't resolve. Downstream agents can't reconstruct this context; flag and remove.
+
+This works because the operator is already conversing with the agent; forcing a skill boundary would be friction. The autonomous requirements loop downstream (`req-coverage-judge` etc.) catches anything that slipped through.
 
 No autonomous loop here — authoring the PRD is the human's job. The PRD is the only artifact the operator writes by hand; everything downstream is generated.
 
