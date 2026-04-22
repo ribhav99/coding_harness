@@ -190,12 +190,8 @@ When the orchestrator spawns the generator for attempt N+1, the retry-context pr
 ## Prior attempt's summary
 <verbatim generator stdout from attempt N>
 
-## Reviewer verdicts (attempt N)
-- <reviewer-name>: <verdict> — <summary>
-- ...
-
-## Reviewer findings (attempt N)
-<inlined stdout of every reviewer with VERDICT: fail>
+## Failing reviewers (attempt N)
+<inlined full stdout of each reviewer that emitted VERDICT: fail>
 
 ## Prior push-back notes (all prior attempts)
 <accumulated push-backs from prior summaries — see §2.3>
@@ -204,7 +200,7 @@ When the orchestrator spawns the generator for attempt N+1, the retry-context pr
 <orchestrator-generated listing: which files changed since base, which are new>
 ```
 
-This is not a state file the agent edits — it's just input to its next run. The generator responds by writing a new summary that addresses each finding (fix, justify, or gap-file).
+Passing reviewers are deliberately omitted — see §1.7 for why. The retry block is input to the generator's next run, not a state file it edits. The generator responds by writing a new summary that addresses each finding (fix, justify, or gap-file) and includes a change-summary per §1.7.
 
 ### 1.5 Non-failure "awaiting operator input" exits
 
@@ -245,6 +241,26 @@ See §5.3 in the PRD for the product-level description. The generator recognises
 Default: `max_attempts = 3` per loop invocation. Configurable in `config.yaml`. When reached without passing, orchestrator writes `verdict: exhausted` and exits.
 
 Wall-clock cap is a separate, per-subprocess budget: if a generator or reviewer subprocess exceeds `max_wall_minutes`, it's killed and the attempt is marked as `exhausted` regardless of attempt count.
+
+### 1.7 Retry isolation and re-review semantics
+
+Three rules govern what the generator sees on retry and how reviewers re-check its work. Implementation detail of the orchestrator, not the skills.
+
+**Feedback isolation — passing reviewers are silenced.** When one or more reviewers fail on attempt N, the orchestrator feeds the generator only the failing reviewers' full stdout on attempt N+1 (§1.4). Passing reviewers are not named, not summarised, not counted. Rationale: their content was already good; mentioning them risks the generator second-guessing parts that were correct, or optimising to a specific passing-reviewer's taste at the expense of the failing one. The orchestrator still archives every review (§7.4) and tracks every verdict in state (§7.5); the isolation is scoped strictly to the generator's prompt.
+
+**Full re-review on every retry.** When the generator finishes attempt N+1, every reviewer runs again — not only the ones that failed on attempt N. A fix for one rubric can regress another (a scoping fix that drops a section coverage-judge had pinned; a coverage fix that bloats an FRD past the feature-unit definition spec-judge cares about). Re-checking the full review set per attempt is cheaper than inferring which rubrics a generator's edits could have touched, and it's the only way to catch cross-rubric regression without an explicit dependency model between rubrics.
+
+**Change-summary in generator stdout on retry (attempts ≥ 2).** The generator's final chat message on any retry must include a `## Changes since previous attempt` section — enumerated, file-path-anchored, describing every add/edit/remove. The orchestrator inlines this section verbatim at the top of each reviewer's re-review prompt so reviewers can focus on the delta instead of re-reading the full tree from scratch. Reviewers are not restricted to the delta — they may read anywhere — but they're told what changed, which short-circuits most re-reviews. Format:
+
+```
+## Changes since previous attempt
+
+- edited: requirements/features/auth.md (added REQ-AUTH-004, reworded AC-AUTH-001.2)
+- added: requirements/overview/personas.md
+- removed: requirements/features/notifications.md (PRD §4 was trimmed)
+```
+
+On attempt 1 the generator writes a regular summary (no change-summary section). The generator skills need a short addendum stating this requirement; add when the orchestrator lands.
 
 ## 2. Generator identity and discipline
 
