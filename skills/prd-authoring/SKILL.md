@@ -44,6 +44,7 @@ Starter structure. Deviate for the project. Internal devtools, ML services, mark
 - **Narrative prose for strategic sections, not bullets.** Business Problem, Current State, Product Description, Personas read like an executive summary — complete paragraphs that tell a story.
 - **Detailed description of features in the Features section.** 
 - **Self-contained.** No external references.
+- Do not make any assumptions. Always clarify and use hard data.
 
 ## Conversation posture
 

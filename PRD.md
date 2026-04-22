@@ -175,7 +175,7 @@ flowchart TB
       RevImpl["Reviewers<br/>tests • playwright<br/>spec • regression<br/>security • quality"]
       PRs[("GitHub PRs<br/>one per work order")]
 
-      OrchC -->|if queue empty,<br/>spawn sequence gen| GenSeq
+      OrchC -->|no ready WOs or<br/>blueprints changed| GenSeq
       GenSeq -->|writes sequence| WOs
       GenSeq -->|Task fan-out| RevSeq
       RevSeq -->|any fail| GenSeq
@@ -272,7 +272,7 @@ No phases — one continuous task sequence. The loop reads approved blueprints, 
 
 This materially differs from Software Factory. SF's work orders are grouped into phases for a human team's scheduling; ours are consumed by a sequential autonomous executor, so `blocked_by[]` + `sort_order` encode everything we need and phase grouping is dead weight.
 
-**Sequence generation** (runs once whenever the work-order queue is empty and blueprints have changed since the last generation):
+**Sequence generation** (runs once at the start of a `coding-loop` invocation whenever there are no ready work orders OR blueprints have changed since the last generation — recorded as a hash in `work-orders/.sequence.meta.yaml`):
 
 - Generator runs with `blueprint-to-tasks` and `scope-task`. Reads every approved blueprint, produces an ordered list of work orders, scopes each one into the standard scoped-task body (§5.4.3), and writes them to `work-orders/wo-NNN/` with proper `blocked_by[]` and `sort_order` in each `.work-order.meta.yaml`. Existing work orders are read first so partial regeneration works (blueprint change → only the affected work orders are re-scoped).
 - Reviewers fan out: `wo-scoping-judge` (each WO atomic, observable outcome, doesn't bundle), `wo-coverage-judge` (union of work orders covers every blueprint's delivery surface), `wo-dependency-judge` (graph acyclic, no reference to not-yet-produced interfaces, sort order consistent with dependencies).
@@ -476,7 +476,7 @@ Blueprint and work-order subtrees are sketched above but their concrete document
 A thin Python module (`orchestrator/planner.py`) reads and writes the on-disk layout. Single concrete class — no Protocol, no plug-in surface — because there is only one queue.
 
 ```python
-Status = Literal["backlog", "ready", "in_progress", "in_review", "done"]
+Status = Literal["backlog", "ready", "in_progress", "done"]
 
 class WorkOrder(TypedDict):
     task_id: str                  # "wo-42", scoped within project
@@ -485,7 +485,6 @@ class WorkOrder(TypedDict):
     status: Status
     priority: str | None
     type: str | None              # BUILD | FIX | REQUIREMENTS | BLUEPRINT | ARTIFACT | OTHER
-    phase_id: str | None
     parent_id: str | None
     sort_order: str               # lexicographic, for stable ordering
     blocked_by: list[str]
@@ -541,7 +540,7 @@ Code-level operations — branch, push, PR open, PR comment — are always GitHu
 
 **Two shapes, same plumbing.** Per-work-order state at `harness/state/<task_id>.json` (used by each sequence-execution iteration of the coding loop). Per-loop state at `harness/state/requirements-loop.json`, `harness/state/blueprint-loop.json`, `harness/state/coding-loop-seq-gen.json` (used by the non-per-task loops — including the coding loop's sequence-generation step). Both are JSON with the same top-level fields (`current`, `history`, `verification`, `limits`); the per-task files additionally carry `local.*` and `execution.*` blocks specific to the work order being executed. Loop-level files have a single logical "task" that is the loop itself.
 
-Below is the per-task schema. Loop-level state files drop `local.*` and `execution.*` and substitute `loop.name` (e.g. `"requirements"` / `"blueprint"` / `"coding-phase-a"`) and `loop.artifact_paths[]` (e.g. `["requirements/features/"]`). Every other field behaves identically.
+Below is the per-task schema. Loop-level state files drop `local.*` and `execution.*` and substitute `loop.name` (e.g. `"requirements"` / `"blueprint"` / `"coding-seq-gen"`) and `loop.artifact_paths[]` (e.g. `["requirements/features/"]`). Every other field behaves identically.
 
 The entire `harness/` directory (`state/`, `logs/`, `cache/`, `index.md`) is **committed to git**. It is a permanent record of every task, every iteration, every verdict, and every hook firing — treated as first-class project artifact, not runtime scratch. Future uses include training data, fine-tuning signals, failure-mode analysis, and operator audit. Log files are the only entries that may be compressed or pruned on a documented retention policy; state files are never deleted.
 
@@ -552,8 +551,7 @@ Format:
   "task_id": "wo-42",
   "local": {
     "title": "Add login endpoint",
-    "phase_slug": "phase-1-core",
-    "path": "work-orders/phase-1-core/42/",
+    "path": "work-orders/wo-42/",
     "blueprint_ids": ["bp-uuid-1"]
   },
   "created_at": "2026-04-18T10:00:00Z",
@@ -632,7 +630,7 @@ Loop-level state file example (`harness/state/blueprint-loop.json`):
 Field rules:
 - `task_id` is the harness-stable identifier used everywhere in `harness/` paths, log names, and cross-references. Format: `wo-<n>` (per-project work-order number).
 - `local.*` is a denormalized snapshot of the work order's location and identity in the project repo. `path` is relative to the project repo root. Refreshed by the orchestrator from `.work-order.meta.yaml` on every read; never edited by hand. The on-disk meta file is canonical; this block is a convenience copy.
-- `status` uses the canonical enum: `backlog` | `ready` | `in_progress` | `in_review` | `done`. Mirrors `.work-order.meta.yaml`.
+- `status` uses the canonical enum: `backlog` | `ready` | `in_progress` | `done`. Mirrors `.work-order.meta.yaml`.
 - `session_count` — how many generator sessions this task has required. Usually 1; increments only if the orchestrator has to respawn (timeout, crash).
 - `limits.max_wall_minutes` — outer time cap on the generator subprocess. The orchestrator kills the subprocess if it exceeds this. Internal retry count is not capped explicitly; wall time is the backstop.
 - `current.last_output` — the full verbatim stdout of the most recent generator session.
