@@ -1,1 +1,1 @@
-../../../skills/regression-judge.md
+../../../skills/coding/regression-judge.md

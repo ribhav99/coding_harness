@@ -8,20 +8,25 @@ Run from inside a project repo that has a `.env` with:
 Layout written (in CWD):
 
     requirements/
-      overview/<doc-slug>/
-        .overview.meta.yaml
-        .requirements.meta.yaml
-        document.md
-      features/<doc-slug>/
-        .feature.meta.yaml
-        .requirements.meta.yaml
-        document.md
-        children/
-          <child-doc-slug>/...   (recursive, same shape as parent)
+      overview/
+        <slug>.md                            (visible content file)
+        .<slug>.overview.meta.yaml           (hidden node meta)
+        .<slug>.requirements.meta.yaml       (hidden doc meta)
+        <slug>_children/                     (only if this node has children)
+          <child-slug>.md
+          .<child-slug>.overview.meta.yaml
+          .<child-slug>.requirements.meta.yaml
+          <child-slug>_children/...          (recursive)
+      features/                              (same shape, with .feature.meta.yaml instead of .overview.meta.yaml)
+        <slug>.md
+        .<slug>.feature.meta.yaml
+        .<slug>.requirements.meta.yaml
+        <slug>_children/...
 
-Each node directory holds the document + meta files at its root. No nested
-`requirements/` subdirectory; the top-level `requirements/` already conveys
-that this is requirements data.
+Nodes are flat within a level: content file + two dotted-hidden meta files
+as siblings. If a node has children, they live in a sibling dir named
+`<slug>_children/` with the same flat shape. The `_children` suffix is
+reserved (kebab-case slugs never contain underscores).
 
     cd /path/to/some-project-repo
     python /path/to/coding_harness/orchestrator/sync_from_sf.py
@@ -116,18 +121,19 @@ def write_node(
 ) -> None:
     """Write one node (overview or feature) and recurse into its children.
 
-    Each node directory contains, at its root:
-      .{kind}.meta.yaml         node info (id, parent_id, position, title)
-      .requirements.meta.yaml   doc info (id)
-      document.md               the markdown body
-      children/                 (only if the node has children)
+    Files live flat in `parent_dir`:
+      <slug>.md                             the markdown body
+      .<slug>.{kind}.meta.yaml              node info (id, parent_id, position, title)
+      .<slug>.requirements.meta.yaml        doc info (id)
+
+    If the node has children, a sibling dir `<slug>_children/` holds them
+    in the same flat shape.
     """
     slug = slugify(node["title"])
-    node_dir = parent_dir / slug
-    node_dir.mkdir(parents=True, exist_ok=True)
+    parent_dir.mkdir(parents=True, exist_ok=True)
 
-    meta_filename = ".overview.meta.yaml" if kind == "overview" else ".feature.meta.yaml"
-    (node_dir / meta_filename).write_text(yaml_dump_meta({
+    kind_token = "overview" if kind == "overview" else "feature"
+    (parent_dir / f".{slug}.{kind_token}.meta.yaml").write_text(yaml_dump_meta({
         "id": node["id"],
         "parent_id": node.get("parent_id"),
         "position": node.get("position", 0),
@@ -137,14 +143,14 @@ def write_node(
     doc_id = node.get("requirements_document_id")
     if doc_id:
         markdown = fetch_doc_markdown(base_url, api_key, doc_id)
-        (node_dir / "document.md").write_text(markdown)
-        (node_dir / ".requirements.meta.yaml").write_text(yaml_dump_meta({"id": doc_id}))
+        (parent_dir / f"{slug}.md").write_text(markdown)
+        (parent_dir / f".{slug}.requirements.meta.yaml").write_text(yaml_dump_meta({"id": doc_id}))
         indent = "  " * depth
         print(f"{indent}{slug}  ({len(markdown):,} chars)")
 
     children = node.get("children") or []
     if children:
-        children_dir = node_dir / "children"
+        children_dir = parent_dir / f"{slug}_children"
         for child in children:
             write_node(child, children_dir, kind, base_url, api_key, depth + 1)
 

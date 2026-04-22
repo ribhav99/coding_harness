@@ -1,1 +1,1 @@
-../../../skills/quality-judge.md
+../../../skills/coding/quality-judge.md

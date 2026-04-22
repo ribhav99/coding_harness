@@ -1,1 +1,1 @@
-../../../skills/tests-runner.md
+../../../skills/coding/tests-runner.md

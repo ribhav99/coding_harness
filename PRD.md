@@ -128,8 +128,8 @@ When the PRD is ready, the operator triggers the Requirements Loop.
 **Trigger.** `python -m orchestrator requirements-loop`.
 
 **Generator.** A single `claude -p` subprocess running with the `prd-to-frds` skill. It reads `PRD.md` and decomposes it into the full structural tree. Two output surfaces:
-- **Product-overview sections** (`requirements/overview/{section-slug}/`). The generator identifies the structural pieces of the PRD — business problem, current state, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix — and writes each as its own overview node with `.overview.meta.yaml`, `.requirements.meta.yaml`, and `document.md`.
-- **Feature Requirements Documents** (`requirements/features/{feature-slug}/`). One FRD per feature identified in the PRD, following the feature-unit definition (standalone value, implementation footprint, independent deployability, incremental value). Parent/child nesting under `children/` when features decompose further.
+- **Product-overview sections** (flat inside `requirements/overview/`). The generator identifies the structural pieces of the PRD — business problem, current state, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix — and writes each as a visible `<slug>.md` content file (e.g. `business-problem.md`). The orchestrator then materialises the dotted-hidden meta files alongside.
+- **Feature Requirements Documents** (flat inside `requirements/features/`). One `<slug>.md` per feature identified in the PRD, following the feature-unit definition (standalone value, implementation footprint, independent deployability, incremental value). When a feature decomposes further, the generator creates a sibling `<slug>_children/` directory with the same flat shape recursively.
 
 The generator is iterative: reads any existing overview+features trees first and edits what needs changing rather than regenerating from scratch on every run.
 
@@ -234,35 +234,13 @@ Optional. Hints about files, approach, libraries. Never prescriptive — the gen
 
 **Scope is the load-bearing concept.** All scopes across all work orders must compose into the whole blueprint surface without gaps or overlap. `In scope` + `Out of scope` + `Produces` carry the contract. If scoping is sloppy, work orders either leave gaps or double up — both wreck execution. `wo-coverage-judge` and `wo-scoping-judge` during sequence generation are the last line of defense before this propagates into execution.
 
-#### 6.4.2 Gap filing
+#### 6.4.2 Gap filing (coding-loop concept, deferred)
 
-Any autonomous-loop session (requirements, blueprint, or coding) can file a gap when it encounters out-of-scope missing work. The capability keeps the harness honest about what it's seeing without blowing the current artifact's scope. Most common in the coding loop; possible in the others.
+When the coding loop is built, its generator will need a way to file new work orders for out-of-scope missing work it discovers mid-execution — a missing prerequisite, a latent bug adjacent to changed code, a useful refactor that's not part of the current ticket. The mechanism: create a `backlog` work order under `work-orders/_inbox/wo-NNN/` with a back-reference to the originating work order. The operator triages on their own cadence; gaps never auto-promote to `ready`.
 
-**When it fires** (agent judgment, guided by `autonomous-execution`):
-- Coding generator finds a prerequisite that isn't in place ("this endpoint needs a shared auth middleware that doesn't exist yet; not in scope for this work order").
-- Any generator or reviewer notices a latent issue adjacent to the area being changed.
-- Reviewer sees a concern outside the artifact's declared `In scope` — code smell, test gap, missing FRD coverage, blueprint inconsistency — something important but not this session's job.
+The upstream loops do not file gaps — the requirements loop logs PRD-clarification questions to `requirements/_questions-pending.md` (§6.2), and the blueprint loop logs decisions to `blueprints/_decisions-pending.md` (§6.3). Different mechanisms because the response shape differs (clarify the source vs. pick from options vs. queue new code work).
 
-**What the agent does:** calls the `file-gap` skill with a title, a body describing the gap, and (optionally) a category hint like `refactor | bug | security | infra | requirements | blueprint`.
-
-**What the skill does mechanically:**
-1. Allocates the next `wo-NNN` number for the project (zero-padded for lexicographic sort).
-2. Creates `work-orders/_inbox/{wo-n}/` containing `description.md` (the body) and `.work-order.meta.yaml` (`status: backlog`, `type` from the category hint, `parent_id` set to the originating work order's id when in the coding loop, or a note of the originating FRD/blueprint path when in the upstream loops).
-3. Description includes a back-reference.
-4. Returns the new work order's path to the agent so it can mention it in its final output.
-
-**What the skill does NOT do:**
-- Does not promote the gap to `ready` — operator triages.
-- Does not affect the current iteration's verdict — gap filing is a side effect, not a gate signal.
-- Does not trigger a new session — the orchestrator ignores the new work order until a future run picks it up.
-- Does not dedupe (v1). If two sessions file similar gaps, both exist. Operator merges/closes during triage.
-
-**Where gaps show up:**
-- Local planner: under `work-orders/_inbox/`, distinguished by their `_inbox` placement and `parent_id` / back-reference.
-- Originating PR (coding loop only): the agent mentions `Filed wo-99 for [...]` in its prose, which lands in the PR comments.
-- State file `history[]`: the prose is preserved there too.
-
-**Guardrails for in-scope vs gap:** the agent checks the current artifact's scope (work order `In scope` / `Out of scope`, FRD sections, blueprint contracts) before filing. Plausibly in-scope → in-line, don't file. Plausibly out → file. Ambiguous → file (cheap, reversible) and continue.
+The gap-filing skill is deferred until the coding loop ships in v0.4.
 
 ## 7. Components
 
@@ -284,16 +262,17 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
   requirements/                        # generated in Stage 2 from PRD.md
     _questions-pending.md              # only present while PRD-clarification questions are open (§6.2)
     _questions-resolved-*.md           # optional audit-log of resolved questions
-    overview/{section-slug}/
-      .overview.meta.yaml              # id, parent_id, position, title
-      .requirements.meta.yaml          # id
-      document.md                      # one PRD section (business problem, personas, ...)
-      children/{child-slug}/...        # nested OverviewNodes (recursive, only if present)
-    features/{feature-slug}/
-      .feature.meta.yaml               # id, parent_id, position, title
-      .requirements.meta.yaml          # id
-      document.md                      # FRD body
-      children/{child-slug}/...        # nested FeatureNodes (recursive, only if present)
+    overview/                          # nodes are flat at this level
+      <slug>.md                        # visible content file (e.g. business-problem.md)
+      .<slug>.overview.meta.yaml       # hidden; id, parent_id, position, title
+      .<slug>.requirements.meta.yaml   # hidden; id
+      <slug>_children/                 # only if this node has children; same flat shape inside, recursive
+        ...
+    features/                          # same shape, with .feature.meta.yaml instead of .overview.meta.yaml
+      <slug>.md                        # FRD body (e.g. auth.md)
+      .<slug>.feature.meta.yaml
+      .<slug>.requirements.meta.yaml
+      <slug>_children/...
   blueprints/                          # generated in Stage 3
     _decisions-pending.md              # only present while decisions are open (§6.3)
     _decisions-resolved-*.md           # optional audit-log of resolved decisions
@@ -316,8 +295,8 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
 
 **Key shape facts:**
 - **`PRD.md` at root.** The operator-authored monolithic PRD (Stage 1). Input to the requirements loop; never edited by any autonomous loop.
-- **`requirements/` is generated.** Flat `overview/` and `features/` sibling trees under it. Each node directory holds its meta + `document.md` flat. `.requirements.meta.yaml` is `{id}` only. `children/` only exists when a node has actual children.
-- **Meta files are orchestrator-managed.** Generators write `document.md` files; the orchestrator materialises `.overview.meta.yaml` / `.feature.meta.yaml` / `.requirements.meta.yaml` after the generator exits, deriving titles from each doc's first H1 and setting IDs to `null` for later mirror sync to populate.
+- **`requirements/` is generated.** Nodes are flat at each level: a `<slug>.md` visible content file plus two dotted-hidden meta files (`.<slug>.<overview|feature>.meta.yaml` and `.<slug>.requirements.meta.yaml`) as siblings. If a node has children, a sibling directory `<slug>_children/` holds them with the same flat shape, recursively. The `_children` suffix is reserved — kebab-case slugs never contain underscores.
+- **Meta files are orchestrator-managed.** Generators write only the visible `<slug>.md` content file. The orchestrator materialises the two dotted-hidden meta files per node after the generator exits, deriving titles from each doc's first H1 and setting IDs to `null` for later mirror sync to populate.
 - **`work-orders/` is flat** (no phase groupings). Work-order directories sort lexicographically by `wo-NNN` name with leading zeros; `sort_order` in `.work-order.meta.yaml` provides the canonical order; `blocked_by[]` provides dependency constraints. Together these encode everything SF used phase groupings for.
 - **`.sequence.meta.yaml`** at the work-orders dir level records the hash of the blueprint tree at the time the sequence was generated. On each `coding-loop` run, the orchestrator compares the current blueprint hash to this; if changed, it triggers a regeneration before draining.
 
@@ -342,15 +321,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 - **Tool-wrappers** — reusable "here is how to do X" instructions plus a thin CLI recipe. The agent decides *when* to use the tool; the skill documents *how* consistently.
 - **LLM-as-judge** — pure prompting skills that produce a verdict. The judgment is the skill.
 
-**Orientation skill** (pulled in by every autonomously-invoked agent across all three loops — generators and reviewers alike):
-
-- `autonomous-execution` *(orientation)* — sets the baseline posture for any session spawned via `claude -p`:
-  - No human is listening. No questions will be answered.
-  - When uncertain, make a reasonable decision with the information available and proceed. Prefer action over deliberation.
-  - Never end the session by asking a clarifying question, proposing a plan, or waiting for approval. Execute.
-  - Read the full state file and prior output before acting; the previous iteration usually contains the signal you need.
-  - Be decisive about naming, structure, and stylistic choices. Don't hedge.
-  - Block only if truly stuck (missing auth, broken tool, contradiction in the ticket). When blocked: document what you tried, what's missing, and what decision would unblock you, then stop. The orchestrator treats this as a failed iteration.
+Each skill carries its own autonomy posture (no clarifying questions, decide and proceed, write to disk not to chat). There is no separate orientation skill — duplication of intent across skills is cheaper than maintaining a shared one given current skill count.
 
 **Manual-stage skill (operator-driven interactive Claude Code session):**
 
@@ -358,7 +329,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 
 **Requirements-loop skills** (autonomous; `requirements-loop` generator pulls in these):
 
-- `prd-to-frds` *(generator, LLM work)* — reads `PRD.md` at project repo root, decomposes it into the full structural tree under `requirements/` — both `overview/{section-slug}/` (business problem, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix) *and* `features/{feature-slug}/`. Applies the feature-unit definition (§6.2) and the split/merge/nest heuristics to turn PRD-level feature descriptions into correctly-scoped FRDs — this is where formal feature shaping lives, not in `prd-authoring`. Iterative: reads existing trees on every session and only edits what needs changing.
+- `prd-to-frds` *(generator, LLM work)* — reads `PRD.md` at project repo root, decomposes it into the full structural tree under `requirements/` — flat `<slug>.md` files inside `overview/` (business problem, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix) and inside `features/`, with `<slug>_children/` subdirs when nodes decompose further. Applies the feature-unit definition (§6.2) and the split/merge/nest heuristics to turn PRD-level feature descriptions into correctly-scoped FRDs — this is where formal feature shaping lives, not in `prd-authoring`. Iterative: reads existing trees on every session and only edits what needs changing.
 - `req-spec-judge` *(reviewer, LLM-as-judge)* — each FRD matches structural expectations: sections present, requirements have REQ-IDs + user stories + testable acceptance criteria. Single-doc check; the orchestrator spawns one reviewer subprocess per FRD.
 - `req-cross-doc-judge` *(reviewer, LLM-as-judge)* — whole-tree consistency: contradictions between FRDs, terminology drift, duplication across FRDs.
 - `req-coverage-judge` *(reviewer, LLM-as-judge)* — union of FRDs covers the PRD's scope without gaps or overlaps.
@@ -385,10 +356,6 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 - `regression-judge` *(reviewer, LLM-as-judge)* — checks the diff for unintended breakage outside the changed lines.
 - `security-judge` *(reviewer, LLM-as-judge)* — OWASP-class issues in the diff.
 - `quality-judge` *(reviewer, LLM-as-judge)* — structural + textual maintainability of the diff.
-
-**Cross-loop skills:**
-
-- `file-gap` *(tool-wrapper)* — any autonomous-loop session can file a gap when it encounters out-of-scope missing work (§6.4.2). Creates a new `backlog` work order in `work-orders/_inbox/`. Usable from any loop; gaps always land as coding-loop work orders regardless of which loop discovered them (the operator can re-route during triage).
 
 Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the generator's summary from that attempt. Reviewer verdicts land as JSON on disk; the orchestrator aggregates.
 
@@ -496,7 +463,6 @@ Ship order mirrors the operator's actual workflow — author the PRD, then itera
 - Loop-level state file + verdict parsing.
 - `requirements/_questions-pending.md` mechanism and `awaiting_clarification` verdict wired up (dual completion condition: reviewers pass + zero open questions).
 - Hook: `Stop` on reviewer subagents validates two-line verdict format.
-- `file-gap` wired up (gaps land in `work-orders/_inbox/`, even though execution doesn't run yet).
 - No mirrors. Local only.
 
 **Exit criteria**: I author a PRD in a new project repo, run `requirements-loop`, and end up with a reviewed FRD tree I'm willing to blueprint against.

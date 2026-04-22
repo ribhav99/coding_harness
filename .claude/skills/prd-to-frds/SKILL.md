@@ -1,1 +1,1 @@
-../../../skills/prd-to-frds.md
+../../../skills/requirements/prd-to-frds.md

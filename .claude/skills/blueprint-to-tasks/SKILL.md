@@ -1,1 +1,1 @@
-../../../skills/blueprint-to-tasks.md
+../../../skills/coding/blueprint-to-tasks.md

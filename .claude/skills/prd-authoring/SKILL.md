@@ -1,1 +1,1 @@
-../../../skills/prd-authoring.md
+../../../skills/requirements/prd-authoring.md

@@ -36,26 +36,12 @@
             }
           },
           {
-            "id": "176364f030a294b1",
+            "id": "d9b30a21a80b72cf",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "skills/prd-authoring.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "prd-authoring"
-            }
-          },
-          {
-            "id": "f2e082a58c647aea",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "skills/prd-to-frds.md",
+                "file": "skills/requirements/prd-to-frds.md",
                 "mode": "source",
                 "source": false
               },
@@ -64,17 +50,63 @@
             }
           },
           {
-            "id": "d9b30a21a80b72cf",
+            "id": "49a2ca917fb5b027",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "skills/requirements/req-coverage-judge.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "req-coverage-judge"
+            }
+          },
+          {
+            "id": "6f3d04f07b97fbfa",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/requirements/req-cross-doc-judge.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "req-cross-doc-judge"
+            }
+          },
+          {
+            "id": "39e42c3a2c9cf99b",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/requirements/req-scoping-judge.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "req-scoping-judge"
+            }
+          },
+          {
+            "id": "697731c72d3813d7",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/requirements/req-spec-judge.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "req-spec-judge"
             }
           }
         ],
-        "currentTab": 4
+        "currentTab": 2
       }
     ],
     "direction": "vertical"
@@ -147,6 +179,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "skills/requirements/prd-to-frds.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -156,7 +189,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks"
+              "title": "Backlinks for prd-to-frds"
             }
           },
           {
@@ -165,11 +198,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "skills/requirements/prd-to-frds.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links"
+              "title": "Outgoing links from prd-to-frds"
             }
           },
           {
@@ -207,12 +241,13 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "skills/requirements/prd-to-frds.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline"
+              "title": "Outline of prd-to-frds"
             }
           }
         ]
@@ -235,42 +270,42 @@
   },
   "active": "d9b30a21a80b72cf",
   "lastOpenFiles": [
-    "skills/prd-to-frds.md",
-    "skills/file-gap.md",
-    "PRD.md",
+    "project-template/requirements/overview/example-section_children/example-child-section.md",
+    "project-template/requirements/overview/example-section_children",
+    "project-template/requirements/overview/example-section.md",
+    "project-template/requirements/features/example-feature_children/example-child-feature.md",
+    "project-template/requirements/features/example-feature_children",
+    "project-template/requirements/features/example-feature.md",
+    "project-template/requirements/overview/example-section/children/example-child-section/example-child-section.md",
+    "project-template/requirements/features/example-feature/children/example-child-feature/example-child-feature.md",
+    "project-template/requirements/overview/example-section/example-section.md",
+    "project-template/requirements/features/example-feature/example-feature.md",
+    "skills/requirements/req-coverage-judge.md",
+    "skills/requirements/req-spec-judge.md",
+    "skills/requirements/req-scoping-judge.md",
+    "skills/requirements/req-cross-doc-judge.md",
+    "skills/requirements/prd-to-frds.md",
     "BLUEPRINT.md",
-    "skills/prd-authoring.md",
-    "skills/prd-authoring/SKILL.md",
-    "skills/tests-runner.md",
-    "skills/spec-judge.md",
-    "skills/security-judge.md",
-    "skills/scope-task.md",
-    "skills/regression-judge.md",
-    "skills/quality-judge.md",
-    "skills/playwright-runner.md",
-    "skills/open-task-pr.md",
-    "skills/frd-to-blueprint.md",
-    "skills/foundation-blueprint-authoring.md",
-    "skills/blueprint-to-tasks.md",
-    "skills/autonomous-execution.md",
-    "skills/prd-to-frds/SKILL.md",
-    "project-template/requirements/overview/example-section/children/example-child-section/document.md",
-    "project-template/requirements/features/example-feature/children/example-child-feature/document.md",
+    "PRD.md",
+    "skills/coding/tests-runner.md",
+    "skills/coding/spec-judge.md",
+    "skills/coding/security-judge.md",
+    "skills/coding/scope-task.md",
+    "skills/coding/regression-judge.md",
+    "skills/coding/quality-judge.md",
+    "skills/coding/playwright-runner.md",
+    "skills/coding/open-task-pr.md",
+    "skills/coding/blueprint-to-tasks.md",
+    "skills/coding",
+    "skills/blueprints/frd-to-blueprint.md",
+    "skills/blueprints/foundation-blueprint-authoring.md",
+    "skills/blueprints",
+    "skills/requirements",
+    "skills/shared",
     "project-template/requirements/overview/example-section/children/example-child-section",
     "project-template/requirements/features/example-feature/children/example-child-feature",
-    "project-template/requirements/overview/example-section/document.md",
     "project-template/requirements/overview/example-section/children",
-    "project-template/requirements/features/example-feature/document.md",
     "project-template/requirements/features/example-feature/children",
-    "project-template/requirements/overview/example-section",
-    "project-template/requirements/features/example-feature",
-    "project-template/requirements/overview",
-    "project-template/requirements/features",
-    "project-template/work-orders",
-    "project-template/requirements",
-    "projects/_template/requirements/features/example-feature/children/example-child-feature/document.md",
-    "projects/_template/requirements/overview/example-section/children/example-child-section/document.md",
-    "projects/_template/requirements/features/example-feature/document.md",
     "diagrams/exec.png"
   ]
 }

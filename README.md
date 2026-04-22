@@ -33,13 +33,15 @@ SF_BASE_URL=https://api.factory.8090.dev
 SF_PROJECT_ID=<uuid>
 ```
 
-`.env` must be gitignored. The script writes documents to
-`requirements/overview/<doc-slug>/` and `requirements/features/<doc-slug>/`
-in the project repo root, recursively populating `children/` subdirectories.
-Each node dir contains `document.md`, `.{overview|feature}.meta.yaml`, and
-`.requirements.meta.yaml` directly at its root. Existing files are
-overwritten on each sync; other top-level dirs (`blueprints/`, `work-orders/`,
-`artifacts/`) are untouched.
+`.env` must be gitignored. The script writes documents flat inside
+`requirements/overview/` and `requirements/features/` in the project repo
+root. Each node is three sibling files at the same level: a visible
+`<slug>.md` content file plus two dotted-hidden meta files
+(`.<slug>.<overview|feature>.meta.yaml` and `.<slug>.requirements.meta.yaml`).
+If a node has children, they live in a sibling dir named `<slug>_children/`
+with the same flat shape, recursively. Existing files are overwritten on each
+sync; other top-level dirs (`blueprints/`, `work-orders/`, `artifacts/`) are
+untouched.
 
 Use `--tree` to print the requirements tree without writing anything.
 

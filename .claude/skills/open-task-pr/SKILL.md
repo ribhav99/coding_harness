@@ -1,1 +1,1 @@
-../../../skills/open-task-pr.md
+../../../skills/coding/open-task-pr.md

@@ -135,7 +135,7 @@ The orchestrator drives every autonomous loop. One `claude -p` subprocess per ag
 For each attempt of a loop, the orchestrator:
 
 1. **Spawns the generator.** Builds a prompt containing:
-   - The generator's skill (e.g. `prd-to-frds`) + `autonomous-execution`.
+   - The generator's skill (e.g. `prd-to-frds`).
    - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `_decisions-pending.md`; etc.).
    - On retry attempts: prior attempt's generator summary + every reviewer's JSON verdict + accumulated push-back notes (§2.3).
    - Attempt counter and remaining budget.
@@ -144,13 +144,13 @@ For each attempt of a loop, the orchestrator:
 2. **Generator works and exits.** Reads inputs, writes or edits artifact files on disk, emits a stdout summary describing what it did and what it chose not to do (including any push-back on prior reviews), exits. Generator does not commit to git — the orchestrator owns commits.
 
 3. **Spawns each reviewer** as a separate `claude -p` subprocess. Each reviewer's prompt contains:
-   - The reviewer's skill (e.g. `req-coverage-judge`) + `autonomous-execution`.
+   - The reviewer's skill (e.g. `req-coverage-judge`).
    - The generator's stdout summary from step 2.
    - Only the artifacts that reviewer needs to judge its rubric (e.g. coverage-judge gets `PRD.md` + the requirements tree; spec-judge gets only the FRDs it's checking).
    - Output path for its JSON verdict.
    Reviewers can run serially or in parallel — v0.1 runs them serially for simplicity.
 
-4. **Reviewers write verdicts** to `harness/state/reviews/<loop>/attempt-N/<reviewer-name>.json` (format in §7.3). Stdout is for logging; the JSON file is the contract.
+4. **Reviewers write verdicts** to a stable scratch path, `harness/state/reviews/<reviewer-name>.json` (format in §7.3). The reviewer skill only needs to know this one path; it doesn't know the current attempt number. Stdout is for logging; the JSON file is the contract.
 
 5. **Orchestrator aggregates.** Reads every reviewer JSON for this attempt. Three outcomes:
    - **All pass** → commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`), write a final state entry, exit 0.
@@ -167,7 +167,7 @@ Exception: per-work-order execution in the coding loop commits as part of its PR
 
 ### 1.3 Reviewer output JSON format
 
-Every reviewer writes this shape to `harness/state/reviews/<loop>/attempt-<N>/<reviewer-name>.json`:
+Every reviewer writes this shape to `harness/state/reviews/<reviewer-name>.json` (a stable scratch path the reviewer knows). Before spawning the reviewer, the orchestrator removes any prior file at that path; after the reviewer exits, the orchestrator reads the JSON and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.json` for audit. The reviewer never sees or names the attempt directory.
 
 ```json
 {
@@ -194,7 +194,7 @@ Rules:
 - `category`: one of the review rubric values — `CONFLICT`, `MISSING`, `AMBIGUOUS`, `DUPLICATION`, `STALE`, or rubric-specific values (e.g. `COVERAGE`, `SCOPING`, `STRUCTURE`).
 - `severity`: `critical | minor`. Only `critical` counts toward `fail`.
 - `findings` is empty when `verdict: pass`.
-- `location` is a path relative to the project repo root or a logical reference (e.g. `requirements/features/auth/document.md`, `blueprints/_decisions-pending.md`).
+- `location` is a path relative to the project repo root or a logical reference (e.g. `requirements/features/auth.md`, `blueprints/_decisions-pending.md`).
 - `suggestion` is what the reviewer would do — the generator may accept, modify, or push back against it.
 
 ### 1.4 Retry context assembly
@@ -295,7 +295,7 @@ When reviewer feedback arrives on a retry:
 2. **For each finding**, choose one of three responses:
    - **Fix.** The finding names a real violation of a priority anchor. Edit the tree accordingly.
    - **Push back.** The finding asks for content that would violate grounding (would require fabrication), or enforces the wrong priority, or is misguided. Don't change the tree. In the generator's stdout summary, document the disagreement: *which* finding, *why* it's wrong, *what* the grounded alternative is.
-   - **File a gap.** The finding points at a real problem that's out of scope for this loop (e.g. the PRD itself is ambiguous; the finding names a genuine missing piece the operator needs to write). Call `file-gap`, reference the finding, move on.
+   - **Surface to the operator.** The finding points at a real problem that's out of scope for this loop (e.g. the PRD itself is ambiguous and the operator needs to clarify). Use the loop's bubble-up mechanism — log a question for the requirements loop, log a decision for the blueprint loop. Reference the finding in your summary, move on.
 3. **Summarise.** The generator's stdout summary ends with a per-finding disposition list: "Addressed findings F1, F3. Pushed back on F2 (reason: would require fabricating personas). Filed gap for F4."
 
 Push-backs accumulate across attempts into the retry context so the generator doesn't forget prior reasoning. If a reviewer flags the same finding three attempts in a row and the generator pushes back each time with the same reason, the loop exhausts — operator inspects the standoff.
@@ -357,12 +357,14 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
 
 **`requirements-loop`.**
 - Precondition: `PRD.md` exists at repo root. If not, exit with error.
-- Artifact trees: generator writes `document.md` files under `requirements/overview/<slug>/` and `requirements/features/<slug>/` (and `children/` recursively). May also append to `requirements/_questions-pending.md`.
-- **Post-generator meta materialisation.** After the generator exits and before spawning reviewers, walk the `requirements/` tree and reconcile meta files:
-  - For every `document.md` lacking a sibling `.overview.meta.yaml` or `.feature.meta.yaml`, create one with `id: null`, `parent_id: null`, `position: <discovery order among siblings>`, `title: <first H1 in document.md>`.
-  - For every `document.md` lacking a sibling `.requirements.meta.yaml`, create one with `id: null`.
-  - For every existing meta file whose `document.md` was deleted, delete the meta file too.
-  - Preserve existing meta files with non-null values (an SF mirror sync may have populated IDs; don't clobber).
+- Artifact trees: generator writes visible `<slug>.md` content files flat inside `requirements/overview/` and `requirements/features/`. If a node has children, generator creates a sibling `<slug>_children/` directory with the same flat shape recursively. May also append to `requirements/_questions-pending.md`.
+- **Post-generator meta materialisation.** After the generator exits and before spawning reviewers, walk the `requirements/` tree and reconcile dotted-hidden meta files. For each directory in the tree:
+  - For every visible `<slug>.md` content file, ensure two dotted-hidden sibling meta files exist:
+    - `.<slug>.<kind>.meta.yaml` (`<kind>` is `overview` or `feature` depending on which subtree the file is in), with fields `id: null`, `parent_id: null`, `position: <discovery order among siblings>`, `title: <first H1 in the content file>`.
+    - `.<slug>.requirements.meta.yaml` with `id: null`.
+  - For every dotted-hidden meta file whose `<slug>.md` counterpart was deleted, remove the meta file.
+  - After cleanup, if a `<slug>_children/` directory is empty (its parent node lost all children), delete it.
+  - Preserve existing meta files whose fields hold non-null values (an SF mirror sync may have populated IDs; don't clobber).
 - Reviewers: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`. They see the fully-materialised tree.
 - Generator prompt inputs: `PRD.md` + current `requirements/` tree + current `_questions-pending.md` (if any) + retry context.
 - Pass condition: all reviewers pass AND `_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
@@ -579,7 +581,7 @@ The entire `harness/` directory is **committed to git** — first-class project 
 
 ### 7.4 Reviewer verdict JSON
 
-See §1.3. Lives at `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.json`. For per-loop reviews, `<task-id>` is omitted.
+See §1.3. Reviewer writes to `harness/state/reviews/<reviewer-name>.json`; orchestrator archives to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.json` after reading. For per-loop reviews, `<task-id>` is omitted from the archive path.
 
 ### 7.5 Field rules
 
@@ -647,7 +649,7 @@ Under `.claude/agents/`. Role-specialised prompts. The agent definition referenc
 
 ### 10.1 Generator agents (orchestrator-spawned)
 
-Each pulls in `autonomous-execution`. May call `file-gap`.
+Each carries its own autonomy posture (no clarifying questions, decide and proceed) baked into its skill prompt.
 
 - `requirements-generator` — loads `prd-to-frds`. Identity: lead PM. Writes `requirements/` tree; may append to `requirements/_questions-pending.md` for PRD ambiguities. Emits `ready_for_review` or `awaiting_clarification`.
 - `blueprint-generator` — loads `frd-to-blueprint` + `foundation-blueprint-authoring` + `bubble-up-decision`. Identity: lead engineer. Writes `blueprints/`. Emits `ready_for_review` or `awaiting_decisions`.
@@ -656,7 +658,7 @@ Each pulls in `autonomous-execution`. May call `file-gap`.
 
 ### 10.2 Reviewer subagents (orchestrator-spawned)
 
-Each pulls in `autonomous-execution`. Each writes its verdict JSON to the path the orchestrator supplies in the prompt.
+Each writes its verdict JSON to the path the orchestrator supplies in the prompt.
 
 - Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
 - Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.

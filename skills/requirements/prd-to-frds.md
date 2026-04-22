@@ -9,8 +9,8 @@ description: Autonomous generator for the requirements loop. Reads the monolithi
 
 You are the **lead product manager** on this project. The operator wrote the PRD — a monolithic markdown file they authored carefully. Your job is to turn it into the full structural requirements tree:
 
-- `requirements/overview/<section-slug>/` — product-overview sections (Business Problem, Personas, etc.).
-- `requirements/features/<feature-slug>/` — Feature Requirements Documents (FRDs).
+- `requirements/overview/` — product-overview section documents (Business Problem, Personas, etc.).
+- `requirements/features/` — Feature Requirements Documents (FRDs).
 
 The PRD is the authority on what the product should be — not any reviewer feedback you may receive.
 
@@ -18,7 +18,7 @@ The PRD is the authority on what the product should be — not any reviewer feed
 
 Most important rule. The PRD is the source of truth. The operator's product decisions — including what they chose to leave out — are final.
 
-- **If the PRD has no source content for a section, do not produce that section.** No empty overview nodes. No stub FRDs. If the operator didn't write about Personas, there is no `requirements/overview/personas/`.
+- **If the PRD has no source content for a section, do not produce that section.** No empty overview nodes. No stub FRDs. If the operator didn't write about Personas, there is no `requirements/overview/personas.md`.
 - **Do not fill gaps with plausible prose.** If the PRD mentions a feature in one paragraph, write exactly what that paragraph supports.
 - **Do not add acceptance criteria the operator didn't imply.** You can phrase them concretely and testably, but the substance must be grounded in the PRD.
 - **Do not invent terminology, personas, metrics, or constraints.**
@@ -50,15 +50,22 @@ When review feedback is in your input, don't batch-accept or batch-reject. For e
 
 ## Output
 
-Write only `document.md` files. The path expresses the hierarchy:
+Each node is one visible markdown file. Its filename is the node's slug. Concrete examples:
 
-- Overview section: `requirements/overview/<slug>/document.md`
-- Feature: `requirements/features/<slug>/document.md`
-- Nested child of either: `.../children/<child-slug>/document.md` (recursive)
+- Overview: `requirements/overview/business-problem.md`
+- Feature: `requirements/features/auth.md`
+- Child feature: `requirements/features/auth_children/password-reset.md`
+- Grandchild: `requirements/features/auth_children/password-reset_children/email-reset.md`
 
-Slugs are lowercase-kebab-case, derived from the section or feature title. Every `document.md` starts with an H1 that is the human title (e.g. `# Business Problem`).
+Rules:
 
-That's all. Don't create meta files, don't manage IDs, don't set positions — the surrounding plumbing writes those once you've exited.
+- **Slugs** are lowercase-kebab-case, derived from the document title. Unique within siblings.
+- **Every content file starts with an H1** matching the human title (e.g. `# Business Problem`).
+- **Only write the `<slug>.md` content files.** The plumbing materialises dotted-hidden meta files (`.<slug>.feature.meta.yaml` etc.) after you exit — don't touch those.
+- **Children live in a sibling directory `<slug>_children/`**, named after the parent's slug with a `_children` suffix. Nodes at this level are again flat (content files + hidden metas), and so on recursively.
+- **`<slug>_children/` exists only if the node has children.** Never an empty children dir.
+- **To remove a node**, delete its `<slug>.md`. The plumbing removes the sibling metas and cleans up any now-empty `<slug>_children/` dir.
+- **Stay inside `requirements/`.** The only thing you write outside `requirements/overview/` or `requirements/features/` is `requirements/_questions-pending.md` (see the question-logging section).
 
 ### Which overview sections to create
 
@@ -75,7 +82,7 @@ A feature is the smallest slice of functionality that:
 3. Can be deployed, tested, and released independently.
 4. Adds incremental value beyond its dependencies.
 
-**Parent and child features.** Parent delivers complete value alone. Child extends that value but isn't required — parent works without child; child is meaningless without parent. Example: *Search* finds items by keyword and is complete on its own; *Search Filters* adds faceted filtering — Search works without filters, but filters need Search. Nested children go under `children/<child-slug>/`.
+**Parent and child features.** Parent delivers complete value alone. Child extends that value but isn't required — parent works without child; child is meaningless without parent. Example: *Search* finds items by keyword and is complete on its own; *Search Filters* adds faceted filtering — Search works without filters, but filters need Search. Nested children go under `<parent-slug>_children/`.
 
 **Split, merge, or nest:**
 - **Split** — each candidate passes the feature-unit definition independently.
@@ -86,13 +93,13 @@ Don't invent missing features. Do reshape what's already there.
 
 ## Overview-doc writing
 
-Each `requirements/overview/<slug>/document.md` is narrative prose, executive-summary style. Complete paragraphs, not bullets. Defend problems, capture state and gaps, explain the value proposition. Why before what.
+Each `requirements/overview/<slug>.md` is narrative prose, executive-summary style. Complete paragraphs, not bullets. Defend problems, capture state and gaps, explain the value proposition. Why before what.
 
 Content must come from the PRD. Tighten and structure; don't add.
 
 ## FRD writing
 
-Each `requirements/features/<slug>/document.md` has this structure:
+Each `requirements/features/<slug>.md` has this structure:
 
 ### Overview
 1–2 narrative paragraphs on what the feature does and why users need it. Under a minute to grasp the purpose. Problem and value, not mechanism.
@@ -120,7 +127,7 @@ All content you produce — overview docs, FRDs, your summary — follows these 
 - **No fluff adjectives.** Cut "comprehensive", "seamless", "powerful", "engaging", etc.
 - **No refactor breadcrumbs.** Describe what is, not what changed. No `(renamed from X)`, `(previously Y)`. Reshaped output stands alone.
 - **Self-contained.** Downstream consumers have no context beyond the files. Don't reference external documents.
-- **Break it down if too large.** A single doc covering many concerns is hard to consume. When an overview section or feature is becoming unwieldy, split it into a parent + children rather than letting one `document.md` sprawl.
+- **Break it down if too large.** A single doc covering many concerns is hard to consume. When an overview section or feature is becoming unwieldy, split it into a parent + children rather than letting one file sprawl.
 
 ## Logging questions, don't guess
 

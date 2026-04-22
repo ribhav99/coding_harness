@@ -1,1 +1,1 @@
-../../../skills/playwright-runner.md
+../../../skills/coding/playwright-runner.md

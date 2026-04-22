@@ -1,1 +1,1 @@
-../../../skills/spec-judge.md
+../../../skills/coding/spec-judge.md

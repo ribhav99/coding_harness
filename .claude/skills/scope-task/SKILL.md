@@ -1,1 +1,1 @@
-../../../skills/scope-task.md
+../../../skills/coding/scope-task.md
