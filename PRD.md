@@ -215,7 +215,6 @@ When the PRD is ready, the operator triggers the Requirements Loop.
 
 The generator is iterative: reads any existing overview+features trees first and edits what needs changing rather than regenerating from scratch on every run.
 
-(The skill is still called `prd-to-frds` for continuity, but functionally it now produces both overview and feature trees. Worth renaming later — see §8.)
 
 **Reviewers** (fanned out via Task tool after the generator believes it's ready):
 - `req-spec-judge` — each FRD (and overview section) matches structural expectations (sections present, requirements have REQ-IDs + user stories + acceptance criteria in testable form; overview prose is narrative not bullety).
@@ -274,7 +273,7 @@ This materially differs from Software Factory. SF's work orders are grouped into
 
 **Sequence generation** (runs once at the start of a `coding-loop` invocation whenever there are no ready work orders OR blueprints have changed since the last generation — recorded as a hash in `work-orders/.sequence.meta.yaml`):
 
-- Generator runs with `blueprint-to-tasks` and `scope-task`. Reads every approved blueprint, produces an ordered list of work orders, scopes each one into the standard scoped-task body (§5.4.3), and writes them to `work-orders/wo-NNN/` with proper `blocked_by[]` and `sort_order` in each `.work-order.meta.yaml`. Existing work orders are read first so partial regeneration works (blueprint change → only the affected work orders are re-scoped).
+- Generator runs with `blueprint-to-tasks` and `scope-task`. Reads every approved blueprint, produces an ordered list of work orders, scopes each one into the standard scoped-task body (§5.4.1), and writes them to `work-orders/wo-NNN/` with proper `blocked_by[]` and `sort_order` in each `.work-order.meta.yaml`. Existing work orders are read first so partial regeneration works (blueprint change → only the affected work orders are re-scoped).
 - Reviewers fan out: `wo-scoping-judge` (each WO atomic, observable outcome, doesn't bundle), `wo-coverage-judge` (union of work orders covers every blueprint's delivery surface), `wo-dependency-judge` (graph acyclic, no reference to not-yet-produced interfaces, sort order consistent with dependencies).
 - On pass, all work orders land with `status: ready`.
 
@@ -299,7 +298,7 @@ This materially differs from Software Factory. SF's work orders are grouped into
 
 **Queue drain.** By default, a single `coding-loop` invocation drains all work orders whose dependencies are ready, in order. A `--one` flag runs one work order and exits. A `--gen-only` flag runs only the sequence-generation step without executing any implementation.
 
-#### 5.4.3 Scoped-task format
+#### 5.4.1 Scoped-task format
 
 Every work-order body is in this shape. The `scope-task` skill produces it during sequence generation; the operator (or a failing sequence-gen reviewer) can edit it. Consistent format means the implementation generator always knows where to find each piece of information.
 
@@ -330,7 +329,7 @@ Optional. Hints about files, approach, libraries. Never prescriptive — the gen
 
 **Scope is the load-bearing concept.** All scopes across all work orders must compose into the whole blueprint surface without gaps or overlap. `In scope` + `Out of scope` + `Produces` carry the contract. If scoping is sloppy, work orders either leave gaps or double up — both wreck execution. `wo-coverage-judge` and `wo-scoping-judge` during sequence generation are the last line of defense before this propagates into execution.
 
-#### 5.4.4 Gap filing
+#### 5.4.2 Gap filing
 
 Any autonomous-loop session (requirements, blueprint, or coding) can file a gap when it encounters out-of-scope missing work. The capability keeps the harness honest about what it's seeing without blowing the current artifact's scope. Most common in the coding loop; possible in the others.
 
@@ -342,7 +341,7 @@ Any autonomous-loop session (requirements, blueprint, or coding) can file a gap 
 **What the agent does:** calls the `file-gap` skill with a title, a body describing the gap, and (optionally) a category hint like `refactor | bug | security | infra | requirements | blueprint`.
 
 **What the skill does mechanically:**
-1. Allocates the next `wo-<n>` number for the project.
+1. Allocates the next `wo-NNN` number for the project (zero-padded for lexicographic sort).
 2. Creates `work-orders/_inbox/{wo-n}/` containing `description.md` (the body) and `.work-order.meta.yaml` (`status: backlog`, `type` from the category hint, `parent_id` set to the originating work order's id when in the coding loop, or a note of the originating FRD/blueprint path when in the upstream loops).
 3. Description includes a back-reference.
 4. Returns the new work order's path to the agent so it can mention it in its final output.
@@ -367,7 +366,7 @@ Any autonomous-loop session (requirements, blueprint, or coding) can file a gap 
 Entry points (subcommands off `python -m orchestrator`):
 - `requirements-loop` — drives Stage 2 (§5.2).
 - `blueprint-loop` — drives Stage 3 (§5.3).
-- `coding-loop` — drives Stage 4 (§5.4). Equivalent to the old `run`.
+- `coding-loop` — drives Stage 4 (§5.4).
 - `status` — prints current loop state, bubble-up pauses, ready-work-order count.
 
 The operator runs one subcommand at a time. Loops are not daemons.
@@ -419,7 +418,7 @@ Target: ≤ 600 lines of Python across the orchestrator. The three loop subcomma
 
 ### 6.2 Local planner + optional outbound mirrors
 
-The canonical task queue lives on disk at the project repo's root. One repo per project. The orchestrator reads from and writes to this layout directly — there is no abstraction layer between the orchestrator and the local files, because there is only one queue. The pluggability that previously sat at the queue level moves to a separate, optional outbound sync layer: zero or more `Mirror` adapters that push local state to external systems (Software Factory, GitHub Projects, etc.). Mirrors are convenience; local persists regardless.
+The canonical task queue lives on disk at the project repo's root. One repo per project. The orchestrator reads from and writes to this layout directly — there is no abstraction layer between the orchestrator and the local files, because there is only one queue. Pluggability lives at a separate, optional outbound sync layer: zero or more `Mirror` adapters that push local state to external systems (Software Factory, GitHub Projects, etc.). Mirrors are convenience; local persists regardless.
 
 #### 6.2.1 On-disk layout
 
@@ -446,10 +445,10 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
   work-orders/                         # generated in Stage 4 (flat, no phase groupings)
     .sequence.meta.yaml                # blueprints hash + generation timestamp (for change detection)
     wo-NNN/
-      description.md                   # scoped-task body (§5.4.3)
+      description.md                   # scoped-task body (§5.4.1)
       .work-order.meta.yaml            # id, status, priority, type, parent_id, sort_order, blocked_by[], blueprint_ids[]
       children/                        # subtasks (rare; most work orders are leaf)
-    _inbox/                            # gaps filed by any loop (§5.4.4); operator triages
+    _inbox/                            # gaps filed by any loop (§5.4.2); operator triages
   artifacts/{folder-slug}/...          # Artifact folder tree
   harness/
     state/<task_id>.json               # per-work-order state (§6.3)
@@ -461,7 +460,7 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
 
 **Key shape facts:**
 - **`PRD.md` at root.** The operator-authored monolithic PRD (Stage 1). Input to the requirements loop; never edited by any autonomous loop.
-- **`requirements/` is generated.** Flat `overview/` and `features/` sibling trees under it, matching bnl-pre-packpilot and the `sync_from_sf.py` output. Each node directory holds its meta + `document.md` flat. `.requirements.meta.yaml` is `{id}` only. `children/` only exists when a node has actual children.
+- **`requirements/` is generated.** Flat `overview/` and `features/` sibling trees under it. Each node directory holds its meta + `document.md` flat. `.requirements.meta.yaml` is `{id}` only. `children/` only exists when a node has actual children.
 - **`work-orders/` is flat** (no phase groupings). Work-order directories sort lexicographically by `wo-NNN` name with leading zeros; `sort_order` in `.work-order.meta.yaml` provides the canonical order; `blocked_by[]` provides dependency constraints. Together these encode everything SF used phase groupings for.
 - **`.sequence.meta.yaml`** at the work-orders dir level records the hash of the blueprint tree at the time the sequence was generated. On each `coding-loop` run, the orchestrator compares the current blueprint hash to this; if changed, it triggers a regeneration before draining.
 
@@ -532,7 +531,7 @@ mirrors:                           # empty list = local-only (v0.1 default)
     project_id: 0f1e2d3c-4b5a-6978-8765-432101234567
 ```
 
-#### 6.2.4 Code surface (unchanged)
+#### 6.2.4 Code surface
 
 Code-level operations — branch, push, PR open, PR comment — are always GitHub via `gh` and `git`, wrapped in `orchestrator/git_ops.py`. Not abstracted; not a "backend." The local planner does not know about PRs, and the git layer does not know about work-order metadata. The orchestrator stitches them together.
 
@@ -628,7 +627,7 @@ Loop-level state file example (`harness/state/blueprint-loop.json`):
 `status` on loop-level state adds `awaiting_decisions` to the canonical enum (blueprint loop only).
 
 Field rules:
-- `task_id` is the harness-stable identifier used everywhere in `harness/` paths, log names, and cross-references. Format: `wo-<n>` (per-project work-order number).
+- `task_id` is the harness-stable identifier used everywhere in `harness/` paths, log names, and cross-references. Format: `wo-NNN` (per-project work-order number, zero-padded for lexicographic sort).
 - `local.*` is a denormalized snapshot of the work order's location and identity in the project repo. `path` is relative to the project repo root. Refreshed by the orchestrator from `.work-order.meta.yaml` on every read; never edited by hand. The on-disk meta file is canonical; this block is a convenience copy.
 - `status` uses the canonical enum: `backlog` | `ready` | `in_progress` | `done`. Mirrors `.work-order.meta.yaml`.
 - `session_count` — how many generator sessions this task has required. Usually 1; increments only if the orchestrator has to respawn (timeout, crash).
@@ -669,11 +668,11 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 
 **Manual-stage skill (operator-driven interactive Claude Code session):**
 
-- `prd-authoring` *(LLM work)* — interactive PRD authoring. Helps the operator draft and refine the single monolithic `PRD.md` at the project repo's root. Output is one file, not a tree — the requirements loop does the decomposition. Modeled on SF's `requirements_agent` system prompt (see `sf-platform/backend/software_factory/modules/requirements/agents/prompts/requirements_prompts.py`): role as product manager, clarification policy (ambiguous → ask; specific → act; middle → propose + ≤2 questions), overview-style writing rules (narrative prose, active voice, no fluff, WHAT not HOW). The operator writes detailed feature descriptions; formal feature-unit scoping is deferred to `prd-to-frds`. Uses Claude Code's filesystem tools (Read/Write/Edit) instead of SF's document CRUD API. **Also handles critique on demand** — when the operator asks for review, the same skill applies SF's single/cross-document review rubric (CONFLICT / MISSING / AMBIGUOUS / DUPLICATION, critical-only filter) in-line. No separate review skill.
+- `prd-authoring` *(LLM work)* — interactive PRD authoring. Helps the operator draft and refine the single monolithic `PRD.md` at the project repo's root. Output is one file, not a tree — the requirements loop does the decomposition. Role as product manager; clarification policy (ambiguous → ask; specific → act; middle → propose + ≤2 questions); overview-style writing rules (narrative prose, active voice, no fluff, WHAT not HOW); no-fabrication and no-refactor-breadcrumb discipline. The operator writes detailed feature descriptions; formal feature-unit scoping lives in `prd-to-frds`. Uses Claude Code's filesystem tools (Read/Write/Edit). **Also handles critique on demand** — when the operator asks for review, the same skill applies a CONFLICT / MISSING / AMBIGUOUS / DUPLICATION / STALE rubric (critical-only filter) in-line. No separate review skill.
 
 **Requirements-loop skills** (autonomous; `requirements-loop` generator pulls in these):
 
-- `prd-to-frds` *(generator, LLM work)* — reads `PRD.md` at project repo root, decomposes it into the full structural tree under `requirements/` — both `overview/{section-slug}/` (business problem, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix) *and* `features/{feature-slug}/`. Applies SF's feature-unit scoping definition (standalone value, implementation footprint, independent deployability, incremental value) and the split/merge/nest heuristics to turn the operator's PRD-level feature descriptions into correctly-scoped FRDs — this is where formal feature shaping lives, not in `prd-authoring`. Iterative: reads existing trees on every session and only edits what needs changing. (Despite the name, it produces both overview and feature docs. Rename candidate — see §8.)
+- `prd-to-frds` *(generator, LLM work)* — reads `PRD.md` at project repo root, decomposes it into the full structural tree under `requirements/` — both `overview/{section-slug}/` (business problem, personas, product description, success metrics, measurement, phases, audit/compliance, technical requirements, appendix) *and* `features/{feature-slug}/`. Applies the feature-unit scoping definition (standalone value, implementation footprint, independent deployability, incremental value) and the split/merge/nest heuristics to turn PRD-level feature descriptions into correctly-scoped FRDs — this is where formal feature shaping lives, not in `prd-authoring`. Iterative: reads existing trees on every session and only edits what needs changing.
 - `req-spec-judge` *(reviewer, LLM-as-judge)* — each FRD matches structural expectations: sections present, requirements have REQ-IDs + user stories + testable acceptance criteria. Single-doc check, fanned out once per FRD.
 - `req-cross-doc-judge` *(reviewer, LLM-as-judge)* — whole-tree consistency: contradictions between FRDs, terminology drift, duplication across FRDs.
 - `req-coverage-judge` *(reviewer, LLM-as-judge)* — union of FRDs covers the PRD's scope without gaps or overlaps.
@@ -689,7 +688,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 **Coding-loop skills — sequence generation** (autonomous, runs at the start of a coding-loop invocation when needed):
 
 - `blueprint-to-tasks` *(generator, LLM work)* — reads approved blueprints, produces an ordered list of work orders with dependency graph. No phase grouping — flat sequence with `blocked_by[]` + `sort_order`.
-- `scope-task` *(generator, LLM work)* — fleshes each work order into the standard scoped-task body (§5.4.3). Co-invoked with `blueprint-to-tasks`.
+- `scope-task` *(generator, LLM work)* — fleshes each work order into the standard scoped-task body (§5.4.1). Co-invoked with `blueprint-to-tasks`.
 - `wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge` *(reviewers, LLM-as-judge)* — per §5.4.
 
 **Coding-loop skills — sequence execution** (autonomous, one subprocess per work order — the pre-existing design):
@@ -703,7 +702,7 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 
 **Cross-loop skills:**
 
-- `file-gap` *(tool-wrapper)* — any autonomous-loop session can file a gap when it encounters out-of-scope missing work (§5.4.4). Creates a new `backlog` work order in `work-orders/_inbox/`. Usable from any loop; gaps always land as coding-loop work orders regardless of which loop discovered them (the operator can re-route during triage).
+- `file-gap` *(tool-wrapper)* — any autonomous-loop session can file a gap when it encounters out-of-scope missing work (§5.4.2). Creates a new `backlog` work order in `work-orders/_inbox/`. Usable from any loop; gaps always land as coding-loop work orders regardless of which loop discovered them (the operator can re-route during triage).
 
 Each LLM-as-judge skill runs as a Task-tool subagent in a fresh Claude Code context — the judge only sees the inputs the generator passes it (file paths, artifact contents, prior rationales), not the generator's session history. Each subagent's return value feeds back into the generator; the generator aggregates them into its final summary.
 
@@ -853,7 +852,7 @@ Runs at the start of a `coding-loop` invocation when work orders need to be (re)
 - **`wo-coverage-judge`** — union of work orders covers every blueprint's delivery surface. Reads blueprints + work-order tree. No gaps, no overlaps.
 - **`wo-dependency-judge`** — `blocked_by[]` graph acyclic; no work order references an interface produced by a not-yet-defined work order; `sort_order` consistent with dependencies.
 
-### 7.4 Coding loop — per-work-order execution (6 gates, existing)
+### 7.4 Coding loop — per-work-order execution (6 gates)
 
 Two execution gates + four LLM-as-judge gates.
 
@@ -881,7 +880,7 @@ Fastest-first ordering for short-circuit: tests → playwright → spec → regr
 - **Sequence-regeneration trigger.** Coding loop regenerates the sequence when blueprints change. The `.sequence.meta.yaml` hash is the check, but *which* blueprint changes trigger full vs incremental re-gen is TBD. Start simple: any blueprint hash change → full re-gen; optimize later if wasteful.
 - **`prd-to-frds` naming.** The skill name is misleading now that it also produces overview docs. Candidate renames: `prd-decomposer`, `prd-to-requirements-tree`, `decompose-prd`. Rename in v0.2 or v1.0.
 - **Concurrent loop runs.** v1 runs one loop at a time. Can coding-loop execution drain in parallel with a blueprint-loop re-run (for a different area)? Plausible — different artifact trees, no conflict — but deferred.
-- **Software Factory mirror.** Outbound sync to SF deferred until SF ships an upload API. Local layout already mirrors SF's entity model so integration is mechanical. Independently, the operator periodically diffs SF's prompt repository against local prompts in ad-hoc sessions to harvest improvements; no tooling needed.
+- **Software Factory mirror.** Outbound sync to SF deferred until SF ships an upload API. Local layout already mirrors SF's entity model so integration is mechanical.
 - **GitHub Projects mirror.** Optional read-mostly kanban for off-laptop visibility. Deferred.
 - **Distribution mechanism.** Copy-per-project initially. Reconsider as Claude Code plugin, Python package, or git submodule after the second project.
 - **Failure-recovery heuristics.** When should the orchestrator respawn a loop generator vs give up? Start with wall-clock cap + manual operator triage; refine based on observed failure modes.
