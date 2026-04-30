@@ -11,7 +11,7 @@ A reusable harness for running long-horizon software engineering work through Cl
 
 1. **Manual PRD authoring.** Operator writes a single `PRD.md` at the project repo's root with the `prd-authoring` skill (interactive, Claude-assisted). One monolithic prose document.
 2. **Requirements Loop** (autonomous, with non-blocking clarification questions). Reads the root `PRD.md` and decomposes it into the full structural tree: product-overview sections (business problem, personas, product description, success metrics, etc. — the `requirements/overview/` tree) *and* Feature Requirements Documents (`requirements/features/` tree). Reviews against four rubrics (spec structure, cross-doc consistency, PRD-coverage, feature scoping) and iterates until all pass. When the PRD itself is ambiguous or contradictory, the generator logs questions to `requirements/_questions-pending.md` and keeps working on everything else; the operator resolves by editing `PRD.md`.
-3. **Blueprint Loop** (autonomous, with non-blocking user bubble-ups). Produces technical blueprints from approved FRDs. When the generator hits a decision that requires operator judgment (tech stack, major architecture pattern), it records the decision in `blueprints/_decisions-pending.md` — pre-populated with options and pros/cons so the operator can scan and pick quickly — and keeps generating everything else, leaving TBD markers where the decision matters. The loop exits either when all reviewers pass and there are no open decisions (full pass), or when it has done as much as it can and can't make further progress without operator input (`awaiting_decisions`). The operator reviews the decisions doc at leisure, fills in choices, and re-triggers the loop. Cycle continues until all decisions are resolved and all reviewers pass.
+3. **Blueprint Loop** (autonomous, with non-blocking clarification questions). Produces technical blueprints from approved FRDs across three blueprint types (container, component, feature). When the generator hits an architectural choice that requires operator judgment (tech stack, framework, hosting model, ORM, auth provider), it logs a question to `blueprints/_questions-pending.md` and keeps generating everything else. Questions can be bare ("what does X mean?") or carry 2–4 pre-researched options with pros/cons and a recommended default when the choice is genuine. The loop exits either when all reviewers pass and there are no open questions (full pass), or when it has done as much as it can and can't make further progress without operator input (`awaiting_clarification` — same exit verdict as the requirements loop). The operator answers in the file and re-triggers the loop. Cycle continues until all questions are resolved and all reviewers pass.
 4. **Coding Loop** (autonomous). Auto-generates an ordered work-order sequence from approved blueprints, then executes each work order in dependency order on `task/<id>` branches with its own reviewer stack and PR-per-work-order flow. No phases — one continuous task sequence. This materially differs from SF's human-team model; our work orders are agent-consumed and can be much finer-grained, more ordered, and more mechanical.
 
 Each autonomous loop has the same shape: orchestrator spawns a generator → orchestrator spawns each reviewer → orchestrator aggregates verdicts → if any fail, orchestrator re-spawns the generator with the aggregated feedback → if all pass, artifact is committed. The orchestrator owns the loop; generators and reviewers are single-purpose subprocesses. Identical plumbing (state files, reviewer review files, PR comment mirroring) across all three loops.
@@ -22,7 +22,7 @@ The harness drives the Claude Code CLI as a subprocess from a Python orchestrato
 
 Local files are the source of truth. External systems like Software Factory are optional outbound mirrors, never alternative queues.
 
-The operator authors the PRD and supervises bubble-ups; the harness does everything else.
+The operator authors the PRD and answers loop clarification questions; the harness does everything else.
 
 ## 2. Context
 
@@ -43,11 +43,11 @@ One persona: the **single operator** running Claude Code on their own projects. 
 - A single operator takes a drafted PRD to a stream of merged pull requests without writing Python code between steps and without hand-authoring individual work orders.
 - Autonomous loops converge: a typical run passes within a bounded number of attempts. Exhaustion (hitting the retry cap) is rare, and when it happens the fix is almost always to improve the input artifact, not to patch the harness itself.
 - The harness is self-maintainable by one operator: adding a reviewer, tweaking a prompt, or adjusting the loop mechanic doesn't require a multi-person review cycle.
-- Per-loop operator involvement stays bounded: the operator reviews and responds to bubble-ups (blueprint-loop decisions, PR reviews), but doesn't do the authoring, decomposition, or scoping work the loops are meant to automate.
+- Per-loop operator involvement stays bounded: the operator answers clarification questions (requirements-loop and blueprint-loop) and reviews PRs, but doesn't do the authoring, decomposition, or scoping work the loops are meant to automate.
 
 ### Measurement
 
-State files under `harness/state/` log every loop run's duration, per-attempt reviewer verdicts, retry counts, push-back notes, and exhaustion events. Git history captures commit cadence across artifact trees. Operator-observable from these: bubble-up count per blueprint run, attempts-to-pass distribution per loop, time-from-trigger-to-pass, and which reviewers most often flag issues. No external telemetry; no dashboards. Trends surface through ad-hoc inspection.
+State files under `harness/state/` log every loop run's duration, per-attempt reviewer verdicts, retry counts, and exhaustion events; the live conversation transcripts in `requirements_communication/` and `blueprints_communication/` (snapshotted into `harness/state/reviews/<loop>/attempt-<N>/` at attempt boundaries) capture push-backs and reviewer reasoning. Git history captures commit cadence across artifact trees. Operator-observable from these: open-question count per blueprint run, attempts-to-pass distribution per loop, time-from-trigger-to-pass, and which reviewers most often flag issues. No external telemetry; no dashboards. Trends surface through ad-hoc inspection.
 
 ## 3. Goals & Non-Goals
 
@@ -72,11 +72,11 @@ State files under `harness/state/` log every loop run's duration, per-attempt re
 1. **Every generation step is a gen/review loop.** The same pattern — generator writes, reviewers judge, generator fixes — runs at three levels: requirements, blueprint, code. One loop mechanic, three sets of reviewers. Autonomy lives *inside* each loop; handoffs between loops are discrete, operator-visible gates.
 2. **Verification and generation quality are co-equal.** The harness must confirm the artifact is correct (verification) *and* that it will hold up as input to the next loop (quality). A passing but incoherent FRD wrecks the blueprint loop; a passing but hand-wavy blueprint wrecks the coding loop. The reviewer stack at each level is designed to prevent the downstream failure, not just the local one.
 3. **Claude Code is the runtime.** The orchestrator never makes direct Anthropic API calls. Every model interaction happens through `claude -p`.
-4. **In-session work uses hooks; cross-session work uses Python.** Hooks are deterministic and reactive. The Python orchestrator is the only thing that initiates sessions, transitions state, enforces budgets, and detects bubble-up pauses.
+4. **In-session work uses hooks; cross-session work uses Python.** Hooks are deterministic and reactive. The Python orchestrator is the only thing that initiates sessions, transitions state, enforces budgets, and detects clarification-pending pauses.
 5. **The artifacts are ground truth.** Reviewers never trust generator self-reports. They read the written files (or `git diff` in the coding loop) and run gates.
 6. **Local files are the source of truth; external backends are optional outbound mirrors.** The canonical PRD, FRDs, blueprints, work orders, and execution state live at the project repo's root (`requirements/`, `blueprints/`, `work-orders/`, `artifacts/`, `harness/`). The orchestrator always reads from and writes to local files. Software Factory (or any future system) is a sync target, never the queue itself.
 7. **Machine-readable state for agents; human-readable artifacts for the operator.** Agents read and write JSON in `harness/state/`; the operator authors and reads markdown + meta files in the rest of the project repo. A sync script mirrors updates to PR comments on GitHub and, when configured, to external mirrors.
-8. **Bubble-ups are first-class, and non-blocking.** Both upstream autonomous loops surface operator-required input via append-only files that sit alongside their artifacts. The requirements loop logs PRD-clarification requests to `requirements/_questions-pending.md`; the blueprint loop logs architectural decisions to `blueprints/_decisions-pending.md` with pre-populated options and a recommended default. In both cases, the generator keeps producing everything that doesn't depend on the blocked input, and the loop only terminates as incomplete when it has done as much as it can. The operator resolves asynchronously; subsequent loop runs consume the answers and continue.
+8. **Clarification questions are first-class, and non-blocking.** Both upstream autonomous loops surface operator-required input via the same mechanism: an append-only `_questions-pending.md` file alongside the artifact tree (`requirements/_questions-pending.md` for the requirements loop, `blueprints/_questions-pending.md` for the blueprint loop). The block shape differs by loop because the response shape differs: requirements-loop questions are always bare ("what does X mean?", "did you intend Y or Z?") since the answer is "clarify the PRD" — there's nothing for the generator to pre-research; blueprint-loop questions are bare *or* carry 2–4 pre-researched options with pros, cons, and a recommended default when the choice is genuine (e.g. "Postgres vs DynamoDB"). In both loops, the generator keeps producing everything that doesn't depend on the blocked input, and the loop only terminates as incomplete when it has done as much as it can. The operator resolves asynchronously; subsequent loop runs consume the answers and continue. Both loops exit with the same `awaiting_clarification` verdict — one mechanism, one verdict, two file locations, two question shapes.
 
 ## 5. Architecture
 
@@ -88,10 +88,10 @@ The project lives in a single git repo containing the operator's `PRD.md` at the
 |---|---|
 | PRD / Product Overview authoring | Operator + `prd-authoring` skill (manual, interactive) |
 | FRD decomposition + review + iteration | Requirements loop (§6.2) |
-| Blueprint synthesis + review + iteration, decision bubble-ups | Blueprint loop (§6.3) |
+| Blueprint synthesis + review + iteration, clarification questions | Blueprint loop (§6.3) |
 | Work-order generation + scoping, per-work-order code execution | Coding loop (§6.4) |
 | Canonical artifacts (PRD, FRDs, blueprints, work orders) | Local files at project repo root |
-| Next-loop selection, status transitions, budget enforcement, session lifecycle, bubble-up pause detection | Python orchestrator |
+| Next-loop selection, status transitions, budget enforcement, session lifecycle, clarification-pause detection, communication-folder lifecycle | Python orchestrator |
 | Cross-session memory, handoff context | `harness/state/<id>.json` |
 | In-session enforcement: verdict-trailer validation, preventing premature stop | Claude Code hooks |
 | Reusable capabilities: generator prompts, reviewer judges, authoring assist | Skills |
@@ -103,7 +103,7 @@ The project lives in a single git repo containing the operator's `PRD.md` at the
 
 ## 6. Project Lifecycle
 
-One project, end to end. Four stages: a manual PRD-authoring stage followed by three autonomous loops. Each autonomous loop uses the same mechanic — orchestrator spawns a generator, then spawns each reviewer, aggregates verdicts, re-spawns the generator with aggregated feedback on any fail, commits on all-pass. The three loops share state-file plumbing, reviewer review files, PR-comment mirroring, and budget enforcement. They differ in generator skill, reviewer set, target artifact tree, and (for the blueprint loop) the dual completion condition (all reviewers pass AND decisions-doc empty).
+One project, end to end. Four stages: a manual PRD-authoring stage followed by three autonomous loops. Each autonomous loop uses the same mechanic — orchestrator spawns a generator, then spawns each reviewer; the generator and reviewers communicate bidirectionally through files in a per-loop communication folder (`<loop>_communication/<reviewer-name>.md`); the orchestrator aggregates `VERDICT:` lines from reviewer stdouts, re-spawns the generator on any fail, commits on all-pass. The three loops share state-file plumbing, communication-folder plumbing, reviewer review snapshots, PR-comment mirroring, and budget enforcement. They differ in generator skill, reviewer set, target artifact tree, and (for the upstream loops) the dual completion condition (all reviewers pass AND `_questions-pending.md` empty).
 
 ### 6.1 Stage 1 — Manual PRD authoring
 
@@ -141,38 +141,43 @@ The generator is iterative: reads any existing overview+features trees first and
 
 **Output.** Approved `requirements/overview/` and `requirements/features/` trees. State file records the iteration history. No PR is opened — the requirements tree is documentation; git commit history is the audit trail. The operator verifies the final state (`git diff`) before triggering the blueprint loop.
 
-### 6.3 Stage 3 — Blueprint Loop (autonomous, non-blocking bubble-ups)
+### 6.3 Stage 3 — Blueprint Loop (autonomous, non-blocking clarification questions)
 
 **Trigger.** `python -m orchestrator blueprint-loop`.
 
-**Generator.** Running with `frd-to-blueprint` and `foundation-blueprint-authoring`. For each FRD in `requirements/features/`, it produces a feature blueprint. For shared concerns spanning multiple features (auth, data model, error handling, observability), it produces foundation blueprints first so feature blueprints can reference them without duplicating shared concerns. Output under `blueprints/` (layout deferred — see §9).
+**Generator.** A single `claude -p` subprocess running with the `frd-to-blueprint` skill. It reads `requirements/features/` and produces three kinds of blueprints under `blueprints/`:
 
-**Open design.** Blueprint artifact shape diverges from SF's — SF's blueprints are authored for humans who will read, debate, and hand off to teams; ours are read by an autonomous coding loop. Ours need tighter contracts (explicit interfaces, listed invariants, machine-readable dependency graphs) and less discursive prose. Pinning this is §9 work and happens at the start of the v0.2 milestone.
+- **Container blueprints** (`blueprints/containers/<slug>.md`) — one per deployable runtime (web app, API server, worker, database, pipeline). Tech stack, deployment model, entry points, system contracts, integration boundaries.
+- **Component blueprints** (`blueprints/components/<slug>.md`) — one per cross-cutting reusable capability (auth, notifications, file storage, observability). A cohesive group of runtime components powering one capability, possibly spanning containers.
+- **Feature blueprints** (`blueprints/features/<slug>.md`) — slug-matched 1:1 with `requirements/features/<slug>.md`. Documents how shared component blueprints compose to satisfy a feature, plus any feature-only components.
 
-**Non-blocking bubble-up mechanism.**
+The generator writes all three types itself — single skill, no sub-skill co-invocation. It is iterative: reads any existing blueprints tree first and edits what needs changing rather than regenerating from scratch on every run.
 
-Some decisions can't be made autonomously — tech stack, framework choice, hosting model, auth provider, ORM choice, major architectural pattern. The blueprint generator **does not stop when it hits one**. Instead:
+**Blueprint document shape.** Pinned. See `BLUEPRINT.md §11` (and the future `requirements/features/blueprint-document-shape.md` once that doc lands). Three types each with a fixed section order, a shared mention syntax (`#Component`, `` `Element` ``, `@Entity`), fenced ` ```component ` / ` ```model ` blocks, and an Architecture Decision Records section with `### ADR-NNN: Title` entries. Adopted from the SF blueprints module's seeded category presets, simplified for the harness's autonomous loop.
 
-1. Generator writes (or appends to) `blueprints/_decisions-pending.md`. Each open decision is a self-contained block with:
-   - **Title** — the decision, one line.
-   - **Context** — which FRD or foundation concern needs it, one paragraph.
-   - **Options** — 2–4 pre-researched choices, each with a one-sentence summary and a `Pros` / `Cons` pair. The generator does the homework so the operator doesn't have to.
-   - **Recommended default** — which option the generator would pick and why, one paragraph.
-   - **Your choice** — a blank field for the operator to fill in.
-2. Generator keeps working. Where the decision matters, the blueprint gets a `TBD: <decision-title>` marker referencing the pending decision. The generator produces as much of the rest of the blueprint tree as it can — everything independent of the decision is completed.
-3. Generator exits. Orchestrator spawns the four blueprint reviewers. Reviewers may pass on everything that's concrete; `bp-decision-judge` specifically tracks which open decisions the generator did vs didn't bubble up properly.
+**Non-blocking clarification questions.** When the generator hits an architectural choice that requires operator judgment — tech stack, framework, hosting model, auth provider, ORM, major architectural pattern — it does not stop. Same mechanism as the requirements loop:
+
+1. Generator appends a structured block to `blueprints/_questions-pending.md`. Each block is one of two shapes, picked by the generator per question:
+   - **Bare question** — when the answer isn't a choice between alternatives (e.g. "did you mean X or Y?", "which FRD does this relate to?"). Title, where (FRD slug or section), what's ambiguous, what would unblock, blank `Your answer:`.
+   - **Question with options** — when the choice is genuine (e.g. "Postgres vs DynamoDB", "JWT vs session cookies"). Title, where, context, 2–4 pre-researched options each with a one-sentence summary and `Pros`/`Cons`, a recommended default with rationale, blank `Your answer:`. The generator does the homework so the operator doesn't have to.
+
+   Don't fabricate options to fill the second shape — only use it when the choice is genuine.
+2. Generator keeps working on everything that doesn't depend on the blocked question. The blueprint may carry a brief `<!-- pending: <question-title> -->` comment where the answer matters; reviewers do not flag these as defects (they flag missing answers, not the comment style).
+3. Generator exits. Orchestrator spawns the four blueprint reviewers. Reviewers may pass on everything that's concrete; `bp-decision-judge` specifically tracks whether any high-impact decision was made silently without a question block.
 4. Orchestrator aggregates. Exit verdicts:
-   - **`pass`** — all reviewers pass *and* `_decisions-pending.md` has no unanswered decisions. Full completion.
-   - **`awaiting_decisions`** — reviewers pass on the current state, but open decisions remain and the generator can make no further progress without them. The orchestrator commits current progress, summarises pending decisions, exits. Operator resolves and re-triggers.
-   - (Plus the standard **`fail`** and **`exhausted`** outcomes — the former re-spawns the generator, the latter exits for operator inspection.)
-5. Operator reviews `blueprints/_decisions-pending.md` at their leisure. The doc is designed for fast scanning — decisions at a glance, pre-populated options, recommended default. Operator fills in each `Your choice:` line. Optionally renames resolved blocks to `_decisions-resolved-<timestamp>.md` for git-history audit, or leaves them in place for the generator to detect.
-6. Operator re-runs `python -m orchestrator blueprint-loop`. Generator reads the decisions doc, treats any answered decisions as resolved, picks up where it left off. Repeats the cycle until full `pass`.
+   - **`pass`** — all reviewers pass *and* `_questions-pending.md` has no unanswered questions. Full completion.
+   - **`awaiting_clarification`** — reviewers pass on the current state, but open questions remain and the generator can make no further progress without them. The orchestrator commits current progress, summarises pending questions, exits. Operator answers and re-triggers. (Same exit verdict as the requirements loop.)
+   - (Plus the standard **`fail`** and **`exhausted`** outcomes.)
+5. Operator answers in `blueprints/_questions-pending.md`. Fills in each `Your answer:` line. Optionally renames resolved blocks to `_questions-resolved-<timestamp>.md` for git-history audit.
+6. Operator re-runs `python -m orchestrator blueprint-loop`. Generator reads the questions doc, treats any answered questions as resolved, picks up where it left off. Repeats the cycle until full `pass`.
 
-The decisions file is the operator's async sync point with the loop. Treating it as an artifact (in git, in the blueprints tree) means it's versioned, mirror-surfaceable, and never gets lost.
+**Reviewer ↔ generator communication folder.** Live conversation between the generator and the four reviewers happens in `blueprints_communication/` at the project root (sibling to `blueprints/`). One file per reviewer (`bp-spec-judge.md`, `bp-coverage-judge.md`, `bp-consistency-judge.md`, `bp-decision-judge.md`). Append-only conversation transcripts; both sides read and write. The generator pushes back on findings it disagrees with by appending to the relevant reviewer's file; the reviewer reads the push-back on its next run and may revise its position. Race-free because the orchestrator runs gen→reviewers strictly sequentially per attempt, and reviewers each write only their own file. See `BLUEPRINT.md §1.8` for the full lifecycle (wipe on fresh invocation, snapshot to `harness/state/reviews/blueprint-loop/attempt-<N>/` at attempt boundaries, wipe on full pass, leave in place on `awaiting_clarification` and `exhausted`).
 
 **Reviewers.** Orchestrator spawns four: structural spec, FRD-to-blueprint coverage, cross-blueprint consistency, decision hygiene. See §8.2 for rubric detail.
 
-**Output.** Approved blueprints under `blueprints/` when all decisions are resolved and all reviewers pass. Commit history is the audit trail.
+**Interactive blueprint editing.** Outside the autonomous loop, the operator can invoke the `blueprint-authoring` skill (renamed from the prior `foundation-blueprint-authoring`) inside an interactive Claude Code session to refine specific blueprints. Same posture as `prd-authoring`. Not orchestrator-spawned; not part of the loop.
+
+**Output.** Approved blueprints under `blueprints/` when all questions are resolved and all reviewers pass. Commit history is the audit trail.
 
 ### 6.4 Stage 4 — Coding Loop (autonomous)
 
@@ -238,7 +243,7 @@ Optional. Hints about files, approach, libraries. Never prescriptive — the gen
 
 When the coding loop is built, its generator will need a way to file new work orders for out-of-scope missing work it discovers mid-execution — a missing prerequisite, a latent bug adjacent to changed code, a useful refactor that's not part of the current ticket. The mechanism: create a `backlog` work order under `work-orders/_inbox/wo-NNN/` with a back-reference to the originating work order. The operator triages on their own cadence; gaps never auto-promote to `ready`.
 
-The upstream loops do not file gaps — the requirements loop logs PRD-clarification questions to `requirements/_questions-pending.md` (§6.2), and the blueprint loop logs decisions to `blueprints/_decisions-pending.md` (§6.3). Different mechanisms because the response shape differs (clarify the source vs. pick from options vs. queue new code work).
+The upstream loops do not file gaps — both upstream loops log clarification questions to `_questions-pending.md` in their artifact tree (§6.2, §6.3). Different mechanisms from gap-filing because the response shape differs (clarify the source / pick an option vs. queue new code work).
 
 The gap-filing skill is deferred until the coding loop ships in v0.4.
 
@@ -248,7 +253,7 @@ The gap-filing skill is deferred until the coding loop ships in v0.4.
 
 Entry point: `python -m orchestrator <subcommand>`. Subcommands: `requirements-loop`, `blueprint-loop`, `coding-loop`, `status`. The operator runs one subcommand at a time; loops are not daemons. Each subcommand drives one autonomous loop, spawning generator and reviewer subprocesses per §6 and committing artifacts on pass.
 
-The orchestrator's full responsibilities: detect merged PRs and transition work orders to `done`, spawn generator and reviewer subprocesses with composed prompts, aggregate reviewer verdicts and decide retry vs pass vs exhaust, commit artifact changes on pass, post PR comments on coding-loop execution, handle the blueprint-loop `awaiting_decisions` exit.
+The orchestrator's full responsibilities: detect merged PRs and transition work orders to `done`, spawn generator and reviewer subprocesses with composed prompts, aggregate reviewer `VERDICT:` lines from stdout and decide retry vs pass vs exhaust, manage the per-loop communication folder (wipe on fresh invocation, snapshot to `harness/state/reviews/<loop>/attempt-<N>/` at attempt boundaries, wipe on full pass), commit artifact changes on pass, post PR comments on coding-loop execution, handle the upstream-loop `awaiting_clarification` exit (same verdict for both requirements and blueprint loops).
 
 ### 7.2 On-disk layout
 
@@ -273,23 +278,47 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
       .<slug>.feature.meta.yaml
       .<slug>.requirements.meta.yaml
       <slug>_children/...
+  requirements_communication/          # bidirectional gen↔reviewer channel for the requirements loop (§6.2)
+    prd-to-frds.md                     # generator's outbound (responses, push-backs, change-summaries)
+    req-spec-judge.md                  # one file per reviewer; appended-to by both sides
+    req-cross-doc-judge.md
+    req-coverage-judge.md
+    req-scoping-judge.md
   blueprints/                          # generated in Stage 3
-    _decisions-pending.md              # only present while decisions are open (§6.3)
-    _decisions-resolved-*.md           # optional audit-log of resolved decisions
-    ...                                # foundation + per-feature blueprints; layout TBD (§9)
+    _questions-pending.md              # only present while clarification questions are open (§6.3)
+    _questions-resolved-*.md           # optional audit-log of resolved questions
+    containers/                        # one blueprint per deployable runtime
+      <slug>.md
+      .<slug>.container.meta.yaml      # hidden; id, parent_id, position, title
+      .<slug>.requirements.meta.yaml
+    components/                        # one blueprint per cross-cutting capability
+      <slug>.md
+      .<slug>.component.meta.yaml
+      .<slug>.requirements.meta.yaml
+    features/                          # one blueprint per FRD; slug-matched 1:1 with requirements/features/<slug>.md
+      <slug>.md
+      .<slug>.feature.meta.yaml
+      .<slug>.requirements.meta.yaml
+  blueprints_communication/            # bidirectional gen↔reviewer channel for the blueprint loop (§6.3)
+    frd-to-blueprint.md                # generator's outbound
+    bp-spec-judge.md                   # one file per reviewer
+    bp-coverage-judge.md
+    bp-consistency-judge.md
+    bp-decision-judge.md
   work-orders/                         # generated in Stage 4 (flat, no phase groupings)
     .sequence.meta.yaml                # blueprints hash + generation timestamp (for change detection)
     wo-NNN/
       description.md                   # scoped-task body (§6.4.1)
       .work-order.meta.yaml            # id, status, priority, type, parent_id, sort_order, blocked_by[], blueprint_ids[]
       children/                        # subtasks (rare; most work orders are leaf)
-    _inbox/                            # gaps filed by any loop (§6.4.2); operator triages
+    _inbox/                            # gaps filed by the coding loop (§6.4.2); operator triages
   artifacts/{folder-slug}/...          # Artifact folder tree
   harness/
     state/<task_id>.json               # per-work-order state (§7.3)
     state/requirements-loop.json       # loop-level state
     state/blueprint-loop.json          # loop-level state
     state/coding-loop-seq-gen.json     # loop-level state for the sequence-generation step
+    state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer>.md   # snapshots from communication folders (upstream loops) or stdout (coding execution)
     logs/<task_id>/...                 # hook/session logs
 ```
 
@@ -302,7 +331,11 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
 
 A reference skeleton lives at `project-template/` inside this kit repo. Clone it into a new project repo to start.
 
-Blueprint and work-order subtrees are sketched above but their concrete document shapes are TBD (§9) — only `requirements/` has been pinned to the real SF-mirrored layout. Blueprint layout lands in v0.2; work-order shape lands in v0.3.
+**`blueprints/` subtree** has the same per-node shape as `requirements/` (visible `<slug>.md` plus two dotted-hidden meta files), divided into three subdirectories — `containers/`, `components/`, `features/` — corresponding to the three blueprint types. Feature-blueprint slugs are 1:1 with `requirements/features/<slug>.md` (enforced by `bp-coverage-judge`). Per-type document shape (sections, mention syntax, fenced blocks, ADRs) is pinned in `BLUEPRINT.md §11`.
+
+**Communication folders** (`requirements_communication/`, `blueprints_communication/`) sit at the project root, sibling to the artifact trees. Each holds one markdown file per agent in the loop (one for the generator, one per reviewer) — append-only conversation transcripts. Both the generator and the named reviewer read and write the file; the orchestrator wipes the folder on a fresh invocation and on full pass, snapshots it to `harness/state/reviews/<loop>/attempt-<N>/` at attempt boundaries, and leaves it in place on `awaiting_clarification` and `exhausted` for operator inspection. Lifecycle and race-condition argument live in `BLUEPRINT.md §1.8`.
+
+Work-order subtree shape is sketched above but its concrete document shape is TBD (§9). Work-order shape lands in v0.3.
 
 **Versioning:** none locally. Git history is the audit trail. Mirrors serialise only the current document state; if an external system maintains its own versioning, it does so on its end.
 
@@ -310,7 +343,7 @@ A local-planner module reads and writes the on-disk layout as a single concrete 
 
 ### 7.3 State files
 
-All loop and per-work-order state is JSON under `harness/state/`. Reviewer reviews are archived under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` — the orchestrator captures each reviewer subprocess's stdout (the reviewer's final chat message ending in a `VERDICT:` line) and writes it there; reviewers themselves never touch the filesystem. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
+All loop and per-work-order state is JSON under `harness/state/`. Reviewer reviews are archived under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`. For the upstream loops (requirements, blueprint), the orchestrator snapshots each reviewer's communication file from the live folder at attempt boundaries and on every loop-exit verdict — the reviewer wrote that file directly during the attempt (§6.2, §6.3). For the coding-loop's per-work-order execution, the orchestrator captures each reviewer subprocess's stdout (the reviewer's final chat message ending in a `VERDICT:` line) and writes it to the same archive path. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
 
 ### 7.4 Skills
 
@@ -323,9 +356,10 @@ Installed under `.claude/skills/`. Each is a short `SKILL.md` describing when an
 
 Each skill carries its own autonomy posture: no clarifying questions mid-loop, decide and proceed. Generators write artifact files to disk; reviewers output their review as the subprocess's final chat message (captured by the orchestrator as stdout).
 
-**Manual-stage skill (operator-driven interactive Claude Code session):**
+**Manual-stage skills (operator-driven interactive Claude Code sessions):**
 
 - `prd-authoring` *(LLM work)* — interactive PRD authoring. Helps the operator draft and refine the single monolithic `PRD.md` at the project repo's root. Output is one file, not a tree — the requirements loop does the decomposition. Role as product manager; clarification policy (ambiguous → ask; specific → act; middle → propose + ≤2 questions); overview-style writing rules (narrative prose, active voice, no fluff, WHAT not HOW); no-fabrication and no-refactor-breadcrumb discipline. The operator writes detailed feature descriptions; formal feature-unit scoping lives in `prd-to-frds`. Uses Claude Code's filesystem tools (Read/Write/Edit). **Also handles critique on demand** — when the operator asks for review, the same skill applies a CONFLICT / MISSING / AMBIGUOUS / DUPLICATION / STALE rubric (critical-only filter) in-line. No separate review skill.
+- `blueprint-authoring` *(LLM work)* — interactive blueprint editing. Helps the operator refine specific blueprints after the autonomous blueprint loop has run. Same posture as `prd-authoring`: ask-and-wait dialogue, no autonomous loop, role as senior engineer. Knows the three blueprint types (container / component / feature), the per-type structural shape (sections, mention syntax, fenced `component`/`model` blocks, ADRs — see `BLUEPRINT.md §11`), and the boundary-first / no-redefinition writing principles. Uses Read/Write/Edit. Renamed from the former `foundation-blueprint-authoring`; not orchestrator-spawned, not part of the loop.
 
 **Requirements-loop skills** (autonomous; `requirements-loop` generator pulls in these):
 
@@ -337,10 +371,8 @@ Each skill carries its own autonomy posture: no clarifying questions mid-loop, d
 
 **Blueprint-loop skills** (autonomous):
 
-- `frd-to-blueprint` *(generator, LLM work)* — per-FRD blueprint writer. Reads existing foundation + feature blueprints first to reuse shared patterns. Writes `TBD: <decision-title>` markers where open decisions block concrete content.
-- `foundation-blueprint-authoring` *(generator, LLM work)* — co-invoked by the blueprint-loop generator when a cross-feature concern needs pinning (auth, data model, error handling).
-- `bubble-up-decision` *(tool-wrapper)* — appends a structured open-decision block to `blueprints/_decisions-pending.md`: title, context, 2–4 options with pre-researched pros/cons, recommended default, empty `Your choice:` field. Pre-populating options is load-bearing — the operator shouldn't have to do research to pick. Non-blocking — the generator keeps working after calling this.
-- `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge` *(reviewers, LLM-as-judge)* — per §6.3. The decision-judge verifies (a) no silent decisions and (b) every TBD marker has a matching open block in the decisions doc.
+- `frd-to-blueprint` *(generator, LLM work)* — sole loop generator. Reads `requirements/features/`, the existing `blueprints/` tree (containers, components, features), `blueprints/_questions-pending.md`, and an **optional root `BLUEPRINT.md`** if the operator has authored one (a high-level architectural scratchpad treated as a starting input — not edited by the loop, not part of the canonical `blueprints/` tree). Produces all three blueprint types itself in a single skill — no sub-skill co-invocation. Writes structured question blocks (bare or with-options) to `blueprints/_questions-pending.md` for architectural choices that require operator judgment. Reads each reviewer's communication file in `blueprints_communication/` and appends per-finding responses (fix / push back / surface to operator) plus a change-summary on retries.
+- `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge` *(reviewers, LLM-as-judge)* — per §6.3 / §8.2. Each reads its own communication file in `blueprints_communication/<reviewer-name>.md`, runs its review, and appends the review block to that same file. The decision-judge verifies (a) no high-impact decision was silently made by the generator without writing a question block, and (b) any unresolved architectural choice has a matching open block in `blueprints/_questions-pending.md`.
 
 **Coding-loop skills — sequence generation** (autonomous, runs at the start of a coding-loop invocation when needed):
 
@@ -357,20 +389,26 @@ Each skill carries its own autonomy posture: no clarifying questions mid-loop, d
 - `security-judge` *(reviewer, LLM-as-judge)* — OWASP-class issues in the diff.
 - `quality-judge` *(reviewer, LLM-as-judge)* — structural + textual maintainability of the diff.
 
-Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the generator's summary from that attempt. Reviewers are spawned with `--disallowedTools Write,Edit,NotebookEdit,Bash` so they can't mutate the tree. The reviewer's final chat message is the review (captured by the orchestrator as stdout); the orchestrator greps the trailing `VERDICT:` line, archives the full stdout to disk, and aggregates.
+Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the path to its communication file. Reviewers in the upstream loops (requirements, blueprint) are spawned with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed so the reviewer can append its review to its own communication file, but a `PreToolUse` path-guard hook (§7.5) blocks any path other than that file. Reviewers in the coding-loop's per-WO execution stack run with the original `--disallowedTools Write,Edit,NotebookEdit,Bash` since they don't use the communication-folder mechanism. In all cases, the orchestrator greps the trailing `VERDICT:` line from the reviewer's stdout, archives the full review (from the communication file for upstream loops, from stdout for coding-loop execution), and aggregates.
 
 **Not skills** (and why):
 
-- State-file rotation, attempt counter, PR comment mirror, `execution.pr_*` refresh, status column transitions, decisions-file presence detection — all deterministic, all orchestrator code.
-- Verdict aggregation — orchestrator reads reviewer review files and computes pass/fail from their trailing `VERDICT:` lines.
+- State-file rotation, attempt counter, PR comment mirror, `execution.pr_*` refresh, status column transitions, questions-file presence detection, communication-folder lifecycle (wipe / snapshot) — all deterministic, all orchestrator code.
+- Verdict aggregation — orchestrator parses the trailing `VERDICT:` line from each reviewer subprocess's stdout. The full review prose lives in the communication file (upstream loops) or stdout (coding-loop execution); the orchestrator does not parse that body for control flow.
 
 ### 7.5 Hooks and agents
 
-Hooks enforce output contracts (generator summary ends with a recognised `VERDICT:` line; reviewer's final chat message ends with a `VERDICT: pass|fail` line). Agents are role-specialised prompts — one generator per loop (lead PM for requirements, lead engineer for blueprints, lead tech lead for sequence generation, IC for per-work-order execution) plus a reviewer subagent per rubric.
+Hooks enforce output contracts: a `Stop` hook on generators validates the stdout summary ends with a recognised `VERDICT:` line; a `Stop` hook on reviewers validates the final chat message ends with a `VERDICT: pass|fail` line (in-session enforcement layer); a `PreToolUse` path-guard hook on upstream-loop reviewers (requirements, blueprint) blocks any `Write`/`Edit` call whose target path is not exactly the reviewer's own `<loop>_communication/<reviewer-name>.md` file — required because those reviewers run with `Write`/`Edit` allowed (so they can append to their own communication file) but must not be able to mutate the artifact tree, the operator's questions file, or any other reviewer's communication file.
+
+Hooks are the in-session enforcement layer for verdict format. They cannot catch every case (a crashed subprocess, a truncated output, an output that bypasses or fools the hook). The orchestrator's **protocol-retry** mechanism is the post-exit recovery layer: when a reviewer subprocess exits with malformed stdout, the orchestrator re-prompts the same reviewer with a fresh `claude -p` subprocess and a corrective prompt that includes the malformed output verbatim. Capped at 2 protocol-retries per reviewer per attempt; if still malformed after that, the orchestrator records the incident in state and treats the verdict as `fail` for aggregation. Defense in depth — the loop should never wedge on a parser failure.
+
+A separate **rate-limit retry** layer handles transient Anthropic API throttling. When a `claude -p` subprocess exits with a recognised rate-limit error (the model never ran), the orchestrator pauses 30 seconds and re-spawns; if that retry also throttles, it pauses 60 seconds and re-spawns once more. After the second retry, the orchestrator records the incident and exits the loop with `exhausted`. Rate-limit retries don't consume the loop-level attempt budget or the protocol-retry budget — they're recovery from infrastructure, not from anything the model said.
+
+Agents are role-specialised prompts — one generator per loop (lead PM for requirements, lead engineer for blueprints, lead tech lead for sequence generation, IC for per-work-order execution) plus a reviewer subprocess per rubric.
 
 ## 8. Verification Stacks
 
-Each autonomous loop has its own verification stack. The loop mechanic is identical (orchestrator spawns each reviewer as a subprocess after the generator exits; reviewers emit a prose review as their final chat message ending in a `VERDICT:` line; orchestrator captures stdout, archives it to disk, aggregates, re-spawns generator on any fail, commits on all-pass); the gates differ.
+Each autonomous loop has its own verification stack. The loop mechanic is identical (orchestrator spawns each reviewer as a subprocess after the generator exits; reviewers in the upstream loops read and append to their communication file in `<loop>_communication/`; reviewers in the coding-loop execution stack emit their review as their final chat message; in all cases the reviewer's stdout ends with a `VERDICT:` line that the orchestrator parses; orchestrator aggregates, re-spawns generator on any fail, commits on all-pass); the gates differ.
 
 Each reviewer subagent runs in a fresh Claude Code context — judges do not cross-contaminate and the generator's session context doesn't balloon with reviewer transcripts.
 
@@ -395,12 +433,12 @@ All gates `fail`-blocking. Orchestrator spawns each reviewer as its own subproce
 
 Reviewer subagents (all LLM-as-judge):
 
-- **`bp-spec-judge`** — each blueprint matches structural expectations (exact shape TBD when artifact design lands in v0.2, §9).
-- **`bp-coverage-judge`** — every approved FRD has a blueprint; every foundation concern referenced by a feature blueprint is defined; no orphan blueprints; TBD markers only where a decision is pending.
-- **`bp-consistency-judge`** — cross-blueprint contracts align. If feature A depends on foundation X v2, foundation X blueprint defines v2 with compatible interfaces.
-- **`bp-decision-judge`** — two checks: (a) no high-impact decision was silently made by the generator without bubble-up; (b) every `TBD: <decision-title>` marker in a blueprint has a matching open block in `_decisions-pending.md`.
+- **`bp-spec-judge`** — each blueprint matches the per-type structural shape (`BLUEPRINT.md §11`): correct section order, required sections present, fenced ` ```component ` and ` ```model ` blocks well-formed (required keys, tab-indented bullets), ADR entries follow `### ADR-NNN: Title` + Context / Decision / Consequences. Fanned out per-blueprint so failures are attributable.
+- **`bp-coverage-judge`** — three checks: (a) every approved FRD has a feature blueprint with matching slug (`requirements/features/<slug>.md` ↔ `blueprints/features/<slug>.md`); (b) every `#Component` mention resolves to a `component` block defined somewhere in the tree, every `` `Element` `` mention has a definition (model block or schema reference), every `@Blueprint` mention resolves; (c) no orphan blueprints, and no high-impact architectural choice is left unresolved without a matching open block in `blueprints/_questions-pending.md`.
+- **`bp-consistency-judge`** — three checks: (a) cross-blueprint contracts align (if a feature blueprint composes component X assuming behavior Y, component blueprint X actually exposes Y); (b) **no-redefinition rule** — feature blueprints reference shared components rather than restating them; (c) **boundary-first rule** — container blueprints don't drift into internal wiring (which belongs in component blueprints).
+- **`bp-decision-judge`** — verifies no high-impact architectural decision (DB choice, framework, auth provider, hosting model, ORM) was silently made by the generator without writing a question block to `blueprints/_questions-pending.md`. Pairs with `bp-coverage-judge`'s open-question check.
 
-**Dual completion condition.** Unlike the other loops, `pass` on the blueprint loop requires *both* all four reviewers pass AND `_decisions-pending.md` has zero unanswered decisions. If reviewers pass but decisions remain, the loop exits `awaiting_decisions` (not `fail`) — artifact is committed, state is saved, operator resolves decisions and re-triggers. No blocking pause; the loop simply keeps moving forward as operator input becomes available.
+**Dual completion condition.** Same shape as the requirements loop: `pass` requires both all four reviewers pass AND `blueprints/_questions-pending.md` has zero unanswered questions. If reviewers pass but questions remain, the loop exits `awaiting_clarification` (not `fail`) — artifact is committed, state is saved, operator answers and re-triggers. One mechanism, one verdict, two file locations (`requirements/_questions-pending.md` for the requirements loop, `blueprints/_questions-pending.md` for the blueprint loop).
 
 ### 8.3 Coding loop — sequence generation (3 gates)
 
@@ -427,14 +465,13 @@ Fastest-first ordering for short-circuit: tests → playwright → spec → regr
 
 - Generator's `VERDICT:` trailer has every gate = `pass` (or `not_run` for gates that don't apply — e.g. `playwright` for pure-library work orders).
 - **Requirements / blueprint / sequence-generation passes**: orchestrator commits the artifact changes, writes a loop-level history entry, exits.
-- **Requirements `awaiting_clarification`**: orchestrator commits current progress (partial tree + updated questions doc), writes a history entry, prints an operator-facing summary of the open questions, exits. Not a failure state — operator clarifies in `PRD.md`, re-runs.
-- **Blueprint `awaiting_decisions`**: orchestrator commits current progress (blueprints with TBD markers + updated decisions doc), writes a history entry, prints an operator-facing summary of the open decisions, exits. Not a failure state — re-run consumes the operator's answers.
+- **`awaiting_clarification`** (either upstream loop): orchestrator commits current progress (partial tree + updated questions doc), writes a history entry, prints an operator-facing summary of the open questions, leaves the live communication folder in place for operator inspection, exits with code 2. Not a failure state — operator answers in the relevant `_questions-pending.md` (or, for requirements-loop questions, edits `PRD.md`), then re-runs.
 - **Per-work-order-execution pass** (existing): the PR already exists. Orchestrator posts a final pass-comment summarizing the verdict; notifies the operator. Status stays `in_progress` until merge. On merge, the next `coding-loop` invocation detects the merged PR (by branch `task/<task_id>`) and updates `.work-order.meta.yaml` to `done`.
 - Merge is always operator-driven. The harness never auto-merges. Committing requirements/blueprint/work-order artifacts is orchestrator-driven (no PR for upstream loops — the artifacts *are* the PR-review surface for the next loop).
 
 ## 9. Deferred / Open Questions
 
-- **Blueprint artifact shape.** SF blueprints are authored for human teams; ours are consumed by an autonomous coding loop. Ours likely need tighter contracts (explicit interfaces, listed invariants, machine-readable dependency graphs) and less discursive prose. On-disk layout under `blueprints/` and the fields of `.blueprint.meta.yaml` are not yet pinned. Will surface at the start of v0.2; the requirements loop can ship without this pinned.
+- ~~**Blueprint artifact shape.**~~ Resolved. Three blueprint types pinned: container, component, feature. Per-type document shape (sections, mention syntax, fenced `component`/`model` blocks, ADRs) adopted from the SF blueprints module's seeded category presets. On-disk layout (`blueprints/{containers,components,features}/<slug>.md` + `.<slug>.<kind>.meta.yaml` + `.<slug>.requirements.meta.yaml`) mirrors `requirements/`. Full contract in `BLUEPRINT.md §11`.
 - **Work-order artifact shape.** Same problem a level down. SF work orders are human-consumed and phase-grouped; ours are Claude-Code-consumed and flat-sequence. Ours need: tighter scope, more explicit acceptance criteria, machine-readable dependency graph, explicit verification-gate hooks per work order. Will surface at the start of v0.3.
 - **Sequence-regeneration trigger.** Coding loop regenerates the sequence when blueprints change. The `.sequence.meta.yaml` hash is the check, but *which* blueprint changes trigger full vs incremental re-gen is TBD. Start simple: any blueprint hash change → full re-gen; optimize later if wasteful.
 - **`prd-to-frds` naming.** The skill name is misleading now that it also produces overview docs. Candidate renames: `prd-decomposer`, `prd-to-requirements-tree`, `decompose-prd`. Rename in v0.2 or v1.0.
@@ -462,21 +499,25 @@ Ship order mirrors the operator's actual workflow — author the PRD, then itera
 - All four requirements-loop reviewer skills: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
 - Loop-level state file + verdict parsing.
 - `requirements/_questions-pending.md` mechanism and `awaiting_clarification` verdict wired up (dual completion condition: reviewers pass + zero open questions).
-- Hook: `Stop` on reviewer subagents validates two-line verdict format.
+- `requirements_communication/` folder lifecycle wired up: orchestrator wipes on fresh invocation, snapshots into `harness/state/reviews/requirements-loop/attempt-<N>/` at attempt boundaries, leaves in place on `awaiting_clarification` and `exhausted`, wipes on full pass.
+- Hooks: `Stop` on reviewer subprocesses validates the single-trailing-line `VERDICT: pass|fail` format; `PreToolUse` path-guard on reviewers blocks `Write`/`Edit` on any path other than the reviewer's own communication file.
+- Protocol-retry mechanism: orchestrator re-prompts a reviewer subprocess with a corrective new chat when its stdout exits with a malformed `VERDICT:` trailer; cap of 2 protocol-retries per reviewer per attempt before the verdict is recorded as `fail` and the loop continues.
+- Rate-limit retry mechanism: orchestrator pauses 30s then 60s on transient Anthropic rate-limit errors before re-spawning the subprocess; cap of 2 rate-limit retries before the loop exits with `exhausted`. Independent of the loop-level attempt budget and the protocol-retry budget.
 - No mirrors. Local only.
 
 **Exit criteria**: I author a PRD in a new project repo, run `requirements-loop`, and end up with a reviewed FRD tree I'm willing to blueprint against.
 
-### v0.2 — Blueprint Loop + non-blocking decisions
+### v0.2 — Blueprint Loop + non-blocking clarifications
 
-- Pin the blueprint artifact shape (on-disk layout, meta fields) based on requirements-loop learnings.
+- Blueprint artifact shape already pinned (three types: container / component / feature; full contract in `BLUEPRINT.md §11`). `blueprints/{containers,components,features}/` on-disk layout + meta files materialise per requirements-loop conventions.
 - `blueprint-loop` orchestrator subcommand.
-- `frd-to-blueprint` + `foundation-blueprint-authoring` generator skills.
-- `bubble-up-decision` skill that appends to `_decisions-pending.md` (pre-populated options + pros/cons + recommended default, non-blocking).
-- Orchestrator handles the `awaiting_decisions` verdict + dual completion condition (all reviewers pass AND zero open decisions = full pass).
+- `frd-to-blueprint` generator skill — single skill that writes all three blueprint types itself; appends question blocks to `blueprints/_questions-pending.md` (bare or with-options, options only when there's a genuine choice).
+- `blueprint-authoring` interactive skill (renamed from `foundation-blueprint-authoring`) — operator-invoked for post-loop blueprint editing; not orchestrator-spawned.
+- `blueprints_communication/` folder lifecycle wired up (same shape as requirements-loop).
+- Orchestrator handles `awaiting_clarification` for the blueprint loop (same verdict and mechanism as requirements loop) + dual completion condition (all reviewers pass AND zero open questions = full pass).
 - All four blueprint-loop reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
 
-**Exit criteria**: blueprint loop produces reviewed blueprints for the v0.1 project, with at least one real bubble-up cycle (loop stops with open decisions → I resolve → loop runs again and completes).
+**Exit criteria**: blueprint loop produces reviewed blueprints for the v0.1 project, with at least one real clarification cycle (loop stops with open questions → I answer → loop runs again and completes).
 
 ### v0.3 — Coding Loop sequence generation
 

@@ -2,7 +2,7 @@
 
 This section collects deferred work and open questions the PRD explicitly acknowledges but does not resolve. Each item is either scheduled to a later milestone or left as an operational question to be settled based on real usage.
 
-**Blueprint artifact shape.** Software Factory blueprints are authored for human teams; the harness's blueprints are consumed by an autonomous coding loop. The harness's blueprints likely need tighter contracts — explicit interfaces, listed invariants, machine-readable dependency graphs — and less discursive prose. The on-disk layout under `blueprints/` and the fields of `.blueprint.meta.yaml` are not yet pinned. This lands at the start of v0.2; the requirements loop can ship without it.
+**Blueprint artifact shape.** ~~Resolved.~~ Three blueprint types are pinned (container, component, feature) with per-type document structure adopted from the Software Factory blueprints module's seeded category presets, simplified for the harness's autonomous loop. On-disk layout `blueprints/{containers,components,features}/<slug>.md` plus dotted-hidden `.<slug>.<kind>.meta.yaml` and `.<slug>.requirements.meta.yaml` mirrors the requirements tree. Full contract in REQ-LAYOUT-006 and the project's blueprint document-shape contract.
 
 **Work-order artifact shape.** The same problem a level down. Software Factory work orders are human-consumed and phase-grouped; the harness's are Claude-Code-consumed and flat-sequence. The harness's work orders need tighter scope, more explicit acceptance criteria, a machine-readable dependency graph, and explicit verification-gate hooks per work order. This lands at the start of v0.3.
 

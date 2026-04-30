@@ -59,7 +59,7 @@ The operator needs this loop because per-work-order execution is where the harne
 - **AC-CL-006.3** — On first internal pass, the generator shall commit, push, and open a pull request using the `open-task-pr` skill (idempotent; safe to call again if the PR already exists).
 - **AC-CL-006.4** — The generator shall exit with a summary ending in a `VERDICT:` trailer.
 
-### REQ-CL-007 — Six per-work-order reviewer subagents
+### REQ-CL-007 — Six per-work-order reviewer subprocesses
 **User Story.** As an operator, I want every diff checked against tests, Playwright, spec, regression, security, and quality gates, so that merged code passes more than just a local test suite.
 - **AC-CL-007.1** — The orchestrator shall spawn `tests` (execution gate: `make test`; non-zero exit = fail).
 - **AC-CL-007.2** — The orchestrator shall spawn `playwright` (execution gate via `run-playwright-check`; blocking if the work order has any UI-visible criterion; skipped otherwise).
@@ -68,7 +68,7 @@ The operator needs this loop because per-work-order execution is where the harne
 - **AC-CL-007.5** — The orchestrator shall spawn `security-judge` (LLM-as-judge; OWASP Top 10 patterns: injection, auth/authz gaps, secret handling, input validation at boundaries, crypto misuse, unsafe deserialization, SSRF).
 - **AC-CL-007.6** — The orchestrator shall spawn `quality-judge` (LLM-as-judge; structural maintainability plus textual quality; does not re-verify correctness).
 - **AC-CL-007.7** — Reviewers shall be run in fastest-first order for short-circuit: tests → playwright → spec → regression → security → quality.
-- **AC-CL-007.8** — LLM reviewer subagents shall run in fresh Claude Code contexts with `--disallowedTools Write,Edit,NotebookEdit,Bash` and emit their review ending in a `VERDICT:` line.
+- **AC-CL-007.8** — LLM reviewer subprocesses shall run in fresh Claude Code contexts with `--disallowedTools Write,Edit,NotebookEdit,Bash` and emit their review ending in a `VERDICT:` line.
 
 ### REQ-CL-008 — Aggregation, retry, and PR comment mirroring
 **User Story.** As an operator, I want reviewer verdicts aggregated and a final summary posted to the PR, so that the PR page is the single place I go to assess a work order's readiness.
@@ -95,7 +95,7 @@ The coding loop is two loops fused into one orchestrator subcommand. Sequence ge
 
 Scope is the load-bearing concept during sequence generation. All scopes across all work orders must compose into the whole blueprint surface without gaps or overlap. `In scope` plus `Out of scope` plus `Produces` carry the contract; if scoping is sloppy, work orders either leave gaps (the coding loop produces nothing for part of a blueprint) or double up (two work orders both try to produce the same interface and the second one conflicts with the first). `wo-coverage-judge` and `wo-scoping-judge` are the last line of defense before this propagates into execution.
 
-During execution, the orchestrator's role stays at work-order granularity. The orchestrator spawns one generator per work order; the generator handles its own internal gen/review cycle, commits and pushes, and opens the PR. This means the session-internal loop — where Claude Code subagents evaluate the diff and push back for fixes — happens inside the single generator subprocess, not as an orchestrator cycle. The orchestrator only re-spawns the generator when the reviewer subagents it spawned after generator exit have flagged something the generator missed or failed to address.
+During execution, the orchestrator's role stays at work-order granularity. The orchestrator spawns one generator per work order; the generator handles its own internal gen/review cycle, commits and pushes, and opens the PR. This means the session-internal loop — where Claude Code subagents evaluate the diff and push back for fixes — happens inside the single generator subprocess, not as an orchestrator cycle. The orchestrator only re-spawns the generator when the reviewer subprocesses it spawned after generator exit have flagged something the generator missed or failed to address.
 
 The six execution reviewers are designed to catch failure modes that a test suite alone misses. Tests catch regressions in existing covered paths; Playwright catches UI behavior that does not have unit-level coverage; `spec-judge` catches code that passes tests but does not implement the acceptance criteria; `regression-judge` catches breakage to paths not yet covered by tests (shared utilities, sibling call sites); `security-judge` catches OWASP-class issues; `quality-judge` catches structural and textual issues that do not affect correctness but will rot the codebase over time. Run in fastest-first order, a failing cheap gate short-circuits the expensive LLM gates.
 

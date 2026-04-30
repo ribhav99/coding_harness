@@ -38,7 +38,8 @@ flowchart TB
     end
 
     Op -->|writes PRD via<br/>prd-authoring| Local
-    Op -->|resolves bubble-ups| Local
+    Op -->|resolves _questions-pending.md| Local
+    Op -->|edits with blueprint-authoring<br/>interactive skill| Local
     Op -->|reviews & merges PRs| Repo
     Local <-->|read/write artifacts| LoopR
     Local <-->|read/write artifacts| LoopB
@@ -50,7 +51,7 @@ flowchart TB
 
 ### 0.2 Project lifecycle
 
-All four stages, end to end. Stage 1 is manual; Stages 2–4 are orchestrator-driven autonomous loops. Reviewer-fail arrows are shorthand for "orchestrator re-spawns the generator with aggregated review context" — the orchestrator owns the retry decision, not the generator. See §1 for the full sequence.
+All four stages, end to end. Stage 1 is manual; Stages 2–4 are orchestrator-driven autonomous loops. Reviewer-fail arrows are shorthand for "orchestrator re-spawns the generator, which reads its inbox in the loop's `<loop>_communication/` folder for prior reviews and writes back its responses there" — the orchestrator owns the retry decision and the spawn order, not the message content. See §1 for the full sequence and §1.8 for the communication channel.
 
 ```mermaid
 %%{init: {'flowchart': {'nodeSpacing': 35, 'rankSpacing': 35, 'padding': 8}}}%%
@@ -70,31 +71,39 @@ flowchart TB
       OrchR{{orchestrator<br/>requirements-loop}}
       GenR[Generator<br/>prd-to-frds]
       RevR["Reviewers<br/>req-spec-judge<br/>req-cross-doc-judge<br/>req-coverage-judge<br/>req-scoping-judge"]
+      CommR[("requirements_communication/<br/>one file per reviewer<br/>bidirectional channel")]
+      QFileR[("requirements/_questions-pending.md<br/>PRD-clarification questions")]
       ReqTree[("requirements/<br/>overview/ + features/<br/>structural decomposition")]
       OrchR -->|spawns| GenR
       GenR -->|writes / edits| ReqTree
+      GenR -->|accumulates open questions| QFileR
+      GenR <-->|read prior reviews,<br/>write responses| CommR
       OrchR -->|spawns each| RevR
+      RevR <-->|read generator output,<br/>write review| CommR
       RevR -->|any fail| OrchR
       RevR -->|all pass| ReqTree
     end
     PRDdoc -->|operator triggers| OrchR
 
-    subgraph BpLoop [Stage 3 — Blueprint Loop - non-blocking bubble-ups]
+    subgraph BpLoop [Stage 3 — Blueprint Loop - non-blocking clarifications]
       direction TB
       OrchB{{orchestrator<br/>blueprint-loop}}
-      GenB[Generator<br/>frd-to-blueprint<br/>foundation-blueprint-authoring]
-      DecFile[("_decisions-pending.md<br/>options + pros/cons<br/>pre-populated")]
+      GenB[Generator<br/>frd-to-blueprint]
+      QFileB[("blueprints/_questions-pending.md<br/>structured Qs + optional<br/>pre-researched options")]
       RevB["Reviewers<br/>bp-spec-judge<br/>bp-coverage-judge<br/>bp-consistency-judge<br/>bp-decision-judge"]
-      BPs[("Blueprints<br/>blueprints/<br/>TBD where decisions open")]
+      CommB[("blueprints_communication/<br/>one file per reviewer<br/>bidirectional channel")]
+      BPs[("Blueprints<br/>blueprints/{containers,components,features}/")]
       Exit{Exit check}
       OrchB -->|spawns| GenB
       GenB -->|writes as much as it can| BPs
-      GenB -->|accumulates open decisions| DecFile
+      GenB -->|accumulates open questions| QFileB
+      GenB <-->|read prior reviews,<br/>write responses| CommB
       OrchB -->|spawns each| RevB
+      RevB <-->|read generator output,<br/>write review| CommB
       RevB -->|any fail| OrchB
       RevB -->|reviewable parts pass| Exit
-      Exit -->|decisions open,<br/>no more progress| OpDec[/awaiting_decisions/]
-      Exit -->|all clear + decisions empty| BPs
+      Exit -->|questions open,<br/>no more progress| OpDec[/awaiting_clarification/]
+      Exit -->|all clear + questions empty| BPs
       OpDec -.->|operator resolves in file| Op
       Op -.->|re-triggers loop| OrchB
     end
@@ -136,27 +145,27 @@ For each attempt of a loop, the orchestrator:
 
 1. **Spawns the generator.** Builds a prompt containing:
    - The generator's skill (e.g. `prd-to-frds`).
-   - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `_decisions-pending.md`; etc.).
-   - On retry attempts: prior attempt's generator summary + every reviewer's review + accumulated push-back notes (§2.3).
+   - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `blueprints/_questions-pending.md`; etc.).
+   - On retry attempts: a pointer to the loop's communication folder (`requirements_communication/` or `blueprints_communication/`) — the generator reads each reviewer's file directly to see prior reviews and its own prior responses (§1.8).
    - Attempt counter and remaining budget.
    Spawns `claude -p "<prompt>"`. Wall-clock cap enforced per subprocess.
 
-2. **Generator works and exits.** Reads inputs, writes or edits artifact files on disk, emits a stdout summary describing what it did and what it chose not to do (including any push-back on prior reviews), exits. Generator does not commit to git — the orchestrator owns commits.
+2. **Generator works and exits.** Reads inputs (including prior-attempt content from the communication files), writes or edits artifact files on disk, writes its responses (proposals, push-backs, change-summary) into each reviewer's communication file, emits a stdout summary, exits. Generator does not commit to git — the orchestrator owns commits.
 
-3. **Spawns each reviewer** as a separate `claude -p` subprocess, invoked with `--disallowedTools Write,Edit,NotebookEdit,Bash` so the reviewer can't mutate the tree even if its skill prompt or the artifacts it reads contain adversarial instructions. Denylist (not allowlist) so future Claude Code tool additions don't silently break the harness — we only care about blocking the mutation surface. Each reviewer's prompt contains:
+3. **Spawns each reviewer** as a separate `claude -p` subprocess. Reviewers run with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed but a `PreToolUse` hook (§9) blocks any path other than the reviewer's own communication file. Denylist (not allowlist) so future Claude Code tool additions don't silently break the harness — we only care about blocking the artifact-mutation surface. Each reviewer's prompt contains:
    - The reviewer's skill (e.g. `req-coverage-judge`).
-   - The generator's stdout summary from step 2.
+   - The path to the reviewer's communication file (e.g. `requirements_communication/req-coverage-judge.md`) — the reviewer reads it for the generator's current proposal and prior conversation, then appends its review to the same file.
    - Only the artifacts that reviewer needs to judge its rubric (e.g. coverage-judge gets `PRD.md` + the requirements tree; spec-judge gets only the FRDs it's checking).
-   Reviewers can run serially or in parallel — v0.1 runs them serially for simplicity.
+   Reviewers run in parallel — each writes only to its own communication file, so there's no contention.
 
-4. **Reviewers output reviews to stdout.** The reviewer's final chat message — captured as subprocess stdout — is the review. It ends with a `VERDICT: pass` or `VERDICT: fail` line. Reviewers don't write to any file; the orchestrator captures stdout and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` (§1.3). The reviewer skill has no path to remember.
+4. **Reviewers output reviews to their communication file plus a stdout verdict line.** The reviewer appends its full review to its `<reviewer-name>.md` file under the loop's communication folder. The reviewer's final chat message (captured as subprocess stdout) is a short acknowledgement ending with the `VERDICT: pass` or `VERDICT: fail` line — that's the only thing the orchestrator parses. The communication file is the durable channel; stdout carries only the verdict signal.
 
-5. **Orchestrator aggregates.** Greps the trailing `VERDICT:` line from every reviewer's captured stdout for this attempt. Three outcomes:
-   - **All pass** → commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`), write a final state entry, exit 0.
-   - **Any fail and attempt < cap** → assemble retry context (all reviews + prior summary + current on-disk state), spawn generator again (attempt N+1).
-   - **Any fail and attempt ≥ cap** → write `exhausted` verdict, leave files on disk uncommitted, exit 1 for operator inspection.
+5. **Orchestrator aggregates.** Greps the trailing `VERDICT:` line from every reviewer's captured stdout for this attempt. If a reviewer's stdout does not end with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`, the orchestrator treats the output as malformed and re-prompts that reviewer (§1.9 — protocol-retry). The aggregation step only runs once every reviewer has produced a parseable verdict (or has exhausted its protocol-retry budget). The full review content already lives in each reviewer's communication file — no archival step needed at this point. Three outcomes once verdicts are parseable:
+   - **All pass** → snapshot communication files into `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` for audit (§7.4), wipe the live communication folder, commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`), write a final state entry, exit 0.
+   - **Any fail and attempt < cap** → snapshot communication files into the per-attempt audit dir (so each attempt's transcript is preserved), spawn the generator again (attempt N+1) — the generator reads the live communication files for context, no orchestrator-assembled retry block needed.
+   - **Any fail and attempt ≥ cap** → snapshot the final attempt, write `exhausted` verdict, leave files on disk uncommitted, exit 1 for operator inspection.
 
-Blueprint loop has a fourth outcome (§1.5).
+Both upstream loops have a fourth outcome (§1.5).
 
 ### 1.2 Between-attempt git discipline
 
@@ -166,75 +175,103 @@ Exception: per-work-order execution in the coding loop commits as part of its PR
 
 ### 1.3 Reviewer output format
 
-Every reviewer outputs its review as its final chat message. The orchestrator captures that via `claude -p` stdout, greps the final line for `VERDICT: pass|fail`, and writes the full captured stdout to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` for audit. Reviewers don't touch the filesystem; they don't know the archive path or the current attempt number.
+Every reviewer reads its communication file (§1.8), runs its review, **appends** the review to that same file, and exits. The reviewer's stdout is a short acknowledgement ending with `VERDICT: pass` or `VERDICT: fail` — that's the only thing the orchestrator parses for loop control. The full review content lives in the communication file, which is the durable bidirectional channel between this reviewer and the generator across attempts.
 
-Shape (enforced by the reviewer skill; see `skills/requirements/req-*-judge.md`):
+Shape of the appended review block (enforced by the reviewer skill; see `skills/requirements/req-*-judge.md`):
 
+- A header line tagging the attempt number, e.g. `## Review — attempt 2`.
 - One or two sentences summarising what the reviewer found.
 - One short section per critical issue. Each section names the file path(s), states what's wrong in one or two sentences, gives the fix in one sentence, and tags a rubric category (`CONFLICT`, `MISSING`, `AMBIGUOUS`, `DUPLICATION`, `STALE`, or rubric-specific values like `COVERAGE`, `SCOPING`, `STRUCTURE`, `PARENT_CHILD`, `FABRICATED`, `BROKEN_REF`).
-- A single final line, on its own, containing exactly `VERDICT: pass` or `VERDICT: fail`.
+- A single final line in the appended block, on its own, containing exactly `VERDICT: pass` or `VERDICT: fail`. The same `VERDICT:` line is also the last line of the reviewer's stdout, so the orchestrator can grep stdout without reading the file.
 
 Rules:
-- The orchestrator parses only the final `VERDICT:` line for loop control. Everything above it is free-form prose written for the next generator to read on retry.
+- The orchestrator parses only the final `VERDICT:` line of stdout for loop control. The communication file is the conversation transcript — generator and reviewer both read and write it; the orchestrator does not parse it for control flow.
+- Reviewers append, never overwrite. The communication file accumulates the full back-and-forth across attempts so both sides can see the conversation history.
 - Only critical issues appear in the body. Minor nits are noise.
 - Paths are relative to the project repo root.
-- No JSON, no schema, no retries on parse failure — the trailing line is grep-able and the full stdout travels as-is into the retry prompt and the archive file.
+- No JSON, no schema. Markdown-only.
 
-### 1.4 Retry context assembly
+### 1.4 Retry context — read from the communication folder
 
-When the orchestrator spawns the generator for attempt N+1, the retry-context prompt block contains:
+Under the previous design the orchestrator assembled a retry-context prompt block that inlined every prior review and push-back note. With the communication-folder design (§1.8), that block is gone — the generator reads each `<loop>_communication/<reviewer-name>.md` file directly and finds the full conversation transcript already on disk.
+
+What the orchestrator passes to the generator on retry:
 
 ```
-# Retry context — attempt N+1 of M (M = max_attempts)
+# Retry — attempt N+1 of M (M = max_attempts)
 
-## Prior attempt's summary
-<verbatim generator stdout from attempt N>
+The communication folder for this loop is at: <requirements_communication/ | blueprints_communication/>
+Each reviewer's full review history (and your responses) is in <reviewer-name>.md inside that folder.
 
-## Failing reviewers (attempt N)
-<inlined full stdout of each reviewer that emitted VERDICT: fail>
+Read every reviewer file before deciding what to change. Append your responses (per-finding disposition + change-summary) to the SAME files you read from. Do not overwrite prior content; append at the end.
 
-## Prior push-back notes (all prior attempts)
-<accumulated push-backs from prior summaries — see §2.3>
+## Failing reviewers this attempt
+<list of reviewer names whose VERDICT was fail on attempt N>
 
 ## Current working tree state
 <orchestrator-generated listing: which files changed since base, which are new>
 ```
 
-Passing reviewers are deliberately omitted — see §1.7 for why. The retry block is input to the generator's next run, not a state file it edits. The generator responds by writing a new summary that addresses each finding (fix, justify, or gap-file) and includes a change-summary per §1.7.
+Failing-reviewer names are listed so the generator knows which files it must respond to; passing reviewers are deliberately omitted from this list — see §1.7 for why. Their files still exist and the generator can read them, but the prompt does not foreground them. The generator responds by editing artifacts on disk **and** appending its responses (per-finding disposition + change-summary per §1.7) to each failing reviewer's communication file.
 
 ### 1.5 Non-failure "awaiting operator input" exits
 
-Two of the upstream loops can exit in a non-failure, non-pass state when they have produced as much as they can but need operator input to continue. Both are treated identically by the orchestrator: commit artifact progress, write a loop-state entry, print a summary of what's open, exit with code 2 (distinct from pass=0 and fail=1). Subsequent runs continue from the updated state once the operator has resolved the pending items.
+Both upstream loops can exit in a non-failure, non-pass state when they have produced as much as they can but need operator input to continue. **One mechanism across both loops:** an append-only `_questions-pending.md` file in the loop's artifact tree, and a single `awaiting_clarification` exit verdict. The orchestrator handles both the same way: commit artifact progress, write a loop-state entry, print a summary of what's open, exit with code 2 (distinct from pass=0 and fail=1). Subsequent runs continue from the updated state once the operator has resolved the pending items.
 
-**Requirements loop — `awaiting_clarification`**
-- Trigger: `PRD.md` has ambiguities, contradictions, or undefined references the generator flagged.
-- Operator input file: `requirements/_questions-pending.md`. Append-only during the loop.
-- Block format:
+**Both loops — `awaiting_clarification`**
+- Trigger:
+  - *Requirements loop:* `PRD.md` has ambiguities, contradictions, or undefined references the generator flagged.
+  - *Blueprint loop:* the generator hit a decision requiring operator judgment (tech stack, major architecture, auth provider, etc.).
+- Operator input file:
+  - *Requirements loop:* `requirements/_questions-pending.md`
+  - *Blueprint loop:* `blueprints/_questions-pending.md`
+  Append-only during the loop.
+- Block format — two shapes, picked by the generator per question:
+
+  *Bare question* (use when the answer isn't a choice between alternatives — e.g. "what does X mean?", "did you intend Y or Z?"):
   ```markdown
   ## <short question title>
 
-  **Where in PRD:** <section heading, or short verbatim quote>
-  **What's ambiguous:** <one paragraph>
-  **What would unblock:** <what the operator needs to add/clarify in PRD.md>
+  **Where:** <section heading, or short verbatim quote, or affected blueprint slug>
+  **What's ambiguous / what's needed:** <one paragraph>
+  **What would unblock:** <what the operator needs to add/clarify>
+
+  **Your answer:**
 
   ---
   ```
-- How the operator resolves: edits `PRD.md` to clarify, deletes the question block (or renames the file to `_questions-resolved-<timestamp>.md` for git audit), re-runs the loop.
-- No "options" field — the answer is "clarify the PRD", not "pick from a menu".
-- Full `pass` requires all four reviewers pass AND `_questions-pending.md` has no open questions.
 
-**Blueprint loop — `awaiting_decisions`**
-- Trigger: the generator hit a decision requiring operator judgment (tech stack, major architecture, auth provider, etc.).
-- Operator input file: `blueprints/_decisions-pending.md`. Append-only during the loop.
-- Block format: title, context, 2–4 pre-researched options with pros/cons, recommended default, blank `Your choice:` field.
-- How the operator resolves: fills in `Your choice:` lines, deletes resolved blocks (or renames the file to `_decisions-resolved-<timestamp>.md`), re-runs.
-- Full `pass` requires all four reviewers pass AND `_decisions-pending.md` has zero unanswered decisions.
+  *Question with options* (use only when there's a genuine choice between defensible alternatives — e.g. "Postgres vs DynamoDB", "JWT vs session cookies"). Pre-research is load-bearing here: the operator should not have to leave the file to pick.
+  ```markdown
+  ## <short question title>
+
+  **Where:** <section heading or affected blueprint slug>
+  **Context:** <one paragraph — why this decision matters now>
+
+  **Options:**
+  1. **<Option name>** — <one-sentence summary>
+     - Pros: <…>
+     - Cons: <…>
+  2. **<Option name>** — <one-sentence summary>
+     - Pros: <…>
+     - Cons: <…>
+  (2–4 options total)
+
+  **Recommended:** <option name + one-paragraph rationale>
+
+  **Your answer:**
+
+  ---
+  ```
+
+  Don't fabricate options to fill the second shape — only use it when the choice is genuine.
+
+- How the operator resolves: edits the source as required (clarifies `PRD.md` for requirements-loop questions; for blueprint-loop questions, fills in `Your answer:`), deletes resolved blocks (or renames the file to `_questions-resolved-<timestamp>.md` for git-history audit), re-runs the loop.
+- Full `pass` requires all four reviewers pass AND `_questions-pending.md` has no open questions.
 
 **Coding loop has no equivalent** — work-order execution either passes, fails, or exhausts. If the operator has input to provide, they provide it by editing blueprints or work-order descriptions directly before re-running.
 
-**Do not confuse push-back with bubble-up:** push-back is the generator disagreeing with a *reviewer* about the current attempt's output (§2.3); bubble-up (questions, decisions) is the generator asking the *operator* for input that isn't in the source artifacts. Different mechanisms, different audiences, different files.
-
-See §5.3 in the PRD for the product-level description. The generator recognises decisions it can't make and appends to the decisions doc (§2.3 push-back is related but not the same — see clarification there).
+**Do not confuse push-back with bubble-up:** push-back is the generator disagreeing with a *reviewer* about the current attempt's output, written to that reviewer's communication file (§1.8, §2.3); bubble-up is the generator asking the *operator* for input that isn't in the source artifacts, written to `_questions-pending.md`. Different mechanisms, different audiences, different files.
 
 ### 1.6 Retry cap
 
@@ -242,15 +279,19 @@ Default: `max_attempts = 3` per loop invocation. Configurable in `config.yaml`. 
 
 Wall-clock cap is a separate, per-subprocess budget: if a generator or reviewer subprocess exceeds `max_wall_minutes`, it's killed and the attempt is marked as `exhausted` regardless of attempt count.
 
+Protocol-retry cap (§1.9) is a *third* counter, independent of `max_attempts`: when a reviewer subprocess exits with malformed stdout, the orchestrator re-prompts that reviewer up to 2 times before treating the verdict as `fail`. Protocol-retries do not consume `max_attempts`; they're recovery from a parser failure, not loop-level retries.
+
+Rate-limit retry cap (§1.10) is a *fourth* counter, independent of all the above: when a subprocess exits with a recognised rate-limit error, the orchestrator pauses (30s, then 60s) and re-spawns up to 2 times. Rate-limit retries don't consume `max_attempts` or the protocol-retry budget — they're recovery from infrastructure throttling, not from anything the model did or didn't say.
+
 ### 1.7 Retry isolation and re-review semantics
 
 Three rules govern what the generator sees on retry and how reviewers re-check its work. Implementation detail of the orchestrator, not the skills.
 
-**Feedback isolation — passing reviewers are silenced.** When one or more reviewers fail on attempt N, the orchestrator feeds the generator only the failing reviewers' full stdout on attempt N+1 (§1.4). Passing reviewers are not named, not summarised, not counted. Rationale: their content was already good; mentioning them risks the generator second-guessing parts that were correct, or optimising to a specific passing-reviewer's taste at the expense of the failing one. The orchestrator still archives every review (§7.4) and tracks every verdict in state (§7.5); the isolation is scoped strictly to the generator's prompt.
+**Feedback isolation — passing reviewers' files are not foregrounded.** When one or more reviewers fail on attempt N, the orchestrator's retry prompt names only the *failing* reviewers (§1.4). The generator can still read passing reviewers' communication files (they exist on disk in the same folder), but the prompt does not call attention to them. Rationale: passing reviewers' content was already good; mentioning them risks the generator second-guessing parts that were correct, or optimising to a specific passing-reviewer's taste at the expense of the failing one. The orchestrator still snapshots every reviewer's file at session boundaries (§7.4) and tracks every verdict in state (§7.5); the isolation is scoped strictly to which reviewer files the retry prompt foregrounds.
 
-**Full re-review on every retry.** When the generator finishes attempt N+1, every reviewer runs again — not only the ones that failed on attempt N. A fix for one rubric can regress another (a scoping fix that drops a section coverage-judge had pinned; a coverage fix that bloats an FRD past the feature-unit definition spec-judge cares about). Re-checking the full review set per attempt is cheaper than inferring which rubrics a generator's edits could have touched, and it's the only way to catch cross-rubric regression without an explicit dependency model between rubrics.
+**Full re-review on every retry.** When the generator finishes attempt N+1, every reviewer runs again — not only the ones that failed on attempt N. A fix for one rubric can regress another (a scoping fix that drops a section coverage-judge had pinned; a coverage fix that bloats an FRD past the feature-unit definition spec-judge cares about). Re-checking the full review set per attempt is cheaper than inferring which rubrics a generator's edits could have touched, and it's the only way to catch cross-rubric regression without an explicit dependency model between rubrics. Each reviewer reads its own communication file and sees the conversation history with the generator, including the generator's prior responses to that reviewer specifically.
 
-**Change-summary in generator stdout on retry (attempts ≥ 2).** The generator's final chat message on any retry must include a `## Changes since previous attempt` section — enumerated, file-path-anchored, describing every add/edit/remove. The orchestrator inlines this section verbatim at the top of each reviewer's re-review prompt so reviewers can focus on the delta instead of re-reading the full tree from scratch. Reviewers are not restricted to the delta — they may read anywhere — but they're told what changed, which short-circuits most re-reviews. Format:
+**Change-summary appended to each reviewer's communication file on retry (attempts ≥ 2).** When the generator runs on attempt 2 or later, it appends a `## Changes since previous attempt` block to *every* reviewer's communication file (failing and passing) — enumerated, file-path-anchored, describing every add/edit/remove. Reviewers see this on read and can focus on the delta instead of re-reading the full tree from scratch. Reviewers are not restricted to the delta; they may read anywhere — but they're told what changed, which short-circuits most re-reviews. Format:
 
 ```
 ## Changes since previous attempt
@@ -260,7 +301,81 @@ Three rules govern what the generator sees on retry and how reviewers re-check i
 - removed: requirements/features/notifications.md (PRD §4 was trimmed)
 ```
 
-On attempt 1 the generator writes a regular summary (no change-summary section). The generator skills need a short addendum stating this requirement; add when the orchestrator lands.
+On attempt 1 the generator writes its initial proposal block to each reviewer's file (no change-summary section yet). The generator skills carry a short addendum spelling out this protocol; the orchestrator does not assemble or re-write the communication files itself.
+
+### 1.8 Reviewer ↔ generator communication channel
+
+Each upstream loop has a dedicated communication folder at the project root, sibling to the artifact tree:
+
+```
+requirements_communication/        # for the requirements loop
+  prd-to-frds.md                   # generator's outbound — proposals, change-summaries, push-backs
+  req-spec-judge.md                # one file per reviewer
+  req-cross-doc-judge.md
+  req-coverage-judge.md
+  req-scoping-judge.md
+
+blueprints_communication/          # for the blueprint loop
+  frd-to-blueprint.md              # generator's outbound
+  bp-spec-judge.md
+  bp-coverage-judge.md
+  bp-consistency-judge.md
+  bp-decision-judge.md
+```
+
+The coding loop does not use this mechanism; per-WO execution communicates through the PR (commits + PR comments).
+
+**Why outside the artifact tree.** The communication folders are siblings of `requirements/` and `blueprints/`, not nested inside them. Rationale: the artifact tree is the deliverable — the operator and downstream loops should be able to read it as the spec without wading through generator-vs-reviewer conversation transcripts. Conversation lives next door, not in the deliverable.
+
+**File contents.** Each reviewer file is an append-only conversation transcript between the generator and that one reviewer across all attempts of the current loop invocation. Markdown only; no JSON, no schema. Each new turn is a top-level `## ` block tagged with the attempt number and the speaker (e.g. `## Generator — attempt 1 proposal`, `## Review — attempt 1`, `## Generator — attempt 2 response`, `## Review — attempt 2`).
+
+**Read/write pattern.**
+- *Generator.* On each invocation, reads every reviewer file in the loop's communication folder (failing-reviewer files plus passing-reviewer files for context). After producing/editing artifacts, appends to **every reviewer file** in turn: a per-finding disposition for each prior review (fix / push back / surface to operator — §2.3) and a `## Changes since previous attempt` block listing what was edited on disk. Has full `Read`/`Write`/`Edit` tool access.
+- *Reviewer.* On each invocation, reads its own communication file (and the artifacts it judges per its rubric). Runs the review, appends a `## Review — attempt N` block to the same file, and exits. Stdout carries only the `VERDICT:` trailer line. Runs with `--disallowedTools Bash,NotebookEdit`; `Write`/`Edit` are permitted but a `PreToolUse` hook (§9) blocks any path other than the reviewer's own communication file.
+
+**Race condition argument.** Because the orchestrator runs generator and reviewers strictly sequentially per attempt (generator → reviewers → generator → reviewers ...), no two processes are ever writing concurrently. Reviewers run in parallel within an attempt but each writes only to its own dedicated file, so no two reviewers ever contend for the same file either. The single-writer-at-a-time invariant is enforced by the orchestrator's spawn order, not by file locking.
+
+**Lifecycle.**
+- *On a new orchestrator invocation that starts attempt 1 from clean state* (the loop is starting fresh for a new run): the orchestrator wipes the communication folder before spawning the generator. Each new invocation starts with a fresh slate.
+- *Across attempts within a single orchestrator invocation:* files are kept and appended to. Each side sees the full conversation history.
+- *On full pass:* the orchestrator snapshots the final state of the communication folder into `harness/state/reviews/<loop>/attempt-<N>/` for audit (§7.4), then wipes the live folder. The artifact tree is committed; the conversation transcripts live in `harness/state/` for replay/audit.
+- *On `awaiting_clarification`:* the orchestrator snapshots into the audit dir and **leaves the live communication folder in place** so the operator can scan it alongside `_questions-pending.md`. On the next invocation when the operator has clarified, the orchestrator wipes and starts fresh.
+- *On `exhausted` or any failure path:* snapshot into the audit dir, leave the live folder for inspection, exit non-zero.
+
+**Why this design.** The orchestrator stays small — it just spawns subprocesses and reads `VERDICT:` lines. The bidirectional content lives where both sides can see it without orchestrator-mediated prompt assembly. The generator can push back on a specific reviewer by writing into that reviewer's file; the reviewer sees the push-back next time it runs and may revise its position. The conversation is durably captured in markdown that an operator can read directly.
+
+### 1.9 Protocol-retry on malformed verdicts
+
+The Stop hook (§9) blocks an in-session reviewer from completing if its final chat message doesn't end with a recognisable `VERDICT:` trailer — that's the in-session enforcement layer. But the hook can fail to catch every case (a crashed subprocess, a truncated output, an output that satisfied the hook but came out garbled in stdout, a model that ignores the format despite being told). For those cases, the orchestrator runs a post-exit recovery layer.
+
+When the orchestrator captures a reviewer subprocess's stdout, it greps the trailing line. If the line isn't exactly `VERDICT: pass` or `VERDICT: fail`, the orchestrator treats the output as **malformed** and re-prompts the same reviewer with a corrective new chat:
+
+- A fresh `claude -p` subprocess (new session — protocol retries are not multi-turn within one session).
+- The reviewer is given the same prompt as before, plus a prepended note: *"Your previous response did not end with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`. The captured stdout was: `<verbatim trailing 200 chars>`. Re-run the review and emit a final chat message that ends with that exact trailer line."*
+- The reviewer reads the same artifacts and the same communication file, runs the review again, and emits a new final chat message.
+
+**Cap: 2 protocol-retries per reviewer per attempt.** Counted independently of `max_attempts` (the loop-level retry cap, §1.6). If the reviewer still emits a malformed verdict after 2 protocol-retries (3 total invocations), the orchestrator records the malformed-output incident in the loop's state file under a `protocol_failures[]` array and treats that reviewer's verdict as `fail` for aggregation purposes. The loop continues to the next reviewer / next loop attempt; the operator can read the protocol-failure log to triage why a reviewer is consistently producing malformed output (often a sign the reviewer skill prompt is broken or the model ignored the instruction).
+
+**Why two layers.** The Stop hook catches the case where the model is "almost done" and just needs to be told its trailer was missing; it's cheap and stays in-session. The orchestrator-level protocol-retry catches the case where the in-session enforcement didn't work — crash, truncation, hook bypass. Defense in depth: the loop should never get stuck on a parser failure, but it also shouldn't silently treat a malformed response as a soft fail without trying to recover.
+
+**Communication-file appends still happen.** A protocol-retry is a fresh subprocess — the reviewer reads the communication file, sees its prior (malformed) review, runs the review again, and appends a fresh `## Review — attempt N (protocol-retry M)` block with the corrective verdict line. Both attempts of the review remain in the file as part of the audit trail.
+
+### 1.10 Rate-limit handling
+
+`claude -p` subprocesses can fail with a transient Anthropic API rate-limit error before the model even runs — independent of any in-session work, prompt format, or verdict mechanics. The subprocess exits with a non-zero exit code and stderr matching a known rate-limit pattern (e.g. `Rate limited`, `429`, `Server is temporarily limiting requests`). The orchestrator handles this distinctly from malformed-verdict recovery (§1.9) because the failure mode is different: the model never produced output at all.
+
+**Detection.** When a generator or reviewer subprocess exits non-zero, the orchestrator inspects stderr for a rate-limit signature. If matched, the orchestrator does not treat the failure as a loop-level fail or as a malformed-verdict case — it treats it as a transient infrastructure error and retries with a backoff.
+
+**Backoff schedule.** Two retries per subprocess invocation, with fixed pauses between attempts:
+- After the original failure: pause **30 seconds**, then re-spawn the same subprocess with the identical prompt.
+- If that retry also rate-limits: pause **60 seconds**, then re-spawn once more.
+- If the second retry also rate-limits: the orchestrator records the incident in the loop's state file under a `rate_limit_failures[]` array (subprocess kind, reviewer name if applicable, attempt number, retry count, captured stderr) and exits the entire loop invocation with verdict `exhausted`. The artifact tree is not committed; the operator can re-run the loop later when capacity recovers.
+
+**Rate-limit retries are independent of `max_attempts` (§1.6) and protocol-retries (§1.9).** They consume neither counter — a rate-limited spawn is treated as if it never happened from the loop's perspective. The wall-clock cap (`max_wall_minutes`) is the only budget that ticks during the backoff windows; if rate-limit retries push a subprocess past wall-clock, the orchestrator exits with `exhausted` for the same reason as any other wall-clock breach.
+
+**Why fixed pauses, not exponential.** The Anthropic API rate-limit is server-side throttling, not per-token quota; the recovery time is bounded (typically seconds, not minutes). Two retries with 30s and 60s covers the typical recovery window without over-engineering. If recovery takes longer than ~90 seconds combined, the operator's correct response is to wait and re-run later, not to have the orchestrator burn wall-clock looping. Documenting the policy as fixed pauses (rather than configurable exponential backoff) keeps the orchestrator simple and the operator's mental model predictable.
+
+**Applies to all subprocess types.** Generators, reviewers (loop-level), reviewer protocol-retries (§1.9), and per-work-order coding-loop reviewers all use the same rate-limit handling. The mechanism is uniform across loop kinds.
 
 ## 2. Generator identity and discipline
 
@@ -288,18 +403,19 @@ Reviewers check for violations of these; the generator defends against them. Any
 
 ### 2.3 Push-back discipline
 
-When reviewer feedback arrives on a retry:
+When reviewer feedback arrives on a retry, the generator reads each reviewer's communication file (§1.8) and:
 
 1. **Read every finding.** Don't batch-reject or batch-accept.
 2. **For each finding**, choose one of three responses:
    - **Fix.** The finding names a real violation of a priority anchor. Edit the tree accordingly.
-   - **Push back.** The finding asks for content that would violate grounding (would require fabrication), or enforces the wrong priority, or is misguided. Don't change the tree. In the generator's stdout summary, document the disagreement: *which* finding, *why* it's wrong, *what* the grounded alternative is.
-   - **Surface to the operator.** The finding points at a real problem that's out of scope for this loop (e.g. the PRD itself is ambiguous and the operator needs to clarify). Use the loop's bubble-up mechanism — log a question for the requirements loop, log a decision for the blueprint loop. Reference the finding in your summary, move on.
-3. **Summarise.** The generator's stdout summary ends with a per-finding disposition list: "Addressed findings F1, F3. Pushed back on F2 (reason: would require fabricating personas). Filed gap for F4."
+   - **Push back.** The finding asks for content that would violate grounding (would require fabrication), or enforces the wrong priority, or is misguided. Don't change the tree. **Append to that reviewer's communication file** a per-finding response stating the disagreement: *which* finding, *why* it's wrong, *what* the grounded alternative is. The reviewer reads this on its next run and may revise its position.
+   - **Surface to the operator.** The finding points at a real problem that's out of scope for this loop (e.g. the PRD itself is ambiguous and the operator needs to clarify). Use the loop's `_questions-pending.md` mechanism (§1.5). Reference the finding in the response you append to the reviewer's file, then move on.
+3. **Append a per-finding disposition block** to each failing reviewer's communication file: "Addressed findings F1, F3. Pushed back on F2 (reason: would require fabricating personas). Filed for operator on F4."
+4. **Append the `## Changes since previous attempt` block** (§1.7) to *every* reviewer's file — failing and passing — so each reviewer sees the same delta on its next read.
 
-Push-backs accumulate across attempts into the retry context so the generator doesn't forget prior reasoning. If a reviewer flags the same finding three attempts in a row and the generator pushes back each time with the same reason, the loop exhausts — operator inspects the standoff.
+Push-backs accumulate naturally because the communication file is append-only; the generator doesn't need a separate "push-back log" — its prior responses are already in the file it reads. If a reviewer flags the same finding three attempts in a row and the generator pushes back each time with the same reason, the loop exhausts — operator inspects the standoff in the live communication folder.
 
-**Push-back ≠ bubble-up.** Push-back is the generator disagreeing with a *reviewer* about the current attempt's output. Bubble-up is the generator asking the *operator* for input that isn't in the source artifacts — PRD clarification in the requirements loop (`_questions-pending.md`), architectural decisions in the blueprint loop (`_decisions-pending.md`). Different mechanisms, different audiences, different files.
+**Push-back ≠ bubble-up.** Push-back is the generator disagreeing with a *reviewer* about the current attempt's output, written to the reviewer's communication file. Bubble-up is the generator asking the *operator* for input that isn't in the source artifacts, written to `_questions-pending.md` (§1.5). Different mechanisms, different audiences, different files.
 
 ## 3. Python orchestrator
 
@@ -321,41 +437,54 @@ All three loop subcommands share this driver (`orchestrator/loop_driver.py`):
 ```
 load_config()
 state = load_or_init_loop_state(loop_name)
+comm_dir = communication_dir(loop_name)         # requirements_communication/ or blueprints_communication/
+if state.is_fresh_invocation():
+    wipe_communication_folder(comm_dir)         # §1.8 lifecycle
+
 for attempt in range(1, max_attempts + 1):
-    gen_prompt = build_generator_prompt(loop_name, attempt, state)
+    gen_prompt = build_generator_prompt(loop_name, attempt, state, comm_dir)
     gen_result = spawn_claude(gen_prompt, wall_clock_cap)
     state.record_generator_output(attempt, gen_result.stdout)
+    # Generator has appended to artifact tree AND to every reviewer's file in comm_dir.
 
-    if gen_result.verdict in ("awaiting_decisions", "awaiting_clarification"):
-        commit_artifacts(f"{loop_name}: attempt {attempt} — {gen_result.verdict}")
+    if gen_result.verdict == "awaiting_clarification":
+        snapshot_communication_folder(loop_name, attempt, comm_dir)
+        commit_artifacts(f"{loop_name}: attempt {attempt} — awaiting_clarification")
         print_open_operator_items()
+        # Live comm folder left in place for operator inspection (§1.8).
         exit(2)
 
     review_results = []
     for reviewer in loop_reviewers(loop_name):
-        rev_prompt = build_reviewer_prompt(loop_name, reviewer, attempt, state)
+        rev_prompt = build_reviewer_prompt(loop_name, reviewer, attempt, comm_dir)
         rev_result = spawn_claude(
             rev_prompt,
             wall_clock_cap,
-            disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash"],
+            disallowed_tools=["Bash", "NotebookEdit"],
+            pre_tool_use_hook="reviewer-path-guard",   # §9 — blocks Write/Edit on any path
+                                                       # other than the reviewer's own comm file
         )
-        verdict = parse_final_verdict_line(rev_result.stdout)  # "pass" | "fail"
-        archive_review_stdout(loop_name, reviewer, attempt, rev_result.stdout)
-        review_results.append({"reviewer": reviewer, "verdict": verdict, "body": rev_result.stdout})
+        verdict = parse_final_verdict_line(rev_result.stdout)   # "pass" | "fail"
+        # Full review content already lives in comm_dir/<reviewer>.md (the reviewer
+        # appended to it). Orchestrator does not write that file itself.
+        review_results.append({"reviewer": reviewer, "verdict": verdict})
     state.record_reviewer_verdicts(attempt, review_results)
 
     if all_pass(review_results):
+        snapshot_communication_folder(loop_name, attempt, comm_dir)
+        wipe_communication_folder(comm_dir)
         commit_artifacts(f"{loop_name}: attempt {attempt} passed")
         exit(0)
 
     # else: continue to next attempt
 
 # hit cap
+snapshot_communication_folder(loop_name, max_attempts, comm_dir)
 state.finalise("exhausted")
 exit(1)
 ```
 
-Per-loop specializations supply: prompt builders, reviewer list, the artifact trees to read/commit, and any post-hooks.
+Per-loop specializations supply: prompt builders, reviewer list, the artifact trees to read/commit, the communication folder path, and any post-hooks.
 
 ### 3.3 Per-loop specialisations
 
@@ -369,16 +498,19 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
   - For every dotted-hidden meta file whose `<slug>.md` counterpart was deleted, remove the meta file.
   - After cleanup, if a `<slug>_children/` directory is empty (its parent node lost all children), delete it.
   - Preserve existing meta files whose fields hold non-null values (an SF mirror sync may have populated IDs; don't clobber).
-- Reviewers: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`. They see the fully-materialised tree.
-- Generator prompt inputs: `PRD.md` + current `requirements/` tree + current `_questions-pending.md` (if any) + retry context.
-- Pass condition: all reviewers pass AND `_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
+- Communication folder: `requirements_communication/`.
+- Reviewers: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`. They see the fully-materialised tree and read their own communication file.
+- Generator prompt inputs: `PRD.md` + current `requirements/` tree + current `requirements/_questions-pending.md` (if any) + the path to `requirements_communication/` (where the generator reads prior reviews and appends responses).
+- Pass condition: all reviewers pass AND `requirements/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
 
 **`blueprint-loop`.**
 - Precondition: `requirements/features/` non-empty.
-- Artifact trees: writes `blueprints/` (including `_decisions-pending.md` appends).
+- Artifact trees: writes `blueprints/` (including `blueprints/_questions-pending.md` appends). On-disk subtree layout: `blueprints/containers/<slug>.md`, `blueprints/components/<slug>.md`, `blueprints/features/<slug>.md`, each with sibling `.<slug>.<kind>.meta.yaml` and `.<slug>.requirements.meta.yaml` files. Feature-blueprint slugs match the corresponding `requirements/features/<slug>.md` 1:1 (enforced by `bp-coverage-judge`).
+- Communication folder: `blueprints_communication/`.
 - Reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
-- Pass condition: all reviewers pass AND `_decisions-pending.md` has zero unanswered decisions. Otherwise `awaiting_decisions`.
-- Generator prompt inputs: `requirements/features/` + current `blueprints/` + current `_decisions-pending.md` + retry context.
+- Pass condition: all reviewers pass AND `blueprints/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
+- Generator prompt inputs: `requirements/features/` + current `blueprints/` + current `blueprints/_questions-pending.md` + the path to `blueprints_communication/` (where the generator reads prior reviews and appends responses).
+- The `blueprint-authoring` skill (renamed from the prior `foundation-blueprint-authoring`) is **not** invoked by the orchestrator. It is an interactive skill the operator runs in a Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD.
 
 **`coding-loop`.** Two-part flow:
 1. **Sequence generation** (runs when no ready work orders OR blueprints hash changed since the last `work-orders/.sequence.meta.yaml`):
@@ -528,9 +660,9 @@ The entire `harness/` directory is **committed to git** — first-class project 
   },
 
   "attempts": [
-    { "n": 1, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding/wo-042/attempt-1/" },
-    { "n": 2, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding/wo-042/attempt-2/" },
-    { "n": 3, "at": "...", "verdict": "pass", "summary": "...", "review_dir": "harness/state/reviews/coding/wo-042/attempt-3/" }
+    { "n": 1, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-1/" },
+    { "n": 2, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-2/" },
+    { "n": 3, "at": "...", "verdict": "pass", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-3/" }
   ],
 
   "history": [
@@ -550,16 +682,17 @@ The entire `harness/` directory is **committed to git** — first-class project 
 {
   "loop": {
     "name": "blueprint",
-    "artifact_paths": ["blueprints/"]
+    "artifact_paths": ["blueprints/"],
+    "communication_dir": "blueprints_communication/"
   },
   "created_at": "2026-04-19T09:00:00Z",
   "updated_at": "2026-04-19T09:32:00Z",
-  "status": "awaiting_decisions",
+  "status": "awaiting_clarification",
   "attempt_count": 2,
   "limits": { "max_wall_minutes": 60, "max_attempts": 3 },
 
   "current": {
-    "last_output": "Produced 4 feature blueprints and 2 foundation blueprints..."
+    "last_output": "Produced 4 feature blueprints, 2 component blueprints, 1 container blueprint..."
   },
 
   "verification": {
@@ -569,29 +702,31 @@ The entire `harness/` directory is **committed to git** — first-class project 
     "bp_decision_judge":    { "result": "pass", "ran_at": "..." }
   },
 
-  "open_decisions": 3,
+  "open_questions": 3,
 
   "attempts": [
-    { "n": 1, "at": "...", "verdict": "awaiting_decisions", "open_decisions": 5, "summary": "...", "review_dir": "harness/state/reviews/blueprint/attempt-1/" },
-    { "n": 2, "at": "...", "verdict": "awaiting_decisions", "open_decisions": 3, "summary": "...", "review_dir": "harness/state/reviews/blueprint/attempt-2/" }
+    { "n": 1, "at": "...", "verdict": "awaiting_clarification", "open_questions": 5, "summary": "...", "review_dir": "harness/state/reviews/blueprint-loop/attempt-1/" },
+    { "n": 2, "at": "...", "verdict": "awaiting_clarification", "open_questions": 3, "summary": "...", "review_dir": "harness/state/reviews/blueprint-loop/attempt-2/" }
   ],
 
   "history": [
-    { "session": 1, "at": "...", "final_verdict": "awaiting_decisions", "output": "..." },
-    { "session": 2, "at": "...", "final_verdict": "awaiting_decisions", "output": "..." }
+    { "session": 1, "at": "...", "final_verdict": "awaiting_clarification", "output": "..." },
+    { "session": 2, "at": "...", "final_verdict": "awaiting_clarification", "output": "..." }
   ]
 }
 ```
 
 ### 7.4 Reviewer review archive
 
-See §1.3. Reviewer outputs its review as stdout; the orchestrator captures stdout and writes it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`. For per-loop reviews, `<task-id>` is omitted from the archive path. There is no reviewer-owned scratch path — the archive is the only file, and the orchestrator is its only writer.
+For upstream loops (requirements, blueprint), the live conversation between generator and reviewers happens in the loop's communication folder (§1.8). At each attempt boundary — and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`) — the orchestrator snapshots each `<reviewer-name>.md` file from the live communication folder into `harness/state/reviews/<loop-name>/attempt-<N>/<reviewer-name>.md`, where `<loop-name>` is the full subcommand name (`requirements-loop`, `blueprint-loop`, or `coding-loop` — matches the file naming under `harness/state/<loop-name>.json`). The audit dir thus carries the full conversation transcript per attempt; the live folder is wiped on `pass` (so the next invocation starts clean) but kept on `awaiting_clarification` and `exhausted` so the operator can scan it directly.
+
+For coding-loop per-WO execution, the reviewer set is run differently and the archive path is `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. (Per-WO execution does not use the communication-folder mechanism — that mechanism is for the upstream loops where the gen↔review back-and-forth is the load-bearing dynamic; per-WO execution is a single-shot review.)
 
 ### 7.5 Field rules
 
 - `task_id` — `wo-NNN` zero-padded. Stable forever.
 - `local.*` — denormalised snapshot of the work order's meta, refreshed on every orchestrator read. Canonical source is `.work-order.meta.yaml`.
-- `status` — canonical enum: `backlog | ready | in_progress | done`. Mirrors `.work-order.meta.yaml`. Loop-level state adds `awaiting_decisions` (blueprint), `awaiting_clarification` (requirements), and `exhausted` (any loop).
+- `status` — canonical enum: `backlog | ready | in_progress | done`. Mirrors `.work-order.meta.yaml`. Loop-level state adds `awaiting_clarification` (either upstream loop) and `exhausted` (any loop).
 - `attempt_count` — number of attempts this session. Increments each time the orchestrator re-spawns the generator within one invocation.
 - `limits` — per-subprocess wall-clock cap, per-invocation attempt cap. Both configurable.
 - `current.last_output` — verbatim stdout of the most recent generator session this invocation.
@@ -599,17 +734,18 @@ See §1.3. Reviewer outputs its review as stdout; the orchestrator captures stdo
 - `verification.<gate>` — populated by the orchestrator from reviewer stdout (trailing `VERDICT:` line). `pass | fail | not_run`.
 - `history[]` — append-only across orchestrator invocations. One entry per invocation, preserving the final summary.
 - `execution.branch` — set by orchestrator before spawning. `execution.pr_url` / `pr_number` populated post-exit via `gh pr list`.
-- `open_decisions` — blueprint loop only. Zero is required for `pass`.
+- `open_questions` — upstream loops only (requirements + blueprint). Zero is required for `pass`. Counts unanswered blocks in `<artifact-tree>/_questions-pending.md`.
 - `mirror.last_posted_session` — tracks which history entries have been mirrored as PR comments.
 - All timestamps ISO 8601 UTC.
 - Schema version implicit in harness version; breaking changes need a documented migration.
 
 ### 7.6 Write access
 
-- **Orchestrator is the only writer.**
-- Per invocation: orchestrator loops through attempts, each attempt spawning a generator and every reviewer, rotating `current` → `attempts[]`, and on exit rolling `attempts[]`'s final entry into `history[]`.
-- Reviewer review archives are written by the orchestrator from captured subprocess stdout — reviewers don't touch the filesystem.
-- Per-reviewer and per-attempt outputs are preserved on disk (not in the state file) so audit and replay can reconstruct an invocation fully.
+- **State files (`harness/state/<loop|task>.json`):** orchestrator is the only writer. Per invocation it loops through attempts, each attempt spawning a generator and every reviewer, rotates `current` → `attempts[]`, and on exit rolls `attempts[]`'s final entry into `history[]`.
+- **Artifact trees (`requirements/`, `blueprints/`, `work-orders/`):** generator is the writer; orchestrator commits.
+- **Communication folders (`requirements_communication/`, `blueprints_communication/`):** generator and reviewers both write, never simultaneously (§1.8 lifecycle and race-condition argument). The orchestrator wipes the folder on a fresh invocation and on full `pass`; otherwise it does not modify it.
+- **Reviewer review snapshots (`harness/state/reviews/<loop>/attempt-<N>/`):** orchestrator is the only writer. It snapshots from the live communication folder at attempt boundaries and on exit verdicts.
+- Per-reviewer and per-attempt outputs are preserved on disk (snapshots in `harness/state/`) so audit and replay can reconstruct an invocation fully.
 
 ## 8. Verdict format
 
@@ -619,18 +755,20 @@ Generator ends its stdout summary with a `VERDICT:` line that the orchestrator p
 
 - **Upstream loops** (requirements, blueprint, sequence generation): generator emits `VERDICT: ready_for_review` on a normal attempt. It does *not* aggregate reviewer verdicts — the orchestrator does that from reviewer stdout.
 - **Requirements loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: requirements/_questions-pending.md`.
-- **Blueprint loop alternative exit**: `VERDICT: awaiting_decisions` with `open_decisions: N` and `decisions_file: blueprints/_decisions-pending.md`.
+- **Blueprint loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: blueprints/_questions-pending.md`. Same verdict and same mechanism as the requirements loop, just a different file location.
 - **Per-WO coding execution**: generator self-reports `VERDICT: ready_for_review` after opening/updating the PR; the orchestrator then spawns the six coding reviewers.
 
 This is simpler than the prior model because the generator never aggregates cross-reviewer state.
 
 ### 8.2 Reviewer output
 
-Primary contract is the reviewer's final chat message, captured as `claude -p` stdout (§1.3). The final line is `VERDICT: pass` or `VERDICT: fail` — the only machine-readable signal. Everything above it is prose written for the next generator to read on retry. Reviewers don't write to any file; the orchestrator captures stdout and archives it to `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`.
+For upstream loops (requirements, blueprint), reviewers append their full review block to their own communication file (§1.8) and emit a short stdout acknowledgement ending with `VERDICT: pass` or `VERDICT: fail`. The orchestrator parses only the stdout `VERDICT:` line for loop control; the prose review lives in the file. The orchestrator snapshots the file into `harness/state/reviews/<loop>/attempt-<N>/<reviewer-name>.md` at attempt boundaries (§7.4).
+
+For coding-loop per-WO execution reviewers, the reviewer's full review is its stdout (no communication file involved); the orchestrator captures stdout and writes it to `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. Same `VERDICT:` line contract.
 
 ### 8.3 Orchestrator aggregation
 
-Orchestrator captures each reviewer subprocess's stdout, grep's the final `VERDICT:` line out of each, computes `all_pass = all(v == "pass" for v in verdicts)`, and decides whether to retry, pass, or exhaust. When retrying, it inlines the full captured stdout bodies into the generator's retry context (§1.4). All `verification.*` fields in state files are populated from these verdicts, not from the generator's summary.
+Orchestrator captures each reviewer subprocess's stdout, greps the final `VERDICT:` line out of each, computes `all_pass = all(v == "pass" for v in verdicts)`, and decides whether to retry, pass, or exhaust. The full review prose lives in the live communication folder (§1.8), which the generator reads directly on retry — the orchestrator does not assemble or pass review bodies into the generator's prompt. All `verification.*` fields in state files are populated from these stdout verdicts, not from the generator's summary or the communication-file content.
 
 ## 9. Hooks
 
@@ -639,7 +777,8 @@ Configured in `.claude/settings.json`. Log to `harness/logs/<task_id-or-loop-nam
 Hooks do only what must happen inside the Claude Code session — context the orchestrator can't provide from outside. State management is in the orchestrator.
 
 - **`Stop` (generator)** — validates the stdout summary ends with a recognised `VERDICT:` line. Blocks completion if missing.
-- **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed.
+- **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed. This is layer 1 of verdict-format enforcement; if a reviewer subprocess does manage to exit with malformed stdout (hook bypass, crash, truncation, etc.), the orchestrator's protocol-retry mechanism (§1.9) catches it post-exit.
+- **`PreToolUse` (reviewer path-guard)** — fires on every `Write` / `Edit` tool call inside a reviewer subprocess and blocks the call unless the target path is exactly `<requirements_communication|blueprints_communication>/<this-reviewer-name>.md`. Prevents a reviewer from mutating the artifact tree, the operator's questions file, or any other reviewer's communication file even if the reviewer skill or the artifacts it reads contain adversarial instructions. Required because reviewers run with `Write`/`Edit` allowed (so they can append to their own communication file); without this hook the denylist would have to forbid all writes, which would break the channel.
 
 Not hooks (and why):
 - Context injection at session start — orchestrator builds the full prompt and passes it as the argument to `claude -p`. No `SessionStart` hook.
@@ -655,10 +794,12 @@ Under `.claude/agents/`. Role-specialised prompts. The agent definition referenc
 
 Each carries its own autonomy posture (no clarifying questions, decide and proceed) baked into its skill prompt.
 
-- `requirements-generator` — loads `prd-to-frds`. Identity: lead PM. Writes `requirements/` tree; may append to `requirements/_questions-pending.md` for PRD ambiguities. Emits `ready_for_review` or `awaiting_clarification`.
-- `blueprint-generator` — loads `frd-to-blueprint` + `foundation-blueprint-authoring` + `bubble-up-decision`. Identity: lead engineer. Writes `blueprints/`. Emits `ready_for_review` or `awaiting_decisions`.
+- `requirements-generator` — loads `prd-to-frds`. Identity: lead PM. Writes `requirements/` tree; may append to `requirements/_questions-pending.md` for PRD ambiguities. Reads/writes `requirements_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
+- `blueprint-generator` — loads `frd-to-blueprint`. Identity: lead engineer. Writes the full `blueprints/` tree (containers, components, features) itself — single skill, no sub-skill co-invocation. May append to `blueprints/_questions-pending.md` for architectural decisions requiring operator judgment. Reads/writes `blueprints_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
 - `wo-sequence-generator` — loads `blueprint-to-tasks` + `scope-task`. Identity: lead tech lead. Writes `work-orders/wo-NNN/`.
 - `coding-generator` — loads `open-task-pr` + coding-specific capabilities. Identity: IC. Writes code on the task branch, opens/updates PR, commits as part of its flow.
+
+The interactive `blueprint-authoring` skill (renamed from `foundation-blueprint-authoring`) is **not** orchestrator-spawned. The operator runs it inside an interactive Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD. There is no longer a separate `bubble-up-decision` skill; question-block formats live inline in the generator skill prompts (§1.5).
 
 ### 10.2 Reviewer subagents (orchestrator-spawned)
 
@@ -673,7 +814,116 @@ Each outputs its review as its final chat message, ending with a `VERDICT: pass`
 
 - `index-updater` — regenerates `harness/index.md` from planner state. Invoked on a schedule or after status transitions.
 
-## 11. Open architecture questions
+## 11. Blueprint document shape
+
+This section pins the structural contract for blueprint documents — what `bp-spec-judge` validates against and what `frd-to-blueprint` (and the interactive `blueprint-authoring` skill) produces. Adopted from the SF blueprints module's seeded category presets (`backend/software_factory/modules/blueprints/constants/{container,component,feature}/writing_guidelines.py`), simplified for the harness's autonomous loop.
+
+### 11.1 Three blueprint types
+
+- **Container blueprint** — one per deployable runtime (web app, API server, background worker, database, pipeline, etc.). Documents the container's tech stack, deployment model, how work enters it, and the contracts it exposes to other containers and systems. *Boundary-first* — describes what's visible across the container boundary, not internal wiring (which lives in component blueprints).
+- **Component blueprint** — one per cross-cutting reusable capability (auth, notifications, file storage, observability, etc.). Documents a cohesive group of runtime components that power one capability, possibly spanning multiple containers. *Composition-first* — `component` blocks are nodes; relationship paragraphs between them are edges.
+- **Feature blueprint** — one per FRD, slug-matched 1:1 with `requirements/features/<slug>.md` (enforced by `bp-coverage-judge`). Documents how shared component blueprints compose to satisfy a feature, plus any feature-only components. *References, doesn't redefine* — feature blueprints reference shared components rather than restating them; restating is what `bp-consistency-judge`'s no-redefinition rule catches.
+
+### 11.2 Mention syntax (cross-blueprint linking)
+
+Three mention types create navigable links across the tree:
+
+- `#ComponentName` — runtime components that *do work* (services, controllers, hooks, strategies, providers). `#` references resolve against `component` blocks defined in any blueprint. Cross-blueprint `#` references express composition.
+- `` `ElementName` `` (single backticks) — schemas, configs, domain types, enums, request/response models, exceptions, feature flags. Things that *describe shape*. Source-language casing.
+- `@EntityName` — platform entities: Requirements, Blueprints, Work Orders, Artifacts. Used when a blueprint references another full document.
+
+Rule: "does work" → `#Component`. "Describes shape/contract" → `` `Element` ``. "Platform document" → `@Entity`.
+
+### 11.3 Structured blocks (component and model)
+
+Defined inside fenced blocks bounded by ` ```component ` and ` ```model ` fences. Used inside `## Core Components` (component blueprints) and `## Feature-Specific Components` (feature blueprints). Tab-indented bullets:
+
+```
+component
+name: PascalCase (matches code identity)
+container: C4 container(s), comma-separated
+responsibilities:
+	- What this component does
+	- Use `ElementName` for data/contracts, `#ComponentName` for collaborators
+```
+
+```
+model
+name: ModelName
+store: Postgres | S3 | DynamoDb | CacheMemory | etc.
+description: Short purpose statement
+fields:
+	- field_name: type (constraints)
+constraints:
+	- Invariant rules enforced by domain logic
+```
+
+Any component defined in any blueprint can be `#`-referenced from any other blueprint.
+
+### 11.4 Per-type structure
+
+**Container blueprint:**
+
+1. Title — container name as `# Heading` (e.g. `# API Server`).
+2. `## Container Summary` — what this container is, the main tech stack, the high-level role. 2–4 sentences.
+3. `## Infrastructure` — runtime environment, deployment/orchestration model, key platform dependencies (datastores, queues, caches, external services).
+4. `## Entry Points and Boundaries` — how work enters: HTTP/gRPC endpoints, queue consumers, scheduled jobs, webhooks, CLI commands. Use `#Component` to name the components that own each entry point.
+5. `## System Contracts` — three subsections:
+   - `### Key Contracts` — operational guarantees at the container boundary (availability, authn/z, idempotency, ordering, consistency, retry, error surfacing).
+   - `### Integration Contracts` — events published/consumed, API interfaces, webhooks, message formats. Use `` `ElementName` `` for schemas.
+   - `### Integration Boundaries` — ownership and separation between this container and other containers/external platforms.
+6. `## Architecture Decision Records` — `### ADR-NNN: Title` per entry, each with three labeled paragraphs: **Context**, **Decision**, **Consequences**. Numbered sequentially within the blueprint.
+
+**Component blueprint:**
+
+1. Title — `# Heading`.
+2. `## Capability Summary` — 2–3 sentences explaining what the capability does and naming key elements flowing through it.
+3. `## Core Components` — fenced `component` blocks grouped logically with `###` subheadings (e.g. `### API Layer`, `### Frontend: Hooks`). Use `---` between major boundaries when visual separation helps. Insert relationship paragraphs between component blocks when direction, data flow, or intent is not obvious from colocation. Optional fenced `model` blocks for canonical data shapes.
+4. `## System Contracts` — `### Key Contracts` (invariants, idempotency, ordering, consistency, retry) and `### Integration Contracts` (events, API interfaces, webhooks, composition expectations).
+5. `## Architecture Decision Records` — same `### ADR-NNN: Title` shape as container blueprints.
+
+**Feature blueprint:**
+
+1. Title — `# Heading`.
+2. `## Feature Summary` — 2–3 sentence user-centered summary referencing the corresponding FRD via `@Requirement` or `@Feature` mention.
+3. `## Component Blueprint Composition` — which shared component blueprints this feature composes and how each is configured/scoped. Use `@Blueprint` for referenced blueprints and `#Component` for concrete runtime components. Don't redefine shared components; describe how the feature *uses* the capability.
+4. `## Feature-Specific Components` — full fenced `component` blocks for components existing only for this feature, with relationship paragraphs.
+5. `## System Contracts` — `### Key Contracts` (invariants specific to this feature) and `### Integration Contracts` (events, APIs, composition expectations specific to this feature).
+6. `## Architecture Decision Records` — same shape.
+
+### 11.5 Mermaid diagrams (sub-shape, not a separate type)
+
+Following SF's convention: a blueprint *may* contain a Mermaid diagram, but it is not a separate blueprint type. When a Mermaid diagram is present:
+
+- Exactly one Mermaid block per blueprint document.
+- No surrounding prose inside the fenced block — only the diagram source.
+- Diagrams synthesize information from existing blueprints; they do not introduce new architecture facts.
+- Don't change the diagram type (`graph`, `erDiagram`, `sequenceDiagram`, etc.) without an explicit operator decision.
+
+In practice, container blueprints are the most common host for system-overview Mermaid diagrams.
+
+### 11.6 Writing principles (cross-type)
+
+- **Boundary-first.** Container blueprints describe what crosses the boundary; component blueprints describe internal capability wiring; feature blueprints describe composition.
+- **Architectural decisions and design intent, not implementation details.** Code blocks are illustrative — `bp-spec-judge` and `bp-quality` reviewers do not nitpick code-block content.
+- **Grounded in the source artifacts.** No fabrication. Every component, contract, or ADR traces to either an FRD requirement, an existing blueprint, or an operator-resolved question block.
+- **No redefinition.** Feature blueprints reference shared components (`#Component`); they do not include fresh `component` blocks for a capability already defined in a component blueprint.
+
+### 11.7 On-disk layout
+
+Mirrors `requirements/`:
+
+```
+blueprints/
+  containers/<slug>.md             + .<slug>.container.meta.yaml + .<slug>.requirements.meta.yaml
+  components/<slug>.md             + .<slug>.component.meta.yaml + .<slug>.requirements.meta.yaml
+  features/<slug>.md               + .<slug>.feature.meta.yaml   + .<slug>.requirements.meta.yaml
+  _questions-pending.md            # only present while open questions exist (§1.5)
+```
+
+Feature-blueprint slug parity (`blueprints/features/<slug>.md` matches `requirements/features/<slug>.md`) is the load-bearing invariant for downstream `blueprint-to-tasks`. Container and component slugs are operator-readable; the meta files carry the canonical IDs.
+
+## 12. Open architecture questions
 
 Tracked separately from PRD §8 (which tracks product/scope questions).
 
