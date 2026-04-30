@@ -38,15 +38,28 @@ Every invocation, you receive:
 
 - **`PRD.md`** at the project repo root. Authoritative. If missing, exit with `VERDICT: fail` and a one-sentence reason.
 - **The current on-disk state** of `requirements/overview/` and `requirements/features/` if they exist. Preserve nodes that are already correct; edit what needs changing; delete what no longer has PRD source.
-- **Optionally, review feedback and prior-attempt context.** If present: your prior summary, reviewer review files (prose ending in a `VERDICT:` line), and any push-back notes you wrote on earlier attempts. These only appear when your previous output failed review and you're being asked to respond.
+- **The communication folder** at `requirements_communication/` (sibling to `requirements/`). On retry attempts, it holds one markdown file per reviewer in this loop (`req-spec-judge.md`, `req-cross-doc-judge.md`, `req-coverage-judge.md`, `req-scoping-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. Read every reviewer file there before deciding what to write or edit. If the folder is empty or doesn't exist, this is the first attempt of a new loop invocation.
 
 ## Responding to review feedback
 
-When review feedback is in your input, don't batch-accept or batch-reject. For each finding, pick one:
+On every invocation, **read every reviewer file** under `requirements_communication/` before editing the tree.
+
+If the folder is empty (first attempt of a new invocation), there are no prior reviews — proceed directly to writing the tree.
+
+If the folder has reviews, work through every finding in every reviewer file. For each finding, pick one:
 
 - **Fix.** The finding names a real violation of a priority anchor. Edit the tree.
-- **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree. In your summary, name the finding, why you disagree, and what the grounded alternative is.
-- **Log a question.** The finding points at PRD ambiguity the operator needs to resolve. Append a block to `requirements/_questions-pending.md` (format below), reference the finding in your summary, move on.
+- **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree.
+- **Log a question.** The finding points at PRD ambiguity the operator needs to resolve. Append a block to `requirements/_questions-pending.md` (format below), then move on.
+
+After working through the findings, **append to the communication files**:
+
+- For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
+- For **every** reviewer file (failing and passing alike), append a `## Changes since previous attempt` block enumerating every artifact file you added, edited, or removed since the last attempt, with a brief description of the substantive change. This lets each reviewer focus on the delta on its next read.
+
+Append, never overwrite. The communication file accumulates the full back-and-forth across attempts.
+
+On the first attempt of a new invocation, skip the append step — there's nothing to respond to and no prior attempt to summarise changes against. The reviewers will create their files on first review.
 
 ## Output
 
@@ -158,13 +171,10 @@ Don't log questions for:
 
 ## Final output
 
-Your stdout ends with:
+End your final chat message with a `VERDICT:` line. Pick one:
 
-1. **Free-form prose** describing what you did: nodes written, changes from any prior attempt, scoping decisions, what you chose not to write and why.
-2. **Per-finding disposition** (if you received review feedback): one line per finding, labelled fix / push-back / question-logged with a brief reason.
-3. **`VERDICT:` line**, choose one:
-   - `VERDICT: ready_for_review` — you made progress and either no open questions, or the open questions don't block further review.
-   - `VERDICT: awaiting_clarification` — open questions in `requirements/_questions-pending.md` prevent meaningful further progress without operator input. Add `open_questions: N` on the next line. This should pretty much never happen but it is up to your discretion.
+- `VERDICT: ready_for_review` — you made progress and either no open questions, or the open questions don't block further review.
+- `VERDICT: awaiting_clarification` — open questions in `requirements/_questions-pending.md` prevent meaningful further progress without operator input. Add `open_questions: N` on the next line. Should pretty much never happen but it is up to your discretion.
 
 If genuinely blocked from writing anything at all (missing `PRD.md`, or an unresolvable contradiction you couldn't even log a question about):
 
@@ -172,6 +182,8 @@ If genuinely blocked from writing anything at all (missing `PRD.md`, or an unres
 VERDICT: fail
 REASON: <one-sentence why>
 ```
+
+The per-finding disposition and change-summary already live in the reviewer communication files. Anything else in your stdout is freeform.
 
 ## What this skill does not do
 
