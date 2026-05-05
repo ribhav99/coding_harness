@@ -27,6 +27,18 @@ def reconcile_requirements_tree(requirements_root: Path) -> None:
             _reconcile_dir(root, kind)
 
 
+def reconcile_blueprint_tree(blueprints_root: Path) -> None:
+    """Walk blueprints/{containers,components,features}/ and reconcile metas.
+
+    Same per-directory shape as the requirements tree (visible <slug>.md plus
+    two dotted-hidden meta files). Three kinds, one per subdirectory.
+    """
+    for kind, sub in (("container", "containers"), ("component", "components"), ("feature", "features")):
+        root = blueprints_root / sub
+        if root.exists():
+            _reconcile_dir(root, kind)
+
+
 def _reconcile_dir(directory: Path, kind: str) -> None:
     """Reconcile one flat level: visible <slug>.md files + hidden metas + _children/ dirs."""
     if not directory.is_dir():

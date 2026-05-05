@@ -38,7 +38,7 @@ In order. Use these to weigh every decision — what to produce, what to reshape
 Every invocation, you receive:
 
 - **`requirements/features/`** — the approved FRD tree. Authoritative for product behaviour.
-- **`requirements/overview/`** — overview docs, useful for context (especially `architecture.md` and `technical-requirements.md` if present).
+- **`requirements/overview/`** — overview docs, useful for context.
 - **The optional root `BLUEPRINT.md`** at the project repo root. If present, it is the operator's high-level architectural starting input — treat its component lists, data-model sketches, and stack choices as authoritative starting points to expand into the per-type blueprints. If absent, that's normal; proceed without it.
 - **The current on-disk state** of `blueprints/{containers,components,features}/` if they exist. Preserve blueprints that are already correct; edit what needs changing; delete what no longer has source.
 - **`blueprints/_questions-pending.md`** if it exists — the running list of open and answered architectural-clarification questions. Treat answered questions (those with `Your answer:` filled in) as resolved decisions; treat open questions as still-pending and don't make those choices on your own.
