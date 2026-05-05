@@ -1,0 +1,12 @@
+# Coding-harness orchestrator config. Applies to every project repo the
+# orchestrator is run against. No per-project overrides in v0.1.
+
+max_attempts: 25
+max_wall_minutes: 60
+# Per-subprocess retry budget for transient agent failures: rate-limit
+# throttling (re-spawn after backoff) and malformed VERDICT trailers
+# (resume the same session and nudge the model to re-emit the line).
+# Independent of max_attempts — these are recovery from infrastructure
+# or output-format glitches, not from anything the model said.
+max_agent_retries: 3
+mirrors: []        # placeholder for v1.0; v0.1 has no mirrors

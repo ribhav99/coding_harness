@@ -1,0 +1,51 @@
+"""Path helpers. All paths are absolute; the project root is supplied at startup."""
+
+from pathlib import Path
+
+
+HARNESS_REPO_ROOT = Path(__file__).resolve().parent.parent
+SKILLS_DIR = HARNESS_REPO_ROOT / "skills"
+HOOK_SCRIPTS_DIR = HARNESS_REPO_ROOT / "orchestrator" / "hooks"
+
+
+def harness_state_dir(project_root: Path) -> Path:
+    return project_root / "harness" / "state"
+
+
+def harness_logs_dir(project_root: Path) -> Path:
+    return project_root / "harness" / "logs"
+
+
+def reviews_archive_dir(project_root: Path, loop_name: str, attempt: int) -> Path:
+    return project_root / "harness" / "state" / "reviews" / loop_name / f"attempt-{attempt}"
+
+
+def loop_state_file(project_root: Path, loop_name: str) -> Path:
+    return harness_state_dir(project_root) / f"{loop_name}.json"
+
+
+def communication_dir(project_root: Path, loop_name: str) -> Path:
+    if loop_name == "requirements-loop":
+        return project_root / "requirements_communication"
+    if loop_name == "blueprint-loop":
+        return project_root / "blueprints_communication"
+    raise ValueError(f"loop_name {loop_name!r} has no communication folder")
+
+
+def settings_scratch_dir(project_root: Path) -> Path:
+    """One-shot Claude Code settings JSON files written per subprocess spawn."""
+    return harness_state_dir(project_root) / ".scratch-settings"
+
+
+def hook_counter_path(project_root: Path, spawn_label: str) -> Path:
+    """One-shot per-spawn counter file used by the Stop hook to cap retries."""
+    return harness_state_dir(project_root) / ".hook-counters" / f"{spawn_label}.txt"
+
+
+def skill_path(skill_name: str) -> Path:
+    """Locate a skill markdown file in the harness's skills/ tree."""
+    for sub in ("requirements", "blueprints", "coding"):
+        candidate = SKILLS_DIR / sub / f"{skill_name}.md"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"skill {skill_name!r} not found under {SKILLS_DIR}")

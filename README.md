@@ -6,13 +6,20 @@ autonomously. See [`PRD.md`](PRD.md) for the full design.
 ## Layout
 
 - `PRD.md` — design document.
-- `skills/` — reusable Claude Code skills (planning + execution).
+- `skills/` — source markdown for the Claude Code skills (planning + execution).
+- `.claude/skills/` — the same skills in the form Claude Code loads them
+  (`<name>/SKILL.md`). Symlink each subdirectory into `~/.claude/skills/` to
+  make the harness skills available in every repo on your machine.
 - `orchestrator/` — Python entry points.
+  - `__main__.py` — `python -m orchestrator <subcommand>`. v0.1 ships
+    `requirements-loop` (PRD → reviewed FRD tree).
   - `sync_from_sf.py` — pulls requirements documents from a Software Factory
     deployment into a local project repo.
-- `project-template/` — reference skeleton matching SF's entity model
-  (PRD §6.2.1). Clone into a new repo to start a project. One repo per project.
 - `research/` — background notes from the design phase.
+
+A project repo's on-disk layout (`requirements/`, `blueprints/`,
+`work-orders/`, `artifacts/`) is defined by the skills themselves — they
+create whatever directories they need on first use. No template to clone.
 
 ## Sync from Software Factory
 
@@ -48,3 +55,62 @@ Use `--tree` to print the requirements tree without writing anything.
 The API path is `/v2/external-api/requirements/...` on the SF host; routes are
 documented in
 `sf-platform/backend/software_factory/modules/external_api/controllers/`.
+
+## Requirements loop (v0.1)
+
+```bash
+python -m orchestrator requirements-loop --project-root /path/to/project
+```
+
+Drives Stage 2 of the harness: reads `PRD.md`, decomposes it into
+`requirements/overview/` and `requirements/features/`, runs four reviewers
+(`req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`,
+`req-scoping-judge`), iterates on failures, commits on pass when the project
+repo is a git repo.
+
+**Optional flags.**
+
+- `--skip-first-generator` — on attempt 1, skip the generator and run
+  reviewers directly against the existing `requirements/` tree. Use this
+  when you've run `prd-to-frds` manually (e.g. in an interactive Claude
+  Code session) and want to validate the result without the generator
+  re-thinking it. If reviewers fail, attempts 2+ run the generator
+  normally with the failing reviewers' feedback.
+- `--memoryless` — disable session continuity. Every attempt spawns a
+  fresh `claude -p` subprocess for both the generator and each reviewer,
+  and they rely on the communication folder for prior context. Default
+  behavior is to resume the same session across attempts within an
+  invocation (each new invocation still starts fresh — sessions are
+  per-invocation, not persisted across orchestrator runs). Use
+  `--memoryless` for a clean replay or when you've edited `PRD.md` /
+  the artifact tree mid-invocation and want the agents to re-derive
+  without prior bias.
+
+**Git is a soft requirement.** If the project repo isn't a git repo, the
+orchestrator runs in no-commit mode — reviewers, state files, and the
+communication folder still work; commits are skipped with a warning. To
+capture a per-pass diff in git history, `git init` and make an initial
+commit before running.
+
+**Communication folder is never wiped.** The
+`requirements_communication/<reviewer>.md` files accumulate the
+generator-vs-reviewer conversation across every attempt and every
+invocation, even after a full pass. With session-resume on (the default)
+the folder is the operator audit trail and the cross-invocation /
+`--memoryless` fallback memory channel; with `--memoryless` it's the
+agents' only memory of prior attempts.
+
+Loop caps live in `config.yaml` at the **harness** repo root (this kit), not
+in each project repo. Edit it there once; it applies to every project the
+orchestrator is run against.
+
+```yaml
+max_attempts: 25
+max_wall_minutes: 60
+max_agent_retries: 3   # per-subprocess: rate-limit re-spawns and Stop-hook in-session retries
+mirrors: []            # v0.1 has no mirrors; placeholder for v1.0
+```
+
+Exit codes: `0` full pass, `1` exhausted, `2` `awaiting_clarification` (open
+questions in `requirements/_questions-pending.md` block further progress —
+operator clarifies `PRD.md` and re-runs).

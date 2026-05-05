@@ -38,28 +38,29 @@ Every invocation, you receive:
 
 - **`PRD.md`** at the project repo root. Authoritative. If missing, exit with `VERDICT: fail` and a one-sentence reason.
 - **The current on-disk state** of `requirements/overview/` and `requirements/features/` if they exist. Preserve nodes that are already correct; edit what needs changing; delete what no longer has PRD source.
-- **The communication folder** at `requirements_communication/` (sibling to `requirements/`). On retry attempts, it holds one markdown file per reviewer in this loop (`req-spec-judge.md`, `req-cross-doc-judge.md`, `req-coverage-judge.md`, `req-scoping-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. Read every reviewer file there before deciding what to write or edit. If the folder is empty or doesn't exist, this is the first attempt of a new loop invocation.
+- **The communication folder** at `requirements_communication/` (sibling to `requirements/`). It holds one markdown file per reviewer in this loop (`req-spec-judge.md`, `req-cross-doc-judge.md`, `req-coverage-judge.md`, `req-scoping-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. The folder persists across orchestrator invocations until a full pass, so a re-run after `awaiting_clarification` or `exhausted` will see the prior conversation. **Always read every reviewer file in this folder before deciding what to write or edit** — the gate is whether the file has content, not which "attempt" or "invocation" you think you're in. If a reviewer file is empty or missing, there's nothing to respond to for that reviewer yet.
 
 ## Responding to review feedback
 
-On every invocation, **read every reviewer file** under `requirements_communication/` before editing the tree.
+On every run, **read every reviewer file** under `requirements_communication/` before editing the tree.
 
-If the folder is empty (first attempt of a new invocation), there are no prior reviews — proceed directly to writing the tree.
+The decision rule is content-driven: look at what's actually in each reviewer's file, not at which attempt or invocation you think you're in.
 
-If the folder has reviews, work through every finding in every reviewer file. For each finding, pick one:
+- *No reviewer files exist, or all reviewer files are empty / contain only the generator's prior proposal block.* No reviews to respond to — proceed directly to writing the tree. Skip the append-responses step below; the reviewers will create or extend their files on the next review.
+- *One or more reviewer files contain `## Review` blocks.* There is feedback to address. Work through every finding in every reviewer file with content. For each finding, pick one:
 
-- **Fix.** The finding names a real violation of a priority anchor. Edit the tree.
-- **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree.
-- **Log a question.** The finding points at PRD ambiguity the operator needs to resolve. Append a block to `requirements/_questions-pending.md` (format below), then move on.
+  - **Fix.** The finding names a real violation of a priority anchor. Edit the tree.
+  - **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree.
+  - **Log a question.** The finding points at PRD ambiguity the operator needs to resolve. Append a block to `requirements/_questions-pending.md` (format below), then move on.
 
-After working through the findings, **append to the communication files**:
+  After working through the findings, **append to the communication files**:
 
-- For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
-- For **every** reviewer file (failing and passing alike), append a `## Changes since previous attempt` block enumerating every artifact file you added, edited, or removed since the last attempt, with a brief description of the substantive change. This lets each reviewer focus on the delta on its next read.
+  - For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
+  - For **every** reviewer file with prior content (failing and passing alike), append a `## Changes since previous attempt` block enumerating every artifact file you added, edited, or removed since that file's most recent review, with a brief description of the substantive change. This lets each reviewer focus on the delta on its next read.
 
-Append, never overwrite. The communication file accumulates the full back-and-forth across attempts.
+  Append, never overwrite. The communication file accumulates the full back-and-forth across attempts and across orchestrator invocations.
 
-On the first attempt of a new invocation, skip the append step — there's nothing to respond to and no prior attempt to summarise changes against. The reviewers will create their files on first review.
+The communication folder is preserved across invocations until a full pass, so a re-run after `awaiting_clarification` or `exhausted` may carry reviews that were written against an older state of the PRD or tree. Treat them as context, not authority — the current PRD and the current tree are ground truth. If a prior finding no longer applies because the tree has moved on, note that briefly in your `## Generator response` and move on.
 
 ## Output
 

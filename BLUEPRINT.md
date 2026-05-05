@@ -148,20 +148,20 @@ For each attempt of a loop, the orchestrator:
    - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `blueprints/_questions-pending.md`; etc.).
    - On retry attempts: a pointer to the loop's communication folder (`requirements_communication/` or `blueprints_communication/`) — the generator reads each reviewer's file directly to see prior reviews and its own prior responses (§1.8).
    - Attempt counter and remaining budget.
-   Spawns `claude -p "<prompt>"`. Wall-clock cap enforced per subprocess.
+   Spawns `claude -p "<prompt>"`. Wall-clock cap enforced per subprocess. By default attempt 1 spawns a fresh session via `--session-id <uuid>` and attempts 2+ resume that session via `--resume <uuid>` with a short follow-up message — the agent retains its own reasoning across attempts. Pass `--memoryless` to force every attempt to spawn a fresh session and rely on the communication folder alone (§1.10).
 
 2. **Generator works and exits.** Reads inputs (including prior-attempt content from the communication files), writes or edits artifact files on disk, writes its responses (proposals, push-backs, change-summary) into each reviewer's communication file, emits a stdout summary, exits. Generator does not commit to git — the orchestrator owns commits.
 
-3. **Spawns each reviewer** as a separate `claude -p` subprocess. Reviewers run with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed but a `PreToolUse` hook (§9) blocks any path other than the reviewer's own communication file. Denylist (not allowlist) so future Claude Code tool additions don't silently break the harness — we only care about blocking the artifact-mutation surface. Each reviewer's prompt contains:
+3. **Spawns every reviewer concurrently** as separate `claude -p` subprocesses (one `ThreadPoolExecutor` job per reviewer). Reviewers run with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed but a `PreToolUse` hook (§9) blocks any path other than the reviewer's own communication file. Denylist (not allowlist) so future Claude Code tool additions don't silently break the harness — we only care about blocking the artifact-mutation surface. Each reviewer's prompt contains:
    - The reviewer's skill (e.g. `req-coverage-judge`).
    - The path to the reviewer's communication file (e.g. `requirements_communication/req-coverage-judge.md`) — the reviewer reads it for the generator's current proposal and prior conversation, then appends its review to the same file.
    - Only the artifacts that reviewer needs to judge its rubric (e.g. coverage-judge gets `PRD.md` + the requirements tree; spec-judge gets only the FRDs it's checking).
-   Reviewers run in parallel — each writes only to its own communication file, so there's no contention.
+   Parallel fan-out is safe: each reviewer writes only to its own communication file (single-writer-per-file invariant), captures its own stdout, and reads the artifact tree read-only. No shared mutable state.
 
 4. **Reviewers output reviews to their communication file plus a stdout verdict line.** The reviewer appends its full review to its `<reviewer-name>.md` file under the loop's communication folder. The reviewer's final chat message (captured as subprocess stdout) is a short acknowledgement ending with the `VERDICT: pass` or `VERDICT: fail` line — that's the only thing the orchestrator parses. The communication file is the durable channel; stdout carries only the verdict signal.
 
-5. **Orchestrator aggregates.** Greps the trailing `VERDICT:` line from every reviewer's captured stdout for this attempt. If a reviewer's stdout does not end with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`, the orchestrator treats the output as malformed and re-prompts that reviewer (§1.9 — protocol-retry). The aggregation step only runs once every reviewer has produced a parseable verdict (or has exhausted its protocol-retry budget). The full review content already lives in each reviewer's communication file — no archival step needed at this point. Three outcomes once verdicts are parseable:
-   - **All pass** → snapshot communication files into `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` for audit (§7.4), wipe the live communication folder, commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`), write a final state entry, exit 0.
+5. **Orchestrator aggregates.** Greps the trailing `VERDICT:` line from every reviewer's captured stdout for this attempt. The reviewer's `Stop` hook (§9) blocks completion in-session until the trailer is well-formed, so a parseable verdict is the expected case. The hook self-caps at `max_agent_retries` blocks per subprocess (§1.6) so it can't loop forever on a stubbornly-malformed model. If a reviewer's stdout still does not end with `VERDICT: pass` or `VERDICT: fail` (cap reached, hook bypass, subprocess crash, truncated output), the orchestrator records that reviewer's verdict as `fail` for aggregation and the loop continues — no post-exit recovery layer. The full review content already lives in each reviewer's communication file — no archival step needed at this point. Three outcomes:
+   - **All pass** → snapshot communication files into `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` for audit (§7.4), leave the live communication folder in place (it's never wiped — §1.8), commit artifact tree changes to git with a descriptive message (`requirements-loop: attempt 2 passed`) when a git repo is present, write a final state entry, exit 0.
    - **Any fail and attempt < cap** → snapshot communication files into the per-attempt audit dir (so each attempt's transcript is preserved), spawn the generator again (attempt N+1) — the generator reads the live communication files for context, no orchestrator-assembled retry block needed.
    - **Any fail and attempt ≥ cap** → snapshot the final attempt, write `exhausted` verdict, leave files on disk uncommitted, exit 1 for operator inspection.
 
@@ -275,13 +275,11 @@ Both upstream loops can exit in a non-failure, non-pass state when they have pro
 
 ### 1.6 Retry cap
 
-Default: `max_attempts = 3` per loop invocation. Configurable in `config.yaml`. When reached without passing, orchestrator writes `verdict: exhausted` and exits.
+Default: `max_attempts = 25` per loop invocation. Configurable in `config.yaml`. When reached without passing, orchestrator writes `verdict: exhausted` and exits.
 
 Wall-clock cap is a separate, per-subprocess budget: if a generator or reviewer subprocess exceeds `max_wall_minutes`, it's killed and the attempt is marked as `exhausted` regardless of attempt count.
 
-Protocol-retry cap (§1.9) is a *third* counter, independent of `max_attempts`: when a reviewer subprocess exits with malformed stdout, the orchestrator re-prompts that reviewer up to 2 times before treating the verdict as `fail`. Protocol-retries do not consume `max_attempts`; they're recovery from a parser failure, not loop-level retries.
-
-Rate-limit retry cap (§1.10) is a *fourth* counter, independent of all the above: when a subprocess exits with a recognised rate-limit error, the orchestrator pauses (30s, then 60s) and re-spawns up to 2 times. Rate-limit retries don't consume `max_attempts` or the protocol-retry budget — they're recovery from infrastructure throttling, not from anything the model did or didn't say.
+Per-subprocess agent retries are a *third* counter, independent of all the above: `max_agent_retries` (default 3, configurable) caps two layers — post-spawn rate-limit re-spawns with doubling backoff (§1.9) and in-session `Stop`-hook retries that nudge the model to re-emit a malformed VERDICT trailer (§9). Both share the budget value but are independent counters per subprocess. Agent retries don't consume `max_attempts` — they're recovery from infrastructure throttling, and a guard against an infinite hook ↔ model loop on bad output, not from anything the model did or didn't say.
 
 ### 1.7 Retry isolation and re-review semantics
 
@@ -336,46 +334,49 @@ The coding loop does not use this mechanism; per-WO execution communicates throu
 **Race condition argument.** Because the orchestrator runs generator and reviewers strictly sequentially per attempt (generator → reviewers → generator → reviewers ...), no two processes are ever writing concurrently. Reviewers run in parallel within an attempt but each writes only to its own dedicated file, so no two reviewers ever contend for the same file either. The single-writer-at-a-time invariant is enforced by the orchestrator's spawn order, not by file locking.
 
 **Lifecycle.**
-- *On a new orchestrator invocation that starts attempt 1 from clean state* (the loop is starting fresh for a new run): the orchestrator wipes the communication folder before spawning the generator. Each new invocation starts with a fresh slate.
-- *Across attempts within a single orchestrator invocation:* files are kept and appended to. Each side sees the full conversation history.
-- *On full pass:* the orchestrator snapshots the final state of the communication folder into `harness/state/reviews/<loop>/attempt-<N>/` for audit (§7.4), then wipes the live folder. The artifact tree is committed; the conversation transcripts live in `harness/state/` for replay/audit.
-- *On `awaiting_clarification`:* the orchestrator snapshots into the audit dir and **leaves the live communication folder in place** so the operator can scan it alongside `_questions-pending.md`. On the next invocation when the operator has clarified, the orchestrator wipes and starts fresh.
-- *On `exhausted` or any failure path:* snapshot into the audit dir, leave the live folder for inspection, exit non-zero.
+- *On every orchestrator invocation:* the orchestrator ensures the folder exists. It **never wipes**. Whatever's there from prior runs — incomplete or already-passed — is preserved and read by the generator and reviewers as conversation context.
+- *Across attempts within a single invocation:* files are appended to. Each side sees the full conversation history.
+- *On every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`):* the orchestrator snapshots the live folder into `harness/state/reviews/<loop>/attempt-<N>/` for audit (§7.4) and leaves the live folder in place. The audit dir is the per-attempt frozen record; the live folder is the running conversation that future invocations build on.
+
+**Why never wipe.** The communication folder is the project's accumulated reviewer-generator conversation about its requirements (or blueprints). Even after a full pass, that history is useful context: when the operator re-runs the loop later (PRD evolved, scope expanded, etc.), the new run sees what was previously decided, what was previously contested, and what reviewers cared about — so it doesn't rediscover the same findings from scratch.
+
+**Stale-content note.** Because the live folder accumulates indefinitely, a re-run after `awaiting_clarification` or after a previous full pass may carry reviewer findings that were written against an older PRD interpretation or an earlier tree state. The generator and reviewers re-read the current artifact tree on every run, so the substantive ground truth is always current; the conversation is contextual, not authoritative. If a prior finding no longer applies, the generator notes that briefly in its next response and moves on. Skills are content-driven (they read what's in the comm files); they do not gate on "which attempt" or "which invocation".
 
 **Why this design.** The orchestrator stays small — it just spawns subprocesses and reads `VERDICT:` lines. The bidirectional content lives where both sides can see it without orchestrator-mediated prompt assembly. The generator can push back on a specific reviewer by writing into that reviewer's file; the reviewer sees the push-back next time it runs and may revise its position. The conversation is durably captured in markdown that an operator can read directly.
 
-### 1.9 Protocol-retry on malformed verdicts
+**Relationship to session continuity (§1.10).** With session-resume enabled (the default), the agent's own session memory carries the prior conversation across attempts within an invocation, so re-reading the communication folder is partly redundant. The folder is still kept and still read on every spawn — it's the cross-invocation, cross-rotation, and `--memoryless` fallback layer, plus the operator-readable audit trail. With `--memoryless` (or after a session rotation), the folder is the *only* memory channel and the design above is load-bearing.
 
-The Stop hook (§9) blocks an in-session reviewer from completing if its final chat message doesn't end with a recognisable `VERDICT:` trailer — that's the in-session enforcement layer. But the hook can fail to catch every case (a crashed subprocess, a truncated output, an output that satisfied the hook but came out garbled in stdout, a model that ignores the format despite being told). For those cases, the orchestrator runs a post-exit recovery layer.
+### 1.9 Rate-limit handling
 
-When the orchestrator captures a reviewer subprocess's stdout, it greps the trailing line. If the line isn't exactly `VERDICT: pass` or `VERDICT: fail`, the orchestrator treats the output as **malformed** and re-prompts the same reviewer with a corrective new chat:
+`claude -p` subprocesses can fail with a transient Anthropic API rate-limit error before the model even runs — independent of any in-session work, prompt format, or verdict mechanics. The subprocess exits with a non-zero exit code and stderr matching a known rate-limit pattern (e.g. `Rate limited`, `429`, `Server is temporarily limiting requests`). The orchestrator handles this distinctly from a normal loop-level fail because the failure mode is different: the model never produced output at all.
 
-- A fresh `claude -p` subprocess (new session — protocol retries are not multi-turn within one session).
-- The reviewer is given the same prompt as before, plus a prepended note: *"Your previous response did not end with a single trailing line matching exactly `VERDICT: pass` or `VERDICT: fail`. The captured stdout was: `<verbatim trailing 200 chars>`. Re-run the review and emit a final chat message that ends with that exact trailer line."*
-- The reviewer reads the same artifacts and the same communication file, runs the review again, and emits a new final chat message.
+**Detection.** When a generator or reviewer subprocess exits non-zero, the orchestrator inspects stderr for a rate-limit signature. If matched, the orchestrator does not treat the failure as a loop-level fail — it treats it as a transient infrastructure error and retries with a backoff.
 
-**Cap: 2 protocol-retries per reviewer per attempt.** Counted independently of `max_attempts` (the loop-level retry cap, §1.6). If the reviewer still emits a malformed verdict after 2 protocol-retries (3 total invocations), the orchestrator records the malformed-output incident in the loop's state file under a `protocol_failures[]` array and treats that reviewer's verdict as `fail` for aggregation purposes. The loop continues to the next reviewer / next loop attempt; the operator can read the protocol-failure log to triage why a reviewer is consistently producing malformed output (often a sign the reviewer skill prompt is broken or the model ignored the instruction).
-
-**Why two layers.** The Stop hook catches the case where the model is "almost done" and just needs to be told its trailer was missing; it's cheap and stays in-session. The orchestrator-level protocol-retry catches the case where the in-session enforcement didn't work — crash, truncation, hook bypass. Defense in depth: the loop should never get stuck on a parser failure, but it also shouldn't silently treat a malformed response as a soft fail without trying to recover.
-
-**Communication-file appends still happen.** A protocol-retry is a fresh subprocess — the reviewer reads the communication file, sees its prior (malformed) review, runs the review again, and appends a fresh `## Review — attempt N (protocol-retry M)` block with the corrective verdict line. Both attempts of the review remain in the file as part of the audit trail.
-
-### 1.10 Rate-limit handling
-
-`claude -p` subprocesses can fail with a transient Anthropic API rate-limit error before the model even runs — independent of any in-session work, prompt format, or verdict mechanics. The subprocess exits with a non-zero exit code and stderr matching a known rate-limit pattern (e.g. `Rate limited`, `429`, `Server is temporarily limiting requests`). The orchestrator handles this distinctly from malformed-verdict recovery (§1.9) because the failure mode is different: the model never produced output at all.
-
-**Detection.** When a generator or reviewer subprocess exits non-zero, the orchestrator inspects stderr for a rate-limit signature. If matched, the orchestrator does not treat the failure as a loop-level fail or as a malformed-verdict case — it treats it as a transient infrastructure error and retries with a backoff.
-
-**Backoff schedule.** Two retries per subprocess invocation, with fixed pauses between attempts:
+**Backoff schedule.** Up to `max_agent_retries` re-spawns per subprocess invocation (default 3), with a doubling backoff starting at 30 seconds:
 - After the original failure: pause **30 seconds**, then re-spawn the same subprocess with the identical prompt.
-- If that retry also rate-limits: pause **60 seconds**, then re-spawn once more.
-- If the second retry also rate-limits: the orchestrator records the incident in the loop's state file under a `rate_limit_failures[]` array (subprocess kind, reviewer name if applicable, attempt number, retry count, captured stderr) and exits the entire loop invocation with verdict `exhausted`. The artifact tree is not committed; the operator can re-run the loop later when capacity recovers.
+- If that retry also rate-limits: pause **60 seconds**, then re-spawn.
+- Each subsequent retry doubles the prior pause (120s, 240s, …) up to `max_agent_retries` total.
+- If the final retry also rate-limits: the orchestrator records the incident in the loop's state file under a `rate_limit_failures[]` array (subprocess kind, reviewer name if applicable, attempt number, retry count, captured stderr) and exits the entire loop invocation with verdict `exhausted`. The artifact tree is not committed; the operator can re-run the loop later when capacity recovers.
 
-**Rate-limit retries are independent of `max_attempts` (§1.6) and protocol-retries (§1.9).** They consume neither counter — a rate-limited spawn is treated as if it never happened from the loop's perspective. The wall-clock cap (`max_wall_minutes`) is the only budget that ticks during the backoff windows; if rate-limit retries push a subprocess past wall-clock, the orchestrator exits with `exhausted` for the same reason as any other wall-clock breach.
+**Rate-limit retries are independent of `max_attempts` (§1.6).** They consume no other counter — a rate-limited spawn is treated as if it never happened from the loop's perspective. The wall-clock cap (`max_wall_minutes`) is the only budget that ticks during the backoff windows; if rate-limit retries push a subprocess past wall-clock, the orchestrator exits with `exhausted` for the same reason as any other wall-clock breach.
 
-**Why fixed pauses, not exponential.** The Anthropic API rate-limit is server-side throttling, not per-token quota; the recovery time is bounded (typically seconds, not minutes). Two retries with 30s and 60s covers the typical recovery window without over-engineering. If recovery takes longer than ~90 seconds combined, the operator's correct response is to wait and re-run later, not to have the orchestrator burn wall-clock looping. Documenting the policy as fixed pauses (rather than configurable exponential backoff) keeps the orchestrator simple and the operator's mental model predictable.
+**Why doubling backoff.** The Anthropic API rate-limit is server-side throttling, not per-token quota; the recovery time is usually bounded but occasionally longer when capacity is congested. A doubling schedule (30s, 60s, 120s, …) covers both the common-case recovery window and longer outages without re-flooding the API. The `max_agent_retries` cap keeps the orchestrator's mental model predictable and bounds wall-clock exposure during a sustained outage.
 
-**Applies to all subprocess types.** Generators, reviewers (loop-level), reviewer protocol-retries (§1.9), and per-work-order coding-loop reviewers all use the same rate-limit handling. The mechanism is uniform across loop kinds.
+**Applies to all subprocess types.** Generators, reviewers (loop-level), and per-work-order coding-loop reviewers all use the same rate-limit handling. The mechanism is uniform across loop kinds.
+
+### 1.10 Session continuity across attempts
+
+By default the orchestrator runs each role (generator, each reviewer) as a single `claude -p` session that persists across attempts within one orchestrator invocation. This makes attempts 2+ a continuation of the same conversation rather than a fresh subprocess that has to re-derive everything from disk.
+
+**Mechanism.** Each role's session id lives in the loop state file under `sessions: { generator: <uuid>, reviewers: { <name>: <uuid> } }`. The map resets at the start of every `begin_invocation` — sessions are per-invocation, never persisted across `python -m orchestrator …` runs. On attempt 1 (or any spawn that has no stored id), the orchestrator generates a UUID and passes `--session-id <uuid>` along with `--append-system-prompt <skill-body>`; on success it stores the id. On attempts 2+ the orchestrator passes `--resume <uuid>` instead — the system prompt and full prior conversation come from Claude Code's session storage, not from the command line — and sends a short follow-up user message that names the failing reviewers and lists the working-tree changes since the previous attempt (or "made updates" when a diff isn't readily available).
+
+**Memoryless mode.** The `--memoryless` CLI flag on the loop subcommand defeats the default: every spawn is a fresh session (no `--session-id`, no `--resume`), and agents fall back on the communication folder for prior context exactly as they did in v0.1's baseline. Use this when the operator has edited the PRD or the artifact tree between attempts and wants the agents to re-derive without prior bias, or to produce a clean run for audit/replay.
+
+**Why per-invocation, not cross-invocation.** A new invocation is the operator's signal that something material has changed (PRD edit, scope expansion, fresh start after `awaiting_clarification`). Carrying agent memory across invocations risks the agent trusting its session memory over the (possibly updated) on-disk artifacts. Resetting at invocation boundaries forces a clean read of the current state while still preserving within-invocation throughput.
+
+**Communication folder remains.** The append-only files in `<loop>_communication/` keep their role as the operator-readable audit trail of every gen↔reviewer exchange (§1.8) and as the fallback memory channel when `--memoryless` is set or when a session is rotated (e.g. after Claude Code prunes session storage between an interrupted run and its resume). Agents are still instructed to read those files; they're now a redundancy for resilience, not the only memory channel.
+
+**Compaction caveat.** Long-running sessions are subject to Claude Code's automatic compaction, which is lossy. If a generator is mid-session at attempt 12 and the session has been compacted, some details from earlier attempts may be summarised away. The artifact tree on disk and the communication folder are the durable record; the session is the agent's working memory, not its long-term store.
 
 ## 2. Generator identity and discipline
 
@@ -438,8 +439,7 @@ All three loop subcommands share this driver (`orchestrator/loop_driver.py`):
 load_config()
 state = load_or_init_loop_state(loop_name)
 comm_dir = communication_dir(loop_name)         # requirements_communication/ or blueprints_communication/
-if state.is_fresh_invocation():
-    wipe_communication_folder(comm_dir)         # §1.8 lifecycle
+ensure_communication_folder(comm_dir)           # §1.8 lifecycle: do NOT wipe; preserve prior conversation
 
 for attempt in range(1, max_attempts + 1):
     gen_prompt = build_generator_prompt(loop_name, attempt, state, comm_dir)
@@ -472,8 +472,8 @@ for attempt in range(1, max_attempts + 1):
 
     if all_pass(review_results):
         snapshot_communication_folder(loop_name, attempt, comm_dir)
-        wipe_communication_folder(comm_dir)
-        commit_artifacts(f"{loop_name}: attempt {attempt} passed")
+        # live comm folder is never wiped (§1.8); it accumulates across runs
+        commit_artifacts(f"{loop_name}: attempt {attempt} passed")  # no-op when no git
         exit(0)
 
     # else: continue to next attempt
@@ -589,13 +589,17 @@ class Mirror(Protocol):
 
 ### 5.4 Config
 
-`config.yaml` at project repo root. Mirrors are explicit opt-in.
+`config.yaml` at the **harness** repo root (the kit, not the project repo).
+One config applies to every project the orchestrator is run against. No
+per-project overrides in v0.1; if one becomes necessary, layer a project-root
+`config.yaml` on top with the same parser.
+
+Mirrors are explicit opt-in.
 
 ```yaml
-# project repo root is implicit (CWD when orchestrator runs).
-
-max_attempts: 3
+max_attempts: 25
 max_wall_minutes: 120
+max_agent_retries: 3               # per-subprocess: rate-limit re-spawns + malformed-VERDICT same-chat nudges
 
 mirrors:                           # empty list = local-only (v0.1 default)
   - kind: software_factory
@@ -718,7 +722,7 @@ The entire `harness/` directory is **committed to git** — first-class project 
 
 ### 7.4 Reviewer review archive
 
-For upstream loops (requirements, blueprint), the live conversation between generator and reviewers happens in the loop's communication folder (§1.8). At each attempt boundary — and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`) — the orchestrator snapshots each `<reviewer-name>.md` file from the live communication folder into `harness/state/reviews/<loop-name>/attempt-<N>/<reviewer-name>.md`, where `<loop-name>` is the full subcommand name (`requirements-loop`, `blueprint-loop`, or `coding-loop` — matches the file naming under `harness/state/<loop-name>.json`). The audit dir thus carries the full conversation transcript per attempt; the live folder is wiped on `pass` (so the next invocation starts clean) but kept on `awaiting_clarification` and `exhausted` so the operator can scan it directly.
+For upstream loops (requirements, blueprint), the live conversation between generator and reviewers happens in the loop's communication folder (§1.8). At each attempt boundary — and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`) — the orchestrator snapshots each `<reviewer-name>.md` file from the live communication folder into `harness/state/reviews/<loop-name>/attempt-<N>/<reviewer-name>.md`, where `<loop-name>` is the full subcommand name (`requirements-loop`, `blueprint-loop`, or `coding-loop` — matches the file naming under `harness/state/<loop-name>.json`). The audit dir is the per-attempt frozen record; the live folder is never wiped, so the next invocation can continue the conversation regardless of how the previous one ended.
 
 For coding-loop per-WO execution, the reviewer set is run differently and the archive path is `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. (Per-WO execution does not use the communication-folder mechanism — that mechanism is for the upstream loops where the gen↔review back-and-forth is the load-bearing dynamic; per-WO execution is a single-shot review.)
 
@@ -743,7 +747,7 @@ For coding-loop per-WO execution, the reviewer set is run differently and the ar
 
 - **State files (`harness/state/<loop|task>.json`):** orchestrator is the only writer. Per invocation it loops through attempts, each attempt spawning a generator and every reviewer, rotates `current` → `attempts[]`, and on exit rolls `attempts[]`'s final entry into `history[]`.
 - **Artifact trees (`requirements/`, `blueprints/`, `work-orders/`):** generator is the writer; orchestrator commits.
-- **Communication folders (`requirements_communication/`, `blueprints_communication/`):** generator and reviewers both write, never simultaneously (§1.8 lifecycle and race-condition argument). The orchestrator wipes the folder on a fresh invocation and on full `pass`; otherwise it does not modify it.
+- **Communication folders (`requirements_communication/`, `blueprints_communication/`):** generator and reviewers both write, never simultaneously (§1.8 lifecycle and race-condition argument). The orchestrator never wipes the folder; it accumulates the full conversation across all attempts and all invocations of the loop, including across previous full passes.
 - **Reviewer review snapshots (`harness/state/reviews/<loop>/attempt-<N>/`):** orchestrator is the only writer. It snapshots from the live communication folder at attempt boundaries and on exit verdicts.
 - Per-reviewer and per-attempt outputs are preserved on disk (snapshots in `harness/state/`) so audit and replay can reconstruct an invocation fully.
 
@@ -777,7 +781,7 @@ Configured in `.claude/settings.json`. Log to `harness/logs/<task_id-or-loop-nam
 Hooks do only what must happen inside the Claude Code session — context the orchestrator can't provide from outside. State management is in the orchestrator.
 
 - **`Stop` (generator)** — validates the stdout summary ends with a recognised `VERDICT:` line. Blocks completion if missing.
-- **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed. This is layer 1 of verdict-format enforcement; if a reviewer subprocess does manage to exit with malformed stdout (hook bypass, crash, truncation, etc.), the orchestrator's protocol-retry mechanism (§1.9) catches it post-exit.
+- **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed, prompting the model to add it before the turn ends. This is the sole verdict-format enforcement layer. The hook self-caps at `max_agent_retries` blocks per subprocess (default 3, configurable in `config.yaml`) using a per-spawn counter file passed via the `HARNESS_STOP_HOOK_COUNTER` env var: each block increments the counter, and once it exceeds `HARNESS_MAX_AGENT_RETRIES` the hook returns 0 (allow stop) instead of blocking. The cap exists so a stubbornly-malformed model can't ping-pong with the hook indefinitely. If a subprocess still exits with malformed stdout (cap reached, hook bypass, subprocess crash, truncated output), the orchestrator records that reviewer's verdict as `fail` for aggregation and the loop continues — no post-exit recovery layer. The trade-off: simpler orchestrator, at the cost of treating rare malformed-output cases as soft fails rather than recovering.
 - **`PreToolUse` (reviewer path-guard)** — fires on every `Write` / `Edit` tool call inside a reviewer subprocess and blocks the call unless the target path is exactly `<requirements_communication|blueprints_communication>/<this-reviewer-name>.md`. Prevents a reviewer from mutating the artifact tree, the operator's questions file, or any other reviewer's communication file even if the reviewer skill or the artifacts it reads contain adversarial instructions. Required because reviewers run with `Write`/`Edit` allowed (so they can append to their own communication file); without this hook the denylist would have to forbid all writes, which would break the channel.
 
 Not hooks (and why):
@@ -927,7 +931,7 @@ Feature-blueprint slug parity (`blueprints/features/<slug>.md` matches `requirem
 
 Tracked separately from PRD §8 (which tracks product/scope questions).
 
-- **Parallel reviewer fan-out.** v0.1 spawns reviewers serially. Parallel is plausible (`claude -p` subprocesses are independent) but adds complexity (concurrent log files, race in verdict-file writes is unlikely but worth considering). Defer until serial is slow in practice.
+- ~~**Parallel reviewer fan-out.**~~ Resolved. v0.1 spawns reviewers concurrently via a `ThreadPoolExecutor`. Each reviewer writes only to its own communication file and captures its own stdout; the path-guard hook (§9) enforces the single-writer-per-file invariant. No race conditions in practice.
 - **Between-attempt commits.** v0.1 commits only on final pass. If a multi-attempt run is long and the operator wants to inspect intermediate state in git, they can by checking out a different branch — but v0.1 won't provide it. Revisit if needed.
 - **Retry cap per reviewer vs global.** Current design: single cap per invocation (any reviewer failing counts). Alternative: a reviewer that fails the same finding three times is "stuck" and its finding becomes authoritative (generator must fix or gap-file). Possibly cleaner but more state to track. Defer.
 - **Reviewer prompt size.** On large trees, feeding a reviewer every artifact it needs plus the generator summary plus the rubric can push context limits. Mitigations: scoped reviewer prompts (only files the reviewer has to read), file-by-file fan-out for per-file rubrics. Worry about it when we hit the limit.
