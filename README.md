@@ -114,3 +114,33 @@ mirrors: []            # v0.1 has no mirrors; placeholder for v1.0
 Exit codes: `0` full pass, `1` exhausted, `2` `awaiting_clarification` (open
 questions in `requirements/_questions-pending.md` block further progress —
 operator clarifies `PRD.md` and re-runs).
+
+## Blueprint loop (v0.2)
+
+```bash
+python -m orchestrator blueprint-loop --project-root /path/to/project
+```
+
+Drives Stage 3 of the harness: reads the approved `requirements/features/`
+tree (and the optional project-root `BLUEPRINT.md` if present), produces
+the structural blueprints tree under `blueprints/{containers,components,features}/`,
+runs four reviewers (`bp-spec-judge`, `bp-coverage-judge`,
+`bp-consistency-judge`, `bp-decision-judge`), iterates on failures, commits
+on pass when the project repo is a git repo. When the generator hits an
+architectural choice that requires operator judgment, it appends a question
+block to `blueprints/_questions-pending.md` and the loop exits
+`awaiting_clarification` (exit code 2) — operator answers in the file and
+re-runs.
+
+Same flags as `requirements-loop`: `--skip-first-generator`, `--memoryless`.
+Same retry, session-continuity, and communication-folder semantics.
+
+Precondition: `requirements/features/` must contain at least one FRD —
+run `requirements-loop` to a pass first.
+
+Optional input: a `BLUEPRINT.md` at the project repo root acts as the
+operator's high-level architectural scratchpad. The generator treats it as
+an authoritative starting point (component lists, data-model sketches,
+stack choices); `bp-coverage-judge` and `bp-consistency-judge` flag drift
+between it and the generated blueprints. Absent is fine — the generator
+proceeds without it.

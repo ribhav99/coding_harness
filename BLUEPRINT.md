@@ -510,7 +510,7 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
 - Reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
 - Pass condition: all reviewers pass AND `blueprints/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
 - Generator prompt inputs: `requirements/features/` + current `blueprints/` + current `blueprints/_questions-pending.md` + the path to `blueprints_communication/` (where the generator reads prior reviews and appends responses).
-- The `blueprint-authoring` skill (renamed from the prior `foundation-blueprint-authoring`) is **not** invoked by the orchestrator. It is an interactive skill the operator runs in a Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD.
+- The `blueprint-authoring` skill is **not** invoked by the orchestrator. It is an interactive skill the operator runs in a Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD.
 
 **`coding-loop`.** Two-part flow:
 1. **Sequence generation** (runs when no ready work orders OR blueprints hash changed since the last `work-orders/.sequence.meta.yaml`):
@@ -803,7 +803,7 @@ Each carries its own autonomy posture (no clarifying questions, decide and proce
 - `wo-sequence-generator` — loads `blueprint-to-tasks` + `scope-task`. Identity: lead tech lead. Writes `work-orders/wo-NNN/`.
 - `coding-generator` — loads `open-task-pr` + coding-specific capabilities. Identity: IC. Writes code on the task branch, opens/updates PR, commits as part of its flow.
 
-The interactive `blueprint-authoring` skill (renamed from `foundation-blueprint-authoring`) is **not** orchestrator-spawned. The operator runs it inside an interactive Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD. There is no longer a separate `bubble-up-decision` skill; question-block formats live inline in the generator skill prompts (§1.5).
+The interactive `blueprint-authoring` skill is **not** orchestrator-spawned. The operator runs it inside an interactive Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD. There is no longer a separate `bubble-up-decision` skill; question-block formats live inline in the generator skill prompts (§1.5).
 
 ### 10.2 Reviewer subagents (orchestrator-spawned)
 

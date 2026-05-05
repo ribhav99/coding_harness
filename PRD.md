@@ -177,7 +177,7 @@ The generator writes all three types itself — single skill, no sub-skill co-in
 
 **Reviewers.** Orchestrator spawns four: structural spec, FRD-to-blueprint coverage, cross-blueprint consistency, decision hygiene. See §8.2 for rubric detail.
 
-**Interactive blueprint editing.** Outside the autonomous loop, the operator can invoke the `blueprint-authoring` skill (renamed from the prior `foundation-blueprint-authoring`) inside an interactive Claude Code session to refine specific blueprints. Same posture as `prd-authoring`. Not orchestrator-spawned; not part of the loop.
+**Interactive blueprint editing.** Outside the autonomous loop, the operator can invoke the `blueprint-authoring` skill inside an interactive Claude Code session to refine specific blueprints. Same posture as `prd-authoring`. Not orchestrator-spawned; not part of the loop.
 
 **Output.** Approved blueprints under `blueprints/` when all questions are resolved and all reviewers pass. Commit history is the audit trail.
 
@@ -361,7 +361,7 @@ Each skill carries its own autonomy posture: no clarifying questions mid-loop, d
 **Manual-stage skills (operator-driven interactive Claude Code sessions):**
 
 - `prd-authoring` *(LLM work)* — interactive PRD authoring. Helps the operator draft and refine the single monolithic `PRD.md` at the project repo's root. Output is one file, not a tree — the requirements loop does the decomposition. Role as product manager; clarification policy (ambiguous → ask; specific → act; middle → propose + ≤2 questions); overview-style writing rules (narrative prose, active voice, no fluff, WHAT not HOW); no-fabrication and no-refactor-breadcrumb discipline. The operator writes detailed feature descriptions; formal feature-unit scoping lives in `prd-to-frds`. Uses Claude Code's filesystem tools (Read/Write/Edit). **Also handles critique on demand** — when the operator asks for review, the same skill applies a CONFLICT / MISSING / AMBIGUOUS / DUPLICATION / STALE rubric (critical-only filter) in-line. No separate review skill.
-- `blueprint-authoring` *(LLM work)* — interactive blueprint editing. Helps the operator refine specific blueprints after the autonomous blueprint loop has run. Same posture as `prd-authoring`: ask-and-wait dialogue, no autonomous loop, role as senior engineer. Knows the three blueprint types (container / component / feature), the per-type structural shape (sections, mention syntax, fenced `component`/`model` blocks, ADRs — see `BLUEPRINT.md §11`), and the boundary-first / no-redefinition writing principles. Uses Read/Write/Edit. Renamed from the former `foundation-blueprint-authoring`; not orchestrator-spawned, not part of the loop.
+- `blueprint-authoring` *(LLM work)* — interactive blueprint editing. Helps the operator refine specific blueprints after the autonomous blueprint loop has run. Same posture as `prd-authoring`: ask-and-wait dialogue, no autonomous loop, role as senior engineer. Knows the three blueprint types (container / component / feature), the per-type structural shape (sections, mention syntax, fenced `component`/`model` blocks, ADRs — see `BLUEPRINT.md §11`), and the boundary-first / no-redefinition writing principles. Uses Read/Write/Edit. Not orchestrator-spawned, not part of the loop.
 
 **Requirements-loop skills** (autonomous; `requirements-loop` generator pulls in these):
 
@@ -515,7 +515,7 @@ Ship order mirrors the operator's actual workflow — author the PRD, then itera
 - Blueprint artifact shape already pinned (three types: container / component / feature; full contract in `BLUEPRINT.md §11`). `blueprints/{containers,components,features}/` on-disk layout + meta files materialise per requirements-loop conventions.
 - `blueprint-loop` orchestrator subcommand.
 - `frd-to-blueprint` generator skill — single skill that writes all three blueprint types itself; appends question blocks to `blueprints/_questions-pending.md` (bare or with-options, options only when there's a genuine choice).
-- `blueprint-authoring` interactive skill (renamed from `foundation-blueprint-authoring`) — operator-invoked for post-loop blueprint editing; not orchestrator-spawned.
+- `blueprint-authoring` interactive skill — operator-invoked for post-loop blueprint editing; not orchestrator-spawned.
 - `blueprints_communication/` folder lifecycle wired up (same shape as requirements-loop).
 - Orchestrator handles `awaiting_clarification` for the blueprint loop (same verdict and mechanism as requirements loop) + dual completion condition (all reviewers pass AND zero open questions = full pass).
 - All four blueprint-loop reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.

@@ -26,6 +26,12 @@ You judge semantic consistency across the `blueprints/` tree. Critical issues on
   - Sections inside a container blueprint detail a service's internal modules instead of the entry points and contracts the container exposes.
   - The container blueprint replicates content that already lives (or should live) in a component blueprint inside that container.
 
+- **No drift from project-root `BLUEPRINT.md` (if present).** If a `BLUEPRINT.md` exists at the project root (the operator's high-level architectural scratchpad — `frd-to-blueprint` reads it as authoritative starting input), every assertion it makes about tech stack, deployment model, data store, framework, or component responsibilities should match the generated blueprints. Examples of drift:
+  - `BLUEPRINT.md` says "Postgres for primary store"; a `model` block lists `store: DynamoDb` without an open question explaining the divergence.
+  - `BLUEPRINT.md` says the auth component handles SSO; the `auth` component blueprint's `responsibilities:` doesn't mention SSO.
+  - `BLUEPRINT.md` pins a deployment target (e.g. ECS Fargate); a container blueprint's `## Infrastructure` describes a different model.
+  Tag drift findings with `BLUEPRINT_DRIFT`. If `BLUEPRINT.md` is absent, skip this check.
+
 ## What you don't check
 
 Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
