@@ -36,35 +36,63 @@
             }
           },
           {
-            "id": "cb0c19c6ae082b20",
+            "id": "7c4e2bc0fc961f03",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "skills/blueprints/frd-to-blueprint.md",
+                "file": "skills/work-orders/blueprint-to-work-orders.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "frd-to-blueprint"
+              "title": "blueprint-to-work-orders"
             }
           },
           {
-            "id": "9ba543050497ada1",
+            "id": "8f28d873042fdd10",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "skills/blueprints/blueprint-authoring.md",
+                "file": "skills/work-orders/wo-coverage-judge.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "blueprint-authoring"
+              "title": "wo-coverage-judge"
+            }
+          },
+          {
+            "id": "2f584ae2c0a59893",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/work-orders/wo-dependency-judge.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "wo-dependency-judge"
+            }
+          },
+          {
+            "id": "6f82d622053edfb6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "skills/work-orders/wo-scoping-judge.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "wo-scoping-judge"
             }
           }
         ],
-        "currentTab": 3
+        "currentTab": 2
       }
     ],
     "direction": "vertical"
@@ -226,44 +254,44 @@
       "bases:Create new base": false
     }
   },
-  "active": "9ba543050497ada1",
+  "active": "7c4e2bc0fc961f03",
   "lastOpenFiles": [
-    "orchestrator/loops/__pycache__/blueprints.cpython-313.pyc",
-    "orchestrator/loops/blueprints.py",
-    "skills/blueprints/frd-to-blueprint.md",
-    "skills/blueprints/blueprint-authoring.md",
-    "skills/blueprints/bp-spec-judge.md",
-    "skills/blueprints/bp-coverage-judge.md",
-    "skills/blueprints/bp-decision-judge.md",
-    "skills/blueprints/bp-consistency-judge.md",
-    "skills/blueprints/foundation-blueprint-authoring.md",
+    "harness/state/reviews/blueprint-loop/attempt-2/bp-spec-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-2/bp-decision-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-2/bp-coverage-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-2/bp-consistency-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-2",
+    "skills/work-orders/wo-scoping-judge.md",
+    "skills/work-orders/wo-dependency-judge.md",
+    "skills/work-orders/wo-coverage-judge.md",
+    "skills/work-orders/blueprint-to-work-orders.md",
     "BLUEPRINT.md",
-    "requirements/features/prd-authoring.md",
-    "requirements/features/on-disk-layout.md",
-    "requirements/features/python-orchestrator.md",
-    "requirements/features/requirements-loop.md",
-    "requirements/features/coding-loop.md",
-    "requirements/features/blueprint-loop.md",
-    "skills/requirements/req-spec-judge.md",
-    "requirements/overview/appendix.md",
-    "requirements/overview/phases.md",
-    "requirements/overview/technical-requirements.md",
-    "requirements/overview/project-lifecycle.md",
-    "requirements/overview/architecture.md",
-    "requirements/overview/design-principles.md",
-    "requirements/overview/measurement.md",
-    "requirements/overview/success-metrics.md",
-    "requirements/overview/personas.md",
-    "requirements/overview/current-state.md",
-    "requirements/features/coding-loop_children",
-    "requirements/features/coding-loop/children/sequence-generation",
-    "requirements/features/coding-loop/children/execution",
-    "requirements/features/coding-loop/children",
-    "requirements/overview/technical-requirements",
-    "requirements/overview/success-metrics",
-    "requirements/overview/project-lifecycle",
-    "requirements/overview/product-description",
-    "requirements/overview/phases",
+    "blueprints/_questions-pending.md",
+    "harness/state/reviews/blueprint-loop/attempt-1/bp-spec-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-1/bp-decision-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-1/bp-coverage-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-1/bp-consistency-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-1",
+    "harness/state/reviews/blueprint-loop",
+    "blueprints/features/coding-loop.md",
+    "blueprints/features/work-orders-loop.md",
+    "blueprints/features/blueprint-loop.md",
+    "blueprints/features/requirements-loop.md",
+    "blueprints/features/on-disk-layout.md",
+    "blueprints/features/python-orchestrator.md",
+    "blueprints/features/prd-authoring.md",
+    "blueprints/components/agents-and-skills.md",
+    "blueprints/components/mirror-adapter.md",
+    "blueprints/components/local-planner.md",
+    "blueprints/components/git-integration.md",
+    "blueprints/components/state-store.md",
+    "blueprints/containers",
+    "blueprints/features",
+    "blueprints/components",
+    "blueprints",
+    "blueprints_communication",
+    "harness/state/blueprint-loop.json",
+    "harness/state/reviews/requirements-loop/attempt-1",
     "diagrams/exec.png"
   ]
 }
