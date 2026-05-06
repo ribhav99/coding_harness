@@ -4,16 +4,16 @@
 
 The Python orchestrator is the cross-session runtime of the harness — a thin Python program that spawns Claude Code generator and reviewer subprocesses, parses their `VERDICT:` lines from stdout, manages each loop's communication folder (the bidirectional gen↔reviewer channel for the upstream loops), transitions artifact state on disk, enforces budgets, and handles clarification-pending pauses. It is the only component that initiates sessions; everything that happens inside a session (generation, review, verdict emission) happens under the orchestrator's control through `claude -p`.
 
-The operator needs this orchestrator because the three autonomous loops share a loop mechanic but execute across many subprocesses over many minutes. Keeping this mechanic out of Claude Code sessions — where every model call is billable session time and where hooks run at irregular boundaries — and putting it in a deterministic Python program is what makes the harness reliable. The orchestrator owns retry logic, verdict parsing, attempt counting, PR comment posting, merge detection, and status transitions so that skills and agents can focus on LLM-driven work.
+The operator needs this orchestrator because the four autonomous loops share core machinery but execute across many subprocesses over many minutes. Keeping this mechanic out of Claude Code sessions — where every model call is billable session time and where hooks run at irregular boundaries — and putting it in a deterministic Python program is what makes the harness reliable. The orchestrator owns retry logic, verdict parsing, attempt counting, PR comment posting, merge detection, and status transitions so that skills and agents can focus on LLM-driven work.
 
 ## Terminology
 
-- **Subcommand** — one of the four CLI entry points: `requirements-loop`, `blueprint-loop`, `coding-loop`, `status`.
-- **Generator subprocess** — a `claude -p` invocation running a generator skill (for example, `prd-to-frds`, `frd-to-blueprint`, `blueprint-to-tasks`, or the per-work-order implementation generator).
-- **Reviewer subprocess** — a `claude -p` invocation running an LLM-as-judge skill. For upstream loops (requirements, blueprint), the reviewer runs with `--disallowedTools Bash,NotebookEdit` and appends its review to its own communication file; for coding-loop execution, it runs with `--disallowedTools Write,Edit,NotebookEdit,Bash` and emits its review as stdout. In all cases, stdout ends with a `VERDICT:` line.
+- **Subcommand** — one of the five CLI entry points: `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `coding-loop`, `status`.
+- **Generator subprocess** — a `claude -p` invocation running a generator skill (for example, `prd-to-frds`, `frd-to-blueprint`, `blueprint-to-work-orders`, or the per-work-order implementation generator).
+- **Reviewer subprocess** — a `claude -p` invocation running an LLM-as-judge skill. For upstream loops (requirements, blueprint, work-orders), the reviewer runs with `--disallowedTools Bash,NotebookEdit` and appends its review to its own communication file; for coding-loop execution, it runs with `--disallowedTools Write,Edit,NotebookEdit,Bash` and emits its review as stdout. In all cases, stdout ends with a `VERDICT:` line.
 - **Verdict** — a `pass|fail` decision extracted from the trailing `VERDICT:` line of a subprocess's stdout.
-- **Communication folder** — `requirements_communication/` (for the requirements loop) or `blueprints_communication/` (for the blueprint loop): a project-root-level directory containing one markdown file per agent in that loop. Append-only conversation transcripts; both the generator and the named reviewer read and write the file. The orchestrator manages the folder lifecycle but does not write inside the files.
-- **Clarification-pending pause** — the `awaiting_clarification` exit condition for either upstream loop. Triggered when reviewers pass on the concrete content but `<artifact-tree>/_questions-pending.md` has unanswered questions and the generator cannot progress further without operator input. Same exit verdict for both requirements and blueprint loops.
+- **Communication folder** — `requirements_communication/` (for the requirements loop), `blueprints_communication/` (for the blueprint loop), or `work-orders_communication/` (for the work-orders loop): a project-root-level directory containing one markdown file per agent in that loop. Append-only conversation transcripts; both the generator and the named reviewer read and write the file. The orchestrator manages the folder lifecycle but does not write inside the files.
+- **Clarification-pending pause** — the `awaiting_clarification` exit condition for any upstream loop (requirements, blueprint, work-orders). Triggered when reviewers pass on the concrete content but `<artifact-tree>/_questions-pending.md` has unanswered questions and the generator cannot progress further without operator input. Same exit verdict for all three upstream loops.
 - **Reviewer review file** — the markdown file under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md` where the orchestrator snapshots each reviewer's communication file (upstream loops) or captures stdout (coding-loop execution) for audit.
 
 ## Requirements
@@ -21,13 +21,13 @@ The operator needs this orchestrator because the three autonomous loops share a 
 ### REQ-ORCH-001 — CLI entry point and subcommands
 **User Story.** As an operator, I want a single CLI entry point with one subcommand per loop, so that I can trigger the right loop by name without switching tools.
 - **AC-ORCH-001.1** — The orchestrator shall expose `python -m orchestrator <subcommand>` as its invocation shape.
-- **AC-ORCH-001.2** — The orchestrator shall implement the subcommands `requirements-loop`, `blueprint-loop`, `coding-loop`, and `status`.
+- **AC-ORCH-001.2** — The orchestrator shall implement the subcommands `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `coding-loop`, and `status`.
 - **AC-ORCH-001.3** — The orchestrator shall run only one subcommand at a time; loops shall not be daemonized.
 
 ### REQ-ORCH-002 — Subprocess spawn with composed prompts
 **User Story.** As an operator, I want the orchestrator to spawn generator and reviewer subprocesses with the right prompt context, so that skills run in the conditions they were designed for.
-- **AC-ORCH-002.1** — The orchestrator shall spawn generator subprocesses via `claude -p "<prompt>"`, with scoped context for the loop (for the upstream loops, the prompt names the loop's communication folder so the generator can read prior reviews; for the coding loop's per-work-order generator, the scoped-task body is injected inline).
-- **AC-ORCH-002.2** — For upstream-loop reviewer subprocesses, the orchestrator shall spawn `claude -p "<prompt>"` with `--disallowedTools Bash,NotebookEdit` (allowing `Write`/`Edit` so the reviewer can append to its own communication file); a `PreToolUse` path-guard hook configured by the orchestrator shall block any `Write`/`Edit` call whose target path is not exactly the reviewer's own `<loop>_communication/<reviewer-name>.md` file.
+- **AC-ORCH-002.1** — The orchestrator shall spawn generator subprocesses via `claude -p "<prompt>"`, with scoped context for the loop (for the upstream loops — requirements, blueprint, work-orders — the prompt names the loop's communication folder so the generator can read prior reviews; for the coding loop's per-work-order generator, the scoped-task body is injected inline).
+- **AC-ORCH-002.2** — For upstream-loop reviewer subprocesses (requirements, blueprint, work-orders), the orchestrator shall spawn `claude -p "<prompt>"` with `--disallowedTools Bash,NotebookEdit` (allowing `Write`/`Edit` so the reviewer can append to its own communication file); a `PreToolUse` path-guard hook configured by the orchestrator shall block any `Write`/`Edit` call whose target path is not exactly the reviewer's own `<loop>_communication/<reviewer-name>.md` file.
 - **AC-ORCH-002.3** — For coding-loop per-work-order execution reviewer subprocesses, the orchestrator shall spawn `claude -p "<prompt>"` with `--disallowedTools Write,Edit,NotebookEdit,Bash` (the original constraint, since per-WO execution does not use the communication-folder mechanism).
 - **AC-ORCH-002.4** — The orchestrator shall never make direct Anthropic API calls; every model interaction shall go through `claude -p`.
 
@@ -47,9 +47,9 @@ The operator needs this orchestrator because the three autonomous loops share a 
 
 ### REQ-ORCH-005 — Artifact commit on pass
 **User Story.** As an operator, I want the orchestrator to commit artifact changes on pass, so that git history is a clean audit trail of accepted loop outputs.
-- **AC-ORCH-005.1** — On full `pass` of a requirements, blueprint, or sequence-generation loop, the orchestrator shall commit the corresponding artifact-tree changes.
-- **AC-ORCH-005.2** — On an upstream-loop `awaiting_clarification` exit (either requirements or blueprint), the orchestrator shall commit current progress plus the updated `_questions-pending.md` file in that loop's artifact tree.
-- **AC-ORCH-005.3** — The orchestrator shall not open a pull request for requirements or blueprint trees; for those, the commit history is the audit trail.
+- **AC-ORCH-005.1** — On full `pass` of any upstream loop (requirements, blueprint, work-orders), the orchestrator shall commit the corresponding artifact-tree changes.
+- **AC-ORCH-005.2** — On an upstream-loop `awaiting_clarification` exit (any of requirements, blueprint, work-orders), the orchestrator shall commit current progress plus the updated `_questions-pending.md` file in that loop's artifact tree.
+- **AC-ORCH-005.3** — The orchestrator shall not open a pull request for requirements, blueprint, or work-orders trees; for those, the commit history is the audit trail.
 
 ### REQ-ORCH-006 — Coding-loop execution: merge detection and status transition
 **User Story.** As an operator, I want merged PRs detected automatically, so that the next coding-loop invocation does not retry work that is already shipped.
@@ -66,11 +66,12 @@ The operator needs this orchestrator because the three autonomous loops share a 
 **User Story.** As an operator, I want the orchestrator to detect when a loop's questions file blocks further progress, so that the exit verdict correctly distinguishes `awaiting_clarification` from `pass`.
 - **AC-ORCH-008.1** — For the requirements loop, the orchestrator shall inspect `requirements/_questions-pending.md` after each generator run; if reviewers pass on the concrete content but open questions remain that block further review, the orchestrator shall exit with verdict `awaiting_clarification`.
 - **AC-ORCH-008.2** — For the blueprint loop, the orchestrator shall inspect `blueprints/_questions-pending.md`; if reviewers pass but open questions remain and the generator cannot progress further, the orchestrator shall exit with verdict `awaiting_clarification`. Same verdict and mechanism as the requirements loop — only the file location differs.
-- **AC-ORCH-008.3** — `awaiting_clarification` shall not be treated as failure; the orchestrator shall commit current progress and write an operator-facing summary.
+- **AC-ORCH-008.3** — For the work-orders loop, the orchestrator shall inspect `work-orders/_questions-pending.md`; if reviewers pass but open questions remain and the generator cannot progress further, the orchestrator shall exit with verdict `awaiting_clarification`. Same verdict and mechanism as the requirements and blueprint loops.
+- **AC-ORCH-008.4** — `awaiting_clarification` shall not be treated as failure; the orchestrator shall commit current progress and write an operator-facing summary.
 
 ### REQ-ORCH-012 — Communication folder lifecycle
 **User Story.** As an operator, I want the orchestrator to manage the upstream-loop communication folders so that each invocation starts from a known state and every attempt's transcript is preserved for audit.
-- **AC-ORCH-012.1** — For the requirements loop, the orchestrator shall manage `requirements_communication/` at the project root. For the blueprint loop, the orchestrator shall manage `blueprints_communication/` at the project root. Both are siblings of the corresponding artifact tree, not nested inside it.
+- **AC-ORCH-012.1** — For the requirements loop, the orchestrator shall manage `requirements_communication/` at the project root. For the blueprint loop, the orchestrator shall manage `blueprints_communication/`. For the work-orders loop, the orchestrator shall manage `work-orders_communication/`. All three are siblings of the corresponding artifact tree, not nested inside it.
 - **AC-ORCH-012.2** — On every invocation that begins a fresh attempt-1 from a clean state (no live conversation in the folder from a prior `awaiting_clarification` or `exhausted` exit), the orchestrator shall wipe the communication folder before spawning the generator.
 - **AC-ORCH-012.3** — At every attempt boundary and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`), the orchestrator shall snapshot each agent file from the live communication folder into `harness/state/reviews/<loop>/attempt-<N>/<reviewer-name>.md`.
 - **AC-ORCH-012.4** — On full `pass`, the orchestrator shall wipe the live communication folder. On `awaiting_clarification` and `exhausted`, the live folder shall be left in place for operator inspection.
@@ -104,7 +105,7 @@ The operator needs this orchestrator because the three autonomous loops share a 
 
 ### REQ-ORCH-010 — Operator-visible status subcommand
 **User Story.** As an operator, I want a `status` subcommand that summarizes the current state of all loops and work orders, so that I can orient myself quickly after a break.
-- **AC-ORCH-010.1** — `python -m orchestrator status` shall report the current state of the requirements tree, the blueprints tree, the work-orders queue (counts of `ready`, `in_progress`, `done`, and inbox entries), and any open `_questions-pending.md` files.
+- **AC-ORCH-010.1** — `python -m orchestrator status` shall report the current state of the requirements tree, the blueprints tree, the work-orders queue (counts of `ready`, `in_progress`, `done`, and inbox entries), and any open `_questions-pending.md` files in any of the three upstream-loop artifact trees.
 
 ### REQ-ORCH-011 — Local-planner and mirror-adapter modules
 **User Story.** As an operator, I want the on-disk layout reads/writes centralized and external mirrors abstracted, so that adding or changing a mirror does not touch the loop code.
@@ -122,4 +123,4 @@ Budget enforcement is the orchestrator's responsibility. Wall-clock caps prevent
 
 Subprocess spawn is the orchestrator's only channel to Claude Code. The orchestrator composes prompts (for the coding loop, the scoped-task body is injected inline; for upstream loops, the prompt names the loop's communication folder), specifies disallowed tools for reviewers, captures stdout, and parses verdict trailers. There is no IPC back-channel from subprocess to orchestrator — the subprocess's stdout, its effect on disk (artifact tree edits and communication-file appends), and the trailing `VERDICT:` line are the entire protocol. This keeps the orchestrator simple and lets every subprocess be replayable from its archived stdout plus the snapshot of its communication file at that attempt boundary.
 
-The orchestrator commits requirements and blueprint tree changes directly (no PR); for coding-loop execution, the generator opens a PR during the subprocess and the orchestrator only posts the final pass-summary comment. Merge is always operator-driven. This split — orchestrator commits upstream artifacts, generator opens PR for code, operator merges — is what keeps the human in control of shipping without having them in every loop.
+The orchestrator commits upstream-loop artifact-tree changes directly (no PR for requirements, blueprint, or work-orders trees); for coding-loop execution, the generator opens a PR during the subprocess and the orchestrator only posts the final pass-summary comment. Merge is always operator-driven. This split — orchestrator commits upstream artifacts, generator opens PR for code, operator merges — is what keeps the human in control of shipping without having them in every loop.

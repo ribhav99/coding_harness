@@ -4,9 +4,11 @@ This section collects deferred work and open questions the PRD explicitly acknow
 
 **Blueprint artifact shape.** ~~Resolved.~~ Three blueprint types are pinned (container, component, feature) with per-type document structure adopted from the Software Factory blueprints module's seeded category presets, simplified for the harness's autonomous loop. On-disk layout `blueprints/{containers,components,features}/<slug>.md` plus dotted-hidden `.<slug>.<kind>.meta.yaml` and `.<slug>.requirements.meta.yaml` mirrors the requirements tree. Full contract in REQ-LAYOUT-006 and the project's blueprint document-shape contract.
 
-**Work-order artifact shape.** The same problem a level down. Software Factory work orders are human-consumed and phase-grouped; the harness's are Claude-Code-consumed and flat-sequence. The harness's work orders need tighter scope, more explicit acceptance criteria, a machine-readable dependency graph, and explicit verification-gate hooks per work order. Will be pinned before the coding loop ships.
+**Work-order artifact shape.** ~~Resolved.~~ Per-work-order document shape pinned in the work-orders-loop FRD (REQ-WO-002). Sections in canonical order — Goal, Blueprints, In scope, Out of scope, Produces (fenced YAML), Depends on (fenced YAML), Acceptance criteria (each row with ID, observation method, binary outcome), Gates (fenced YAML), optional Implementation notes. Mention syntax (`#<blueprint-slug>`, `@wo-NNN`), structured fenced blocks, and the atomicity rule are all defined there. The orchestrator materialises `.work-order.meta.yaml.blocked_by[]` from each work order's `Depends on.work_orders` block so the description is the single source of truth for dependencies.
 
-**Sequence-regeneration trigger.** The coding loop regenerates the work-order sequence when blueprints change. The `.sequence.meta.yaml` hash is the change-detection mechanism, but which blueprint changes trigger full vs incremental re-generation is not yet decided. Start simple — any blueprint hash change triggers full re-gen — and optimize later if the regeneration cost becomes wasteful.
+**Sequence-regeneration trigger.** ~~Resolved.~~ Any blueprint-tree hash change triggers a full work-orders-loop re-run; the work-orders-loop generator short-circuits when the hash matches and no failing reviews are pending. Optimisation deferred until wasteful re-gen is observed.
+
+**Reviewer-name prefixing consistency.** ~~Resolved.~~ Coding-loop execution reviewers are now `code-*`-prefixed (`code-spec-judge`, `code-regression-judge`, `code-security-judge`, `code-quality-judge`); naming is consistent across all loops (`req-*`, `bp-*`, `wo-*`, `code-*`).
 
 **`prd-to-frds` naming.** The skill name is misleading now that it also produces overview docs. Candidate renames: `prd-decomposer`, `prd-to-requirements-tree`, `decompose-prd`. Plan to rename.
 
@@ -24,10 +26,8 @@ This section collects deferred work and open questions the PRD explicitly acknow
 
 **Status model.** The status set omits `in_review` (PR review) and `blocked` as distinct statuses. Dependencies are encoded in `.work-order.meta.yaml.blocked_by[]` and respected by the local planner's next-ready selection. Additional statuses get added only if friction appears.
 
-**Non-web task shapes.** The Playwright gate is web-shaped. Library and CLI work orders need a different behavioral surface — pure `pytest` sometimes suffices, but the full answer is to be determined.
+**Non-web task shapes.** The Playwright gate is web-shaped. Library and CLI work orders declare `playwright: not_applicable` in their `## Gates` block; a future iteration may add a behavioural surface for non-web work orders (pure `pytest` sometimes suffices).
 
 **Inbound mirror sync.** All mirrors are push-only. Pulling external edits back to local is deferred.
 
 **Ad-hoc review skills for blueprints, work orders, and code.** For the PRD, the `prd-authoring` skill handles critique conversationally in-session. Blueprint and work-order review currently only happen inside their respective autonomous loops. If the operator wants to critique mid-iteration or on a draft-before-loop basis, standalone overlay skills would help. Deferred until we see whether the loops' built-in reviewers are sufficient.
-
-**Reviewer-name prefixing consistency.** Coding-loop execution reviewers are unprefixed (`spec-judge`, `quality-judge`, and so on); other loops use `req-*`, `bp-*`, and `wo-*` prefixes. Plan to normalise the execution reviewers to `code-*`.
