@@ -8,7 +8,7 @@ The operator needs this loop because hand-decomposing a PRD into correctly-scope
 
 ## Terminology
 
-- **Overview tree** — the flat directory `requirements/overview/` containing product-overview section documents (business problem, current state, personas, success metrics, measurement, product description, design principles, architecture, project lifecycle, technical requirements, phases, appendix, and others as the PRD warrants). Each node is a `<slug>.md` file.
+- **Overview tree** — the flat directory `requirements/overview/` containing product-overview section documents (business problem, current state, personas, success metrics, measurement, product description, design principles, architecture, project lifecycle, technical requirements, appendix, and others as the PRD warrants). Each node is a `<slug>.md` file.
 - **Features tree** — the flat directory `requirements/features/` containing FRDs. Each node is a `<slug>.md` file; children live in a sibling `<slug>_children/` directory with the same flat shape recursively.
 - **FRD** — Feature Requirements Document. One `<slug>.md` file describing a feature with Overview, Terminology, Requirements, and Feature Behavior & Rules sections per the canonical structural shape.
 - **Dual completion condition** — the pass condition for this loop: all four reviewers pass AND `requirements/_questions-pending.md` has no open questions blocking further review.

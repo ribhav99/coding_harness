@@ -110,7 +110,7 @@ The operator needs this orchestrator because the three autonomous loops share a 
 **User Story.** As an operator, I want the on-disk layout reads/writes centralized and external mirrors abstracted, so that adding or changing a mirror does not touch the loop code.
 - **AC-ORCH-011.1** — The orchestrator shall include a local-planner module that reads and writes the on-disk layout as a single concrete class.
 - **AC-ORCH-011.2** — The orchestrator shall expose a mirror adapter interface with one-way push hooks for status updates and comments to external systems.
-- **AC-ORCH-011.3** — All mirrors shall be outbound-only in v1; inbound mirror sync is deferred.
+- **AC-ORCH-011.3** — All mirrors shall be outbound-only; inbound mirror sync is deferred.
 
 ## Feature Behavior & Rules
 

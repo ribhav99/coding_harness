@@ -5,7 +5,7 @@ cssclasses:
 
 # Coding Harness — Working Blueprint
 
-> **Temporary working document.** Captures the implementation architecture for the harness kit so the PRD can stay at the product level. When the blueprint loop ships (v0.2), this gets refactored into the proper `blueprints/` tree with `.blueprint.meta.yaml` etc. Until then, this is the authoritative source for *how* the harness works. `PRD.md` is the source for *what* it does and *why*.
+> **Temporary working document.** Captures the implementation architecture for the harness kit so the PRD can stay at the product level. Once the blueprint loop is built and run against this kit, this doc gets refactored into the proper `blueprints/` tree. Until then, this is the authoritative source for *how* the harness works. `PRD.md` is the source for *what* it does and *why*.
 
 ## 0. System architecture
 
@@ -370,7 +370,7 @@ By default the orchestrator runs each role (generator, each reviewer) as a singl
 
 **Mechanism.** Each role's session id lives in the loop state file under `sessions: { generator: <uuid>, reviewers: { <name>: <uuid> } }`. The map resets at the start of every `begin_invocation` — sessions are per-invocation, never persisted across `python -m orchestrator …` runs. On attempt 1 (or any spawn that has no stored id), the orchestrator generates a UUID and passes `--session-id <uuid>` along with `--append-system-prompt <skill-body>`; on success it stores the id. On attempts 2+ the orchestrator passes `--resume <uuid>` instead — the system prompt and full prior conversation come from Claude Code's session storage, not from the command line — and sends a short follow-up user message that names the failing reviewers and lists the working-tree changes since the previous attempt (or "made updates" when a diff isn't readily available).
 
-**Memoryless mode.** The `--memoryless` CLI flag on the loop subcommand defeats the default: every spawn is a fresh session (no `--session-id`, no `--resume`), and agents fall back on the communication folder for prior context exactly as they did in v0.1's baseline. Use this when the operator has edited the PRD or the artifact tree between attempts and wants the agents to re-derive without prior bias, or to produce a clean run for audit/replay.
+**Memoryless mode.** The `--memoryless` CLI flag on the loop subcommand defeats the default: every spawn is a fresh session (no `--session-id`, no `--resume`), and agents fall back on the communication folder for prior context. Use this when the operator has edited the PRD or the artifact tree between attempts and wants the agents to re-derive without prior bias, or to produce a clean run for audit/replay.
 
 **Why per-invocation, not cross-invocation.** A new invocation is the operator's signal that something material has changed (PRD edit, scope expansion, fresh start after `awaiting_clarification`). Carrying agent memory across invocations risks the agent trusting its session memory over the (possibly updated) on-disk artifacts. Resetting at invocation boundaries forces a clean read of the current state while still preserving within-invocation throughput.
 
@@ -591,7 +591,7 @@ class Mirror(Protocol):
 
 `config.yaml` at the **harness** repo root (the kit, not the project repo).
 One config applies to every project the orchestrator is run against. No
-per-project overrides in v0.1; if one becomes necessary, layer a project-root
+per-project overrides; if one becomes necessary, layer a project-root
 `config.yaml` on top with the same parser.
 
 Mirrors are explicit opt-in.
@@ -601,7 +601,7 @@ max_attempts: 25
 max_wall_minutes: 120
 max_agent_retries: 3               # per-subprocess: rate-limit re-spawns + malformed-VERDICT same-chat nudges
 
-mirrors:                           # empty list = local-only (v0.1 default)
+mirrors:                           # empty list = local-only (default)
   - kind: software_factory
     base_url: https://sf.internal
     project_id: 0f1e2d3c-4b5a-6978-8765-432101234567
@@ -931,8 +931,8 @@ Feature-blueprint slug parity (`blueprints/features/<slug>.md` matches `requirem
 
 Tracked separately from PRD §8 (which tracks product/scope questions).
 
-- ~~**Parallel reviewer fan-out.**~~ Resolved. v0.1 spawns reviewers concurrently via a `ThreadPoolExecutor`. Each reviewer writes only to its own communication file and captures its own stdout; the path-guard hook (§9) enforces the single-writer-per-file invariant. No race conditions in practice.
-- **Between-attempt commits.** v0.1 commits only on final pass. If a multi-attempt run is long and the operator wants to inspect intermediate state in git, they can by checking out a different branch — but v0.1 won't provide it. Revisit if needed.
+- ~~**Parallel reviewer fan-out.**~~ Resolved. The orchestrator spawns reviewers concurrently via a `ThreadPoolExecutor`. Each reviewer writes only to its own communication file and captures its own stdout; the path-guard hook (§9) enforces the single-writer-per-file invariant. No race conditions in practice.
+- **Between-attempt commits.** The orchestrator commits only on final pass. If a multi-attempt run is long and the operator wants to inspect intermediate state in git, they can by checking out a different branch — but the orchestrator doesn't provide that today. Revisit if needed.
 - **Retry cap per reviewer vs global.** Current design: single cap per invocation (any reviewer failing counts). Alternative: a reviewer that fails the same finding three times is "stuck" and its finding becomes authoritative (generator must fix or gap-file). Possibly cleaner but more state to track. Defer.
 - **Reviewer prompt size.** On large trees, feeding a reviewer every artifact it needs plus the generator summary plus the rubric can push context limits. Mitigations: scoped reviewer prompts (only files the reviewer has to read), file-by-file fan-out for per-file rubrics. Worry about it when we hit the limit.
 - **Push-back persistence across invocations.** Within an invocation, push-backs carry in `attempts[]`. Across invocations, they're in `history[]` summaries. Not structured. If push-back reasoning becomes load-bearing, extract to a `push_backs[]` structured field.

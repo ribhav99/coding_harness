@@ -100,7 +100,7 @@ The operator needs this loop because blueprint authoring is where architectural 
 
 ### REQ-BL-010 — Interactive blueprint editing (out-of-loop)
 **User Story.** As an operator, I want a way to refine specific blueprints interactively after the loop has run, so that I can fix or evolve a blueprint without triggering a full loop run.
-- **AC-BL-010.1** — The harness shall provide a `blueprint-authoring` skill (renamed from the prior `foundation-blueprint-authoring`) that runs in an interactive Claude Code session, not as an orchestrator subprocess.
+- **AC-BL-010.1** — The harness shall provide a `blueprint-authoring` skill that runs in an interactive Claude Code session, not as an orchestrator subprocess.
 - **AC-BL-010.2** — `blueprint-authoring` shall know the three blueprint types (container / component / feature), the per-type structural shape, the mention syntax, the fenced `component`/`model` block format, and the boundary-first / no-redefinition writing principles.
 - **AC-BL-010.3** — `blueprint-authoring` shall not be invoked by the autonomous blueprint loop; it is operator-driven only. Same posture as `prd-authoring` for the PRD.
 

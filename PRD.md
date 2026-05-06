@@ -139,7 +139,7 @@ The generator is iterative: reads any existing overview+features trees first and
 
 **Loop mechanic.** Orchestrator aggregates reviewer verdicts. Any fail → re-spawn the generator with aggregated review context; generator fixes grounded findings, pushes back on ungrounded ones, logs questions for PRD-level ambiguities. Completion is dual: full `pass` requires all reviewers pass AND `_questions-pending.md` has no open questions blocking the review. If reviewers pass on what's concrete but open questions remain, the loop exits `awaiting_clarification` — artifact is committed, operator resolves and re-runs.
 
-**Session continuity within an invocation.** By default the generator and each reviewer run as a single Claude Code session that persists across attempts within one orchestrator invocation: attempt 1 spawns fresh with `--session-id <uuid>`; attempts 2+ re-use the same id via `--resume <uuid>` and receive a short follow-up message naming the failing reviewers and listing the working-tree changes since the previous attempt (or "made updates" if a diff isn't readily available). This preserves the agent's reasoning and pushes-back across attempts without re-paying the cost of re-reading every file from scratch. New invocations always start fresh — session ids are per-invocation, never persisted across `python -m orchestrator …` runs. The `--memoryless` CLI flag overrides the default and forces every spawn to be a fresh session, falling back on the communication folder as the only memory channel (the v0.1 baseline behavior — useful when the operator has edited the PRD or the artifact tree between attempts and wants the agents to re-derive without prior bias). Full re-review still applies (all reviewers run every attempt) regardless of session mode.
+**Session continuity within an invocation.** By default the generator and each reviewer run as a single Claude Code session that persists across attempts within one orchestrator invocation: attempt 1 spawns fresh with `--session-id <uuid>`; attempts 2+ re-use the same id via `--resume <uuid>` and receive a short follow-up message naming the failing reviewers and listing the working-tree changes since the previous attempt (or "made updates" if a diff isn't readily available). This preserves the agent's reasoning and pushes-back across attempts without re-paying the cost of re-reading every file from scratch. New invocations always start fresh — session ids are per-invocation, never persisted across `python -m orchestrator …` runs. The `--memoryless` CLI flag overrides the default and forces every spawn to be a fresh session, falling back on the communication folder as the only memory channel — useful when the operator has edited the PRD or the artifact tree between attempts and wants the agents to re-derive without prior bias. Full re-review still applies (all reviewers run every attempt) regardless of session mode.
 
 **Output.** Approved `requirements/overview/` and `requirements/features/` trees. State file records the iteration history. No PR is opened — the requirements tree is documentation; git commit history is the audit trail. The operator verifies the final state (`git diff`) before triggering the blueprint loop.
 
@@ -193,7 +193,7 @@ No phases — one continuous task sequence. The loop reads approved blueprints, 
 - Reviewers: orchestrator spawns three — scoping, coverage, dependencies. See §8.3.
 - On pass, all work orders land with `status: ready`.
 
-**Open design.** Work-order artifact shape must support autonomous execution: tight scope, explicit acceptance criteria, machine-readable dependency graph, unambiguous in-scope/out-of-scope, explicit verification hooks. Pinning the exact shape happens at the start of v0.3 — see §9.
+**Open design.** Work-order artifact shape must support autonomous execution: tight scope, explicit acceptance criteria, machine-readable dependency graph, unambiguous in-scope/out-of-scope, explicit verification hooks. The exact shape is open — see §9.
 
 **Sequence execution** (drains the ready queue in dependency order, one work order per orchestrator subprocess):
 
@@ -247,7 +247,7 @@ When the coding loop is built, its generator will need a way to file new work or
 
 The upstream loops do not file gaps — both upstream loops log clarification questions to `_questions-pending.md` in their artifact tree (§6.2, §6.3). Different mechanisms from gap-filing because the response shape differs (clarify the source / pick an option vs. queue new code work).
 
-The gap-filing skill is deferred until the coding loop ships in v0.4.
+The gap-filing skill ships with the coding loop.
 
 ## 7. Components
 
@@ -337,7 +337,7 @@ A reference skeleton lives at `project-template/` inside this kit repo. Clone it
 
 **Communication folders** (`requirements_communication/`, `blueprints_communication/`) sit at the project root, sibling to the artifact trees. Each holds one markdown file per agent in the loop (one for the generator, one per reviewer) — append-only conversation transcripts. Both the generator and the named reviewer read and write the file; the orchestrator never wipes the folder — it accumulates the project's full reviewer-generator conversation across attempts and across invocations forever. The orchestrator snapshots it to `harness/state/reviews/<loop>/attempt-<N>/` at attempt boundaries for audit. Lifecycle and race-condition argument live in `BLUEPRINT.md §1.8`.
 
-Work-order subtree shape is sketched above but its concrete document shape is TBD (§9). Work-order shape lands in v0.3.
+Work-order subtree shape is sketched above but its concrete document shape is TBD (§9).
 
 **Versioning:** none locally. Git history is the audit trail. Mirrors serialise only the current document state; if an external system maintains its own versioning, it does so on its end.
 
@@ -463,7 +463,7 @@ Two execution gates + four LLM-as-judge gates.
 - **Gate 5 — `security-judge`** *(LLM)*. Injection, auth/authz gaps, secret handling, input validation at boundaries, crypto misuse, unsafe deserialization, SSRF, OWASP Top 10 patterns.
 - **Gate 6 — `quality-judge`** *(LLM)*. Structural maintainability (module boundaries, layering, coupling, abstraction level) + textual (naming, duplication, dead code, over-abstraction, test quality, API shape, nearby convention adherence). Explicitly does *not* re-verify correctness.
 
-Fastest-first ordering for short-circuit: tests → playwright → spec → regression → security → quality. Orchestrator can run reviewers in parallel once serial bottlenecks show up; v0.1 is serial.
+Fastest-first ordering for short-circuit: tests → playwright → spec → regression → security → quality. Orchestrator can run reviewers in parallel once serial bottlenecks show up; the initial implementation is serial.
 
 ### 8.5 On pass (universal)
 
@@ -476,86 +476,18 @@ Fastest-first ordering for short-circuit: tests → playwright → spec → regr
 ## 9. Deferred / Open Questions
 
 - ~~**Blueprint artifact shape.**~~ Resolved. Three blueprint types pinned: container, component, feature. Per-type document shape (sections, mention syntax, fenced `component`/`model` blocks, ADRs) adopted from the SF blueprints module's seeded category presets. On-disk layout (`blueprints/{containers,components,features}/<slug>.md` + `.<slug>.<kind>.meta.yaml` + `.<slug>.requirements.meta.yaml`) mirrors `requirements/`. Full contract in `BLUEPRINT.md §11`.
-- **Work-order artifact shape.** Same problem a level down. SF work orders are human-consumed and phase-grouped; ours are Claude-Code-consumed and flat-sequence. Ours need: tighter scope, more explicit acceptance criteria, machine-readable dependency graph, explicit verification-gate hooks per work order. Will surface at the start of v0.3.
+- **Work-order artifact shape.** Same problem a level down. SF work orders are human-consumed and phase-grouped; ours are Claude-Code-consumed and flat-sequence. Ours need: tighter scope, more explicit acceptance criteria, machine-readable dependency graph, explicit verification-gate hooks per work order. Will be pinned before the coding loop ships.
 - **Sequence-regeneration trigger.** Coding loop regenerates the sequence when blueprints change. The `.sequence.meta.yaml` hash is the check, but *which* blueprint changes trigger full vs incremental re-gen is TBD. Start simple: any blueprint hash change → full re-gen; optimize later if wasteful.
-- **`prd-to-frds` naming.** The skill name is misleading now that it also produces overview docs. Candidate renames: `prd-decomposer`, `prd-to-requirements-tree`, `decompose-prd`. Rename in v0.2 or v1.0.
-- **Concurrent loop runs.** v1 runs one loop at a time. Can coding-loop execution drain in parallel with a blueprint-loop re-run (for a different area)? Plausible — different artifact trees, no conflict — but deferred.
+- **`prd-to-frds` naming.** The skill name is misleading now that it also produces overview docs. Candidate renames: `prd-decomposer`, `prd-to-requirements-tree`, `decompose-prd`. Plan to rename.
+- **Concurrent loop runs.** The harness runs one loop at a time. Can coding-loop execution drain in parallel with a blueprint-loop re-run (for a different area)? Plausible — different artifact trees, no conflict — but deferred.
 - **Software Factory mirror.** Outbound sync to SF deferred until SF ships an upload API. Local layout already mirrors SF's entity model so integration is mechanical.
 - **GitHub Projects mirror.** Optional read-mostly kanban for off-laptop visibility. Deferred.
 - **Distribution mechanism.** Copy-per-project initially. Reconsider as Claude Code plugin, Python package, or git submodule after the second project.
 - **Failure-recovery heuristics.** When should the orchestrator respawn a loop generator vs give up? Start with wall-clock cap + manual operator triage; refine based on observed failure modes.
-- **Multiple concurrent work orders.** v1 runs one work order at a time during execution. Worktree-based parallelism plausible but deferred.
+- **Multiple concurrent work orders.** The harness runs one work order at a time during execution. Worktree-based parallelism plausible but deferred.
 - **Status model.** Omitted `in_review` (PR review) and `blocked` as distinct statuses. Dependencies encoded in `.work-order.meta.yaml.blocked_by[]` and respected by the local planner's next-ready selection. Add if friction appears.
 - **Non-web task shapes.** Playwright gate is web-shaped. Library/CLI work orders need a different behavioral surface (pure `pytest` sometimes suffices; TBD).
-- **Inbound mirror sync.** All mirrors are push-only in v1. Pulling external edits back to local is deferred.
+- **Inbound mirror sync.** All mirrors are push-only. Pulling external edits back to local is deferred.
 - **Ad-hoc review skills for blueprints / work orders / code.** For the PRD, the `prd-authoring` skill handles critique conversationally (see §6.1). Blueprint and work-order review currently only happen inside their respective autonomous loops; if the operator wants to critique mid-iteration or on a draft-before-loop basis, standalone overlay skills would be useful. Deferred until we see whether the loops' built-in reviewers are sufficient.
-- **Reviewer-name prefixing consistency.** Coding-loop execution reviewers are unprefixed (`spec-judge`, `quality-judge`, …); other loops use `req-*` / `bp-*` / `wo-*` prefixes. Normalise to `code-*` for the execution reviewers in v1.0.
+- **Reviewer-name prefixing consistency.** Coding-loop execution reviewers are unprefixed (`spec-judge`, `quality-judge`, …); other loops use `req-*` / `bp-*` / `wo-*` prefixes. Plan to normalise to `code-*` for the execution reviewers.
 
-## 10. Milestones
-
-Ship order mirrors the operator's actual workflow — author the PRD, then iterate on the next loop. Each milestone gets a real project run-through before the next starts.
-
-### v0.1 — PRD authoring + Requirements Loop
-
-- `prd-authoring` skill fully fleshed out (monolithic PRD drafting with senior-PM posture and critique on demand).
-- `requirements-loop` orchestrator subcommand.
-- `prd-to-frds` generator skill (autonomous, iterative).
-- All four requirements-loop reviewer skills: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
-- Loop-level state file + verdict parsing.
-- `requirements/_questions-pending.md` mechanism and `awaiting_clarification` verdict wired up (dual completion condition: reviewers pass + zero open questions).
-- `requirements_communication/` folder lifecycle wired up: orchestrator never wipes the folder, snapshots into `harness/state/reviews/requirements-loop/attempt-<N>/` at attempt boundaries for audit; the live folder accumulates the project's full conversation across all runs.
-- Hooks: `Stop` on reviewer subprocesses validates the single-trailing-line `VERDICT: pass|fail` format; `PreToolUse` path-guard on reviewers blocks `Write`/`Edit` on any path other than the reviewer's own communication file.
-- Per-subprocess retry budget (`max_agent_retries`, configurable, default 3): caps both (a) rate-limit re-spawns with doubling backoff (30s/60s/120s) and (b) Stop-hook in-session retries. Rate-limit retries exhaust the loop with `exhausted`; Stop-hook retries cap at the same number to prevent infinite hook ↔ model ping-pong, then fall through as a soft fail (verdict recorded as `fail`, loop continues). Independent of the loop-level attempt budget.
-- No mirrors. Local only.
-
-**Exit criteria**: I author a PRD in a new project repo, run `requirements-loop`, and end up with a reviewed FRD tree I'm willing to blueprint against.
-
-### v0.2 — Blueprint Loop + non-blocking clarifications
-
-- Blueprint artifact shape already pinned (three types: container / component / feature; full contract in `BLUEPRINT.md §11`). `blueprints/{containers,components,features}/` on-disk layout + meta files materialise per requirements-loop conventions.
-- `blueprint-loop` orchestrator subcommand.
-- `frd-to-blueprint` generator skill — single skill that writes all three blueprint types itself; appends question blocks to `blueprints/_questions-pending.md` (bare or with-options, options only when there's a genuine choice).
-- `blueprint-authoring` interactive skill — operator-invoked for post-loop blueprint editing; not orchestrator-spawned.
-- `blueprints_communication/` folder lifecycle wired up (same shape as requirements-loop).
-- Orchestrator handles `awaiting_clarification` for the blueprint loop (same verdict and mechanism as requirements loop) + dual completion condition (all reviewers pass AND zero open questions = full pass).
-- All four blueprint-loop reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
-
-**Exit criteria**: blueprint loop produces reviewed blueprints for the v0.1 project, with at least one real clarification cycle (loop stops with open questions → I answer → loop runs again and completes).
-
-### v0.3 — Coding Loop sequence generation
-
-- Pin the work-order artifact shape based on blueprint-loop learnings.
-- `coding-loop` orchestrator subcommand with sequence generation only (execution deferred).
-- `blueprint-to-tasks` + `scope-task` generator skills.
-- All three sequence-gen reviewers: `wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`.
-- Flat `work-orders/wo-NNN/` layout; `.sequence.meta.yaml` for blueprint-change detection.
-
-**Exit criteria**: reviewed, ready work-order sequence for the v0.2 project.
-
-### v0.4 — Coding Loop execution (tests gate)
-
-- Per-work-order execution subprocess wired into `coding-loop`.
-- Tests gate only; no LLM reviewers yet.
-- Generator opens PR on first pass.
-- State file per work order; PR comment mirroring.
-- One work order at a time; queue drain respects `blocked_by[]` + `sort_order`.
-
-**Exit criteria**: first work order merged to `main` of the v0.3 project from an autonomous coding-loop run.
-
-### v0.5 — Coding Loop LLM reviewers
-
-- `spec-judge`, `regression-judge`, `security-judge`, `quality-judge` gates.
-- Playwright gate for UI-touching work orders (`run-playwright-check`).
-- Status transitions fully automated end-to-end across all three loops.
-
-### v1.0 — Polish
-
-- Software Factory mirror (when SF ships an upload API).
-- Operator documentation: README, runbook, failure-mode catalog from first 20 real work orders.
-- Skill/reviewer-name consistency pass (coding-loop execution reviewers rename to `code-*`).
-- Ad-hoc operator-invokable review skills for each artifact type (blueprint, work-order, code).
-- `index-updater` agent and `harness/index.md`.
-
----
-
-*Version: 0.2-draft · Last updated: 2026-04-21*

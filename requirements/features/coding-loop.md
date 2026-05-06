@@ -83,11 +83,10 @@ The operator needs this loop because per-work-order execution is where the harne
 - **AC-CL-009.2** — When a matching PR is merged, the orchestrator shall transition the work order's `.work-order.meta.yaml.status` from `in_progress` to `done`.
 - **AC-CL-009.3** — The orchestrator shall never auto-merge; merge is always operator-driven.
 
-### REQ-CL-010 — Gap filing (deferred to v0.4)
+### REQ-CL-010 — Gap filing
 **User Story.** As an operator, I want the execution generator to file out-of-scope missing work as backlog entries, so that discovered gaps are captured without polluting the current work order's scope.
 - **AC-CL-010.1** — When the execution generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it shall create a `backlog` work order under `work-orders/_inbox/wo-NNN/` with a back-reference to the originating work order.
 - **AC-CL-010.2** — Gaps shall never auto-promote to `ready`; the operator triages `_inbox/` on their own cadence.
-- **AC-CL-010.3** — This requirement is deferred until the coding loop ships in v0.4; earlier milestones shall not implement it.
 
 ## Feature Behavior & Rules
 
@@ -101,4 +100,4 @@ The six execution reviewers are designed to catch failure modes that a test suit
 
 Merge is always operator-driven. The harness never auto-merges. This is intentional: the operator is the last line of defense before shipping. The harness gets the diff to a state where all six gates pass, posts a final summary as a PR comment, and then stops. The operator reviews the PR, merges when satisfied. On the next `coding-loop` invocation, the orchestrator detects the merge by branch name and transitions the work order to `done`.
 
-v1 runs one work order at a time. Worktree-based parallelism is plausible but deferred. Non-web task shapes (library, CLI) need a different behavioral surface than Playwright — `playwright` is `not_run` for those, and a future milestone may add a behavioral surface for non-web work orders. Gap filing is deferred until the coding loop ships in v0.4; the mechanism (`work-orders/_inbox/`) is reserved and documented but not yet implemented.
+The coding loop runs one work order at a time. Worktree-based parallelism is plausible but deferred. Non-web task shapes (library, CLI) need a different behavioral surface than Playwright — `playwright` is `not_run` for those, and a future iteration may add a behavioral surface for non-web work orders. Gap filing is supported via the `work-orders/_inbox/` mechanism; the operator triages `_inbox/` on their own cadence.
