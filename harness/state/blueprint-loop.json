@@ -1,0 +1,65 @@
+{
+  "loop": {
+    "name": "blueprint-loop",
+    "artifact_paths": [
+      "blueprints/"
+    ],
+    "communication_dir": "blueprints_communication/"
+  },
+  "created_at": "2026-05-06T19:04:18Z",
+  "updated_at": "2026-05-06T19:51:33Z",
+  "status": "awaiting_clarification",
+  "attempt_count": 2,
+  "limits": {
+    "max_attempts": 25,
+    "max_wall_minutes": 60
+  },
+  "current": {
+    "last_output": "Attempt 2 complete.\n\n**Findings addressed:**\n- `bp-coverage-judge` BROKEN_REF (`#ProjectRepo`) \u2014 fixed in `blueprints/containers/python-orchestrator.md` by dropping the `#` token (kept `@Blueprint(project-repo)`).\n- `bp-consistency-judge` REDEFINITION (`#PerWOGenerator` duplicated `#CodingGeneratorAgent`) \u2014 fixed in `blueprints/features/coding-loop.md` by deleting the duplicate `component` block; replaced with relationship prose.\n- `bp-consistency-judge` REDEFINITION (`#CodingLoopDriver` defined in two feature blueprints) \u2014 fixed in `blueprints/features/python-orchestrator.md` by deleting the duplicate `component` block; canonical home is `@Feature(coding-loop)`.\n- `bp-consistency-judge` BLUEPRINT_DRIFT (`#ProtocolRetryStrategy` contradicts BLUEPRINT.md) \u2014 surfaced to operator. Created `blueprints/_questions-pending.md` with a with-options block (3 options, recommended option 2) and added `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` markers in `subprocess-runtime.md` and `state-store.md` at the affected locations.\n\n**Proactive fix:**\n- Out-of-scope `#MetaFileFormatRules` broken reference flagged by `bp-spec-judge` was fixed in `blueprints/components/meta-materialization.md` to avoid surfacing as a `bp-coverage-judge` failure on next attempt.\n\nThe post-exit protocol-retry contradiction is bubbled-up rather than silently resolved because the FRD (REQ-ORCH-013) and BLUEPRINT.md (\u00a71.1/\u00a71.6) are in genuine tension and the operator should adjudicate.\n\nVERDICT: awaiting_clarification\nopen_questions: 1\nquestions_file: blueprints/_questions-pending.md\n"
+  },
+  "verification": {},
+  "open_questions": 1,
+  "attempts": [
+    {
+      "n": 1,
+      "at": "2026-05-06T19:46:14Z",
+      "verdict": "fail",
+      "summary": "Tree complete. Summary of what was generated:\n\n**Containers (4):** `python-orchestrator`, `claude-code-subprocess`, `project-repo`, `github`\n\n**Components (10):** `loop-driver`, `subprocess-runtime`, `communication-folder`, `questions-pending`, `meta-materialization`, `state-store`, `git-integration`, `local-planner`, `mirror-adapter`, `agents-and-skills`\n\n**Feature blueprints (7, slug-paired 1:1 with FRDs):** `prd-authoring`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `coding-loop`, `python-orchestrator`, `on-disk-layout`\n\nEach blueprint follows the canonical per-type structural shape (sections in order, fenced `component`/`model` blocks, ADRs as `### ADR-NNN: Title` with Context/Decision/Consequences). Feature blueprints reference shared components via `#Component` and `@Blueprint(...)` mentions rather than redefining; container blueprints stay boundary-first; component blueprints house the actual capability wiring.\n\nEvery high-impact architectural choice in the tree is grounded in `BLUEPRINT.md` (the operator's pinned scratchpad) plus the FRD set; no `blueprints/_questions-pending.md` was created because no decision is silent. Each reviewer's communication file received a `## Generator response` block plus a `## Changes since previous attempt` block, with all prior content preserved verbatim above.\n\nVERDICT: ready_for_review\n",
+      "review_dir": "harness/state/reviews/blueprint-loop/attempt-1",
+      "reviewer_verdicts": {
+        "bp-decision-judge": "pass",
+        "bp-spec-judge": "pass",
+        "bp-coverage-judge": "fail",
+        "bp-consistency-judge": "fail"
+      },
+      "open_questions": 0
+    },
+    {
+      "n": 2,
+      "at": "2026-05-06T19:51:33Z",
+      "verdict": "awaiting_clarification",
+      "summary": "Attempt 2 complete.\n\n**Findings addressed:**\n- `bp-coverage-judge` BROKEN_REF (`#ProjectRepo`) \u2014 fixed in `blueprints/containers/python-orchestrator.md` by dropping the `#` token (kept `@Blueprint(project-repo)`).\n- `bp-consistency-judge` REDEFINITION (`#PerWOGenerator` duplicated `#CodingGeneratorAgent`) \u2014 fixed in `blueprints/features/coding-loop.md` by deleting the duplicate `component` block; replaced with relationship prose.\n- `bp-consistency-judge` REDEFINITION (`#CodingLoopDriver` defined in two feature blueprints) \u2014 fixed in `blueprints/features/python-orchestrator.md` by deleting the duplicate `component` block; canonical home is `@Feature(coding-loop)`.\n- `bp-consistency-judge` BLUEPRINT_DRIFT (`#ProtocolRetryStrategy` contradicts BLUEPRINT.md) \u2014 surfaced to operator. Created `blueprints/_questions-pending.md` with a with-options block (3 options, recommended option 2) and added `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` markers in `subprocess-runtime.md` and `state-store.md` at the affected locations.\n\n**Proactive fix:**\n- Out-of-scope `#MetaFileFormatRules` broken reference flagged by `bp-spec-judge` was fixed in `blueprints/components/meta-materialization.md` to avoid surfacing as a `bp-coverage-judge` failure on next attempt.\n\nThe post-exit protocol-retry contradiction is bubbled-up rather than silently resolved because the FRD (REQ-ORCH-013) and BLUEPRINT.md (\u00a71.1/\u00a71.6) are in genuine tension and the operator should adjudicate.\n\nVERDICT: awaiting_clarification\nopen_questions: 1\nquestions_file: blueprints/_questions-pending.md\n",
+      "review_dir": "harness/state/reviews/blueprint-loop/attempt-2",
+      "reviewer_verdicts": {},
+      "open_questions": 1
+    }
+  ],
+  "history": [
+    {
+      "session": 1,
+      "at": "2026-05-06T19:51:33Z",
+      "final_verdict": "awaiting_clarification",
+      "output": "Attempt 2 complete.\n\n**Findings addressed:**\n- `bp-coverage-judge` BROKEN_REF (`#ProjectRepo`) \u2014 fixed in `blueprints/containers/python-orchestrator.md` by dropping the `#` token (kept `@Blueprint(project-repo)`).\n- `bp-consistency-judge` REDEFINITION (`#PerWOGenerator` duplicated `#CodingGeneratorAgent`) \u2014 fixed in `blueprints/features/coding-loop.md` by deleting the duplicate `component` block; replaced with relationship prose.\n- `bp-consistency-judge` REDEFINITION (`#CodingLoopDriver` defined in two feature blueprints) \u2014 fixed in `blueprints/features/python-orchestrator.md` by deleting the duplicate `component` block; canonical home is `@Feature(coding-loop)`.\n- `bp-consistency-judge` BLUEPRINT_DRIFT (`#ProtocolRetryStrategy` contradicts BLUEPRINT.md) \u2014 surfaced to operator. Created `blueprints/_questions-pending.md` with a with-options block (3 options, recommended option 2) and added `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` markers in `subprocess-runtime.md` and `state-store.md` at the affected locations.\n\n**Proactive fix:**\n- Out-of-scope `#MetaFileFormatRules` broken reference flagged by `bp-spec-judge` was fixed in `blueprints/components/meta-materialization.md` to avoid surfacing as a `bp-coverage-judge` failure on next attempt.\n\nThe post-exit protocol-retry contradiction is bubbled-up rather than silently resolved because the FRD (REQ-ORCH-013) and BLUEPRINT.md (\u00a71.1/\u00a71.6) are in genuine tension and the operator should adjudicate.\n\nVERDICT: awaiting_clarification\nopen_questions: 1\nquestions_file: blueprints/_questions-pending.md\n"
+    }
+  ],
+  "rate_limit_failures": [],
+  "sessions": {
+    "generator": "6ab73d94-80d3-41b2-a902-8d5b171e44db",
+    "reviewers": {
+      "bp-decision-judge": "5db331c2-68f1-4dea-b6ff-01fbf87d1d95",
+      "bp-spec-judge": "ffa4d165-3664-4c93-b5e8-5bfaf5877889",
+      "bp-coverage-judge": "e3b9cf17-cdc5-4c8a-b0c1-92793349570a",
+      "bp-consistency-judge": "ab109ad4-a8a4-4d8e-8958-8307dcfb2e5a"
+    }
+  }
+}
