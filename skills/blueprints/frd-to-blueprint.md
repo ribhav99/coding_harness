@@ -21,7 +21,7 @@ The requirements tree is the source of truth for product behaviour. The optional
 
 - **Do not invent features.** If an FRD doesn't describe it, no feature blueprint covers it.
 - **Do not invent components or capabilities.** A component blueprint exists because two or more features need it (or `BLUEPRINT.md` calls it out). One-feature usage stays inside the feature blueprint as a feature-specific component.
-- **Do not invent containers.** A container blueprint exists because the architecture genuinely runs that deployable unit. Don't create speculative containers "in case we need a worker later."
+- **A container is one separately-deployable runtime.** Each container blueprint corresponds to a distinct runtime the product needs — something with its own process and its own deploy cycle (a web app, an API server, a background worker, a database, a scheduled job, a CLI). Two pieces of code that share a process and deploy together are components inside one container, not separate containers. If the requirements tree and `BLUEPRINT.md` don't make the runtime layout clear, log a question — don't guess.
 - **Do not pick high-impact architectural choices alone.** If the requirements tree and `BLUEPRINT.md` don't tell you which database / framework / auth provider / hosting model / ORM / major architectural pattern to use, log a question — don't guess (see "Logging questions" below).
 
 ## Priority anchors
@@ -42,7 +42,7 @@ Every invocation, you receive:
 - **The optional root `BLUEPRINT.md`** at the project repo root. If present, it is the operator's high-level architectural starting input — treat its component lists, data-model sketches, and stack choices as authoritative starting points to expand into the per-type blueprints. If absent, that's normal; proceed without it.
 - **The current on-disk state** of `blueprints/{containers,components,features}/` if they exist. Preserve blueprints that are already correct; edit what needs changing; delete what no longer has source.
 - **`blueprints/_questions-pending.md`** if it exists — the running list of open and answered architectural-clarification questions. Treat answered questions (those with `Your answer:` filled in) as resolved decisions; treat open questions as still-pending and don't make those choices on your own.
-- **The communication folder** at `blueprints_communication/` (sibling to `blueprints/`). On retry attempts, it holds one markdown file per reviewer in this loop (`bp-spec-judge.md`, `bp-coverage-judge.md`, `bp-consistency-judge.md`, `bp-decision-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. Read every reviewer file there before deciding what to write or edit. If the folder is empty or doesn't exist, this is the first attempt of a new loop invocation.
+- **The communication folder** at `blueprints_communication/` (sibling to `blueprints/`). It holds one markdown file per reviewer in this loop (`bp-spec-judge.md`, `bp-coverage-judge.md`, `bp-consistency-judge.md`, `bp-decision-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. The folder persists across orchestrator invocations until a full pass, so a re-run after `awaiting_clarification` or `exhausted` will see the prior conversation. **Always read every reviewer file in this folder before deciding what to write or edit** — the gate is whether the file has content, not which "attempt" or "invocation" you think you're in. If a reviewer file is empty or missing, there's nothing to respond to for that reviewer yet.
 
 ## Output
 
@@ -171,28 +171,30 @@ In practice, container blueprints are the most common host for system-overview M
 - **No redefinition in feature blueprints.** Feature blueprints reference shared components via `#Component` and component blueprints via `@Blueprint`. Never paste a fresh `component` block for a component already defined in `blueprints/components/`.
 - **Architectural decisions and design intent, not implementation details.** Code blocks are illustrative — reviewers will not nitpick code-block content. Don't over-specify implementation when the contract is what matters.
 - **Active voice, concrete language.** Cut fluff adjectives ("comprehensive", "seamless", "powerful").
+- **No refactor breadcrumbs.** Describe what is, not what changed. No `(renamed from X)`, `(previously Y)`, `(unchanged)`, `(existing)`. Reshaped output stands alone.
 - **Self-contained.** Downstream consumers (reviewers, work-order generation) read only the blueprint files. Don't reference external docs.
 
 ## Responding to review feedback
 
-On every invocation, **read every reviewer file** under `blueprints_communication/` before editing the tree.
+On every run, **read every reviewer file** under `blueprints_communication/` before editing the tree.
 
-If the folder is empty (first attempt of a new invocation), there are no prior reviews — proceed directly to writing the tree.
+The decision rule is content-driven: look at what's actually in each reviewer's file, not at which attempt or invocation you think you're in.
 
-If the folder has reviews, work through every finding in every reviewer file. For each finding, pick one:
+- *No reviewer files exist, or all reviewer files are empty / contain only your prior proposal block.* No reviews to respond to — proceed directly to writing the tree. Skip the append-responses step below; the reviewers will create or extend their files on the next review.
+- *One or more reviewer files contain `## Review` blocks.* There is feedback to address. Work through every finding in every reviewer file with content. For each finding, pick one:
 
-- **Fix.** The finding names a real violation of a priority anchor. Edit the tree.
-- **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree.
-- **Log a question.** The finding points at an architectural choice the operator needs to weigh in on. Append a block to `blueprints/_questions-pending.md` (format below), then move on.
+  - **Fix.** The finding names a real violation of a priority anchor. Edit the tree.
+  - **Push back.** The finding would require fabrication, misinterprets the rubric, or enforces the wrong priority. Don't change the tree.
+  - **Log a question.** The finding points at an architectural choice the operator needs to weigh in on. Append a block to `blueprints/_questions-pending.md` (format below), then move on.
 
-After working through the findings, **append to the communication files**:
+  After working through the findings, **append to the communication files**:
 
-- For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
-- For **every** reviewer file (failing and passing alike), append a `## Changes since previous attempt` block enumerating every blueprint file you added, edited, or removed since the last attempt, with a brief description of the substantive change. This lets each reviewer focus on the delta on its next read.
+  - For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
+  - For **every** reviewer file with prior content (failing and passing alike), append a `## Changes since previous attempt` block enumerating every blueprint file you added, edited, or removed since that file's most recent review, with a brief description of the substantive change. This lets each reviewer focus on the delta on its next read.
 
-Append, never overwrite. The communication file accumulates the full back-and-forth across attempts.
+  Append, never overwrite. The communication file accumulates the full back-and-forth across attempts and across orchestrator invocations.
 
-On the first attempt of a new invocation, skip the append step — there's nothing to respond to. Reviewers will create their files on first review.
+The communication folder is preserved across invocations until a full pass, so a re-run after `awaiting_clarification` or `exhausted` may carry reviews that were written against an older state of the tree. Treat them as context, not authority — the current FRD set, current `BLUEPRINT.md`, and current blueprints tree are ground truth. If a prior finding no longer applies because the tree has moved on, note that briefly in your `## Generator response` and move on.
 
 ## Logging questions, don't guess
 

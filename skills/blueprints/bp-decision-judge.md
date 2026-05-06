@@ -21,7 +21,7 @@ A **high-impact architectural decision** is a choice the operator should weigh i
 For each such decision visible in the blueprints tree, verify one of these is true:
 
 1. The decision is grounded in a `requirements/features/<slug>.md` FRD or in `PRD.md` — the operator already specified it, and the blueprint correctly reflects what was specified.
-2. The decision has a matching open block in `blueprints/_questions-pending.md` whose title or context clearly maps to the choice — and the blueprint has a `<!-- pending: <question-title> -->` marker (or otherwise hedges) at the affected location until the operator answers.
+2. The decision has a matching open block in `blueprints/_questions-pending.md` whose title or context clearly maps to the choice — and the blueprint carries a `<!-- pending: <question-title> -->` marker at the affected location until the operator answers.
 3. The decision has a matching answered question (resolved block in `_questions-pending.md` with `Your answer:` filled in) that the blueprint correctly reflects.
 
 If a high-impact decision appears in a blueprint as a concrete choice, with no grounding in the requirements tree and no matching question block (open or resolved), that's a silent decision and you flag it.
@@ -30,9 +30,9 @@ If a high-impact decision appears in a blueprint as a concrete choice, with no g
 
 Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
-- **`bp-spec-judge`** checks per-blueprint structural shape: section order per type, fenced `component`/`model` blocks well-formed, ADR shape, internal fact-level consistency.
-- **`bp-coverage-judge`** checks every FRD has a matching feature blueprint, every cross-blueprint mention resolves to a definition somewhere, no orphan blueprints exist, and any unresolved architectural choice has a matching block in `blueprints/_questions-pending.md`.
-- **`bp-consistency-judge`** checks contracts align across blueprints, feature blueprints don't redefine shared components, and container blueprints don't drift into internal wiring.
+- **`bp-spec-judge`** — per-blueprint structural shape.
+- **`bp-coverage-judge`** — coverage and reference resolution.
+- **`bp-consistency-judge`** — semantic consistency across blueprints.
 
 You only check decision hygiene: every high-impact architectural choice in the tree is either grounded in requirements or surfaced as a question for the operator. You do not evaluate whether a decision is *correct* — you evaluate whether it was made silently.
 

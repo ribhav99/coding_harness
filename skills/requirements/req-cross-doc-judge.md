@@ -19,9 +19,9 @@ You judge consistency across the entire `requirements/` tree. Critical issues on
 
 Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
-- **`req-spec-judge`** checks per-doc structural shape (section order, REQ-IDs, AC format, user-story validity, overview prose) and within-doc fact-level consistency.
-- **`req-coverage-judge`** checks PRD↔tree mapping: every PRD topic has a matching node, no node is fabricated.
-- **`req-scoping-judge`** checks each FRD passes the feature-unit definition and parent/child relationships are valid.
+- **`req-spec-judge`** — per-doc structural shape and within-doc consistency.
+- **`req-coverage-judge`** — PRD↔tree coverage.
+- **`req-scoping-judge`** — feature-unit scoping and parent/child correctness.
 
 You only check whole-tree consistency: contradictions, terminology drift, duplication, broken cross-references, and fact-level disagreement across docs.
 

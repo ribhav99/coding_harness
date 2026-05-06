@@ -22,9 +22,9 @@ You judge feature-unit shape per FRD and parent/child correctness across the fea
 
 Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
-- **`req-spec-judge`** checks per-doc structural shape (section order, REQ-IDs, AC format, user-story validity, overview prose) and within-doc fact-level consistency.
-- **`req-cross-doc-judge`** checks whole-tree consistency: contradictions across FRDs, terminology drift, duplication, broken cross-references.
-- **`req-coverage-judge`** checks PRD↔tree mapping: every PRD topic has a matching node, no node is fabricated.
+- **`req-spec-judge`** — per-doc structural shape and within-doc consistency.
+- **`req-cross-doc-judge`** — whole-tree consistency.
+- **`req-coverage-judge`** — PRD↔tree coverage.
 
 You only check feature-unit shape and parent/child correctness within `requirements/features/`. Don't second-guess whether a feature should exist — that's the operator's call. Only flag scoping shape: lumping, splitting, or invalid parent/child.
 
