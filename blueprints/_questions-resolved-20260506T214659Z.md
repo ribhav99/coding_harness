@@ -33,6 +33,6 @@ The blueprint as currently written is grounded in the FRD (REQ-ORCH-013 has expl
 
 **Recommended:** Option 2 — keep `#ProtocolRetryStrategy` and revise `BLUEPRINT.md` to acknowledge the third layer. The FRD's REQ-ORCH-013 has specific ACs that the operator (or the requirements loop) approved as binding, and the recovery layer is small and bounded. The operational cost (one extra paragraph in the orchestrator code; one additional state-file field; up to 2 extra spawns per malformed reviewer per attempt) is small relative to the resilience benefit, and it keeps the FRD as canonical input rather than as something the blueprint loop unilaterally undercut.
 
-**Your answer:**
+**Your answer:** yes go with option 2.
 
 ---
