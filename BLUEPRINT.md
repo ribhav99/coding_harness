@@ -24,7 +24,7 @@ flowchart TB
       Orch[Orchestrator<br/>orchestrator/main.py]
       LoopR[Requirements loop<br/>generator + 4 reviewers]
       LoopB[Blueprint loop<br/>generator + 4 reviewers<br/>non-blocking decisions]
-      LoopWO[Work-orders loop<br/>generator + 3 reviewers<br/>flat dependency-ordered sequence]
+      LoopWO[Work-orders loop<br/>generator + 4 reviewers<br/>flat slug-named work orders]
       LoopC[Coding loop<br/>per-WO execution<br/>PR per work order]
       Sync[Sync script<br/>orchestrator/sync.py]
       State[(harness/state/)]
