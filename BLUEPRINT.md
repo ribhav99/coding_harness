@@ -117,9 +117,9 @@ flowchart TB
       OrchWO{{orchestrator<br/>work-orders-loop}}
       GenWO[Generator<br/>blueprint-to-work-orders]
       QFileWO[("work-orders/_questions-pending.md<br/>decomposition-clarification questions<br/>bare shape only")]
-      RevWO["Reviewers<br/>wo-scoping-judge<br/>wo-coverage-judge<br/>wo-dependency-judge"]
+      RevWO["Reviewers<br/>wo-spec-judge<br/>wo-coverage-judge<br/>wo-overlap-judge<br/>wo-sequencing-judge"]
       CommWO[("work-orders_communication/<br/>one file per reviewer<br/>bidirectional channel")]
-      WOs[("Ordered work-order sequence<br/>work-orders/wo-NNN/<br/>blocked_by[] + sort_order")]
+      WOs[("Flat slug-named work orders<br/>work-orders/wo-&lt;slug&gt;.md<br/>+ _sequence.md")]
       ExitWO{Exit check}
       OrchWO -->|spawns| GenWO
       GenWO -->|writes as much as it can| WOs
@@ -535,19 +535,21 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
 
 **`work-orders-loop`.**
 - Precondition: `blueprints/` non-empty.
-- Artifact trees: writes `work-orders/wo-NNN/`, `work-orders/.sequence.meta.yaml`, `work-orders/_questions-pending.md`. The orchestrator materialises `.work-order.meta.yaml.blocked_by[]` from each work order's `Depends on.work_orders` block after the generator exits and before spawning reviewers; the description is the single source of truth for dependencies.
+- Artifact trees: writes flat `work-orders/wo-<slug>.md` files (no per-WO directories), `work-orders/_sequence.md` (the execution-order list), `work-orders/_external-blockers.md` (when any work order is blocked), `work-orders/.sequence.meta.yaml`, `work-orders/_questions-pending.md`. The orchestrator materialises `.wo-<slug>.meta.yaml.blocked_by[]` from each work order's `Depends on.work_orders` block after the generator exits and before spawning reviewers; the description is the single source of truth for dependencies.
 - Communication folder: `work-orders_communication/`.
-- Reviewers: `wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`.
+- Reviewers: `wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`.
 - Pass condition: all reviewers pass AND `work-orders/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
-- Generator prompt inputs: `blueprints/` + current `work-orders/` + current `work-orders/.sequence.meta.yaml` + current `work-orders/_questions-pending.md` + the path to `work-orders_communication/`. The generator short-circuits when the blueprint-tree hash matches the recorded hash and there are no failing reviews to address.
-- On pass: update `.sequence.meta.yaml` with current blueprints hash and a generation timestamp; all produced work orders land with `status: ready`.
+- Generator prompt inputs: `blueprints/` + current `work-orders/` (every `wo-<slug>.md`, `_sequence.md`, `.sequence.meta.yaml`) + current `work-orders/_questions-pending.md` + the path to `work-orders_communication/`. The generator short-circuits when the blueprint-tree hash matches the recorded hash and there are no failing reviews to address.
+- On pass: update `.sequence.meta.yaml` with current blueprints hash and a generation timestamp; all produced agent-executable work orders land with `status: ready`; operator-action work orders land with `status: ready` (ready for the operator).
 
 **`coding-loop`.** Per-work-order execution drain (no sequence generation — that lives in `work-orders-loop`):
 - Detect any `in_progress` work orders whose PR was merged since last run; transition to `done`.
-- `planner.get_next_ready()` respecting `blocked_by[]` + `sort_order`. None → exit 0.
-- Move work order to `in_progress`, initialise `harness/state/<task_id>.json`, set `execution.branch = task/<task_id>`.
+- Regenerate `work-orders/_external-blockers.md` from current meta state.
+- `planner.get_next_ready()` walks `_sequence.md` top to bottom, returning the first work order whose `status: ready`, `blocked_by[]` all `done`, and `type` is not `operator-action`. None → exit 0.
+- Move work order to `in_progress`, initialise `harness/state/<wo-slug>.json`, set `execution.branch = task/<wo-slug>`.
 - Spawn `coding-generator` (writes code on the task branch, opens PR, self-commits); the orchestrator reads the work order's `## Gates` block and spawns the gates declared `required` (tests, playwright, `code-spec-judge`, `code-regression-judge`, `code-security-judge`, `code-quality-judge`); the per-WO execution reviewers run via the same gen→review→retry driver as upstream loops but the generator commits and pushes rather than the orchestrator.
-- After subprocess exit: populate `execution.pr_*` via `gh pr list --head task/<task_id>`; rotate state; post the PR comment.
+- After subprocess exit: populate `execution.pr_*` via `gh pr list --head task/<wo-slug>`; rotate state; post the PR comment.
+- If the generator exited with `status: blocked_external` (mid-execution discovery that operator action is needed), the orchestrator records the verdict and moves on — the work order stays `blocked_external` until the operator clears it.
 - By default, drain. `--one` runs a single work order.
 
 ### 3.4 Scope constraints
@@ -566,24 +568,26 @@ Target: ≤ 800 lines of Python across orchestrator + planner + git_ops + state 
 Status = Literal["backlog", "ready", "in_progress", "done"]
 
 class WorkOrder(TypedDict):
-    task_id: str                  # "wo-NNN", zero-padded
+    wo_slug: str                  # "wo-<slug>", stable forever; the WO's ID
     title: str
-    description_markdown: str     # full description.md contents
-    status: Status
+    description_markdown: str     # full wo-<slug>.md contents
+    status: Status                # backlog | ready | in_progress | done | blocked_external
     priority: str | None
-    type: str | None              # BUILD | FIX | REQUIREMENTS | BLUEPRINT | ARTIFACT | OTHER
+    type: str | None              # feature | refactor | bug-fix | infra | operator-action
     parent_id: str | None
-    sort_order: str               # lexicographic, stable ordering
     blocked_by: list[str]
     blueprint_ids: list[str]
-    path: Path                    # absolute path to the work-order directory
+    path: Path                    # absolute path to the wo-<slug>.md file
 
 class LocalPlanner:
     def __init__(self, project_root: Path = Path.cwd()): ...
-    def get_next_ready(self) -> WorkOrder | None: ...
-    def get(self, task_id: str) -> WorkOrder: ...
-    def update_status(self, task_id: str, status: Status) -> None: ...
+    def get_next_ready(self) -> WorkOrder | None:        # walks _sequence.md top to bottom
+        ...
+    def get(self, wo_slug: str) -> WorkOrder: ...
+    def update_status(self, wo_slug: str, status: Status) -> None: ...
     def get_ordered_ready(self) -> list[WorkOrder]: ...
+    def read_sequence(self) -> list[str]:                # parses _sequence.md → list of wo-slugs
+        ...
 ```
 
 Status updates write through to `.work-order.meta.yaml`. Orchestrator is the only writer. Git history is the audit trail — no separate event log.
@@ -642,7 +646,7 @@ Not abstracted; not a "backend". The local planner doesn't know about PRs, and t
 
 ### 7.1 Two shapes, same plumbing
 
-- **Per-work-order state** at `harness/state/<task_id>.json`. Used by the coding loop's per-WO execution.
+- **Per-work-order state** at `harness/state/<wo-slug>.json`. Used by the coding loop's per-WO execution.
 - **Per-loop state** at `harness/state/<loop-name>.json` (one each for `requirements-loop`, `blueprint-loop`, `work-orders-loop`). Used by the non-per-task flows.
 
 Both share top-level fields (`current`, `history`, `attempts`, `verification`, `limits`); per-task files additionally carry `local.*` and `execution.*`.
@@ -653,10 +657,10 @@ The entire `harness/` directory is **committed to git** — first-class project 
 
 ```json
 {
-  "task_id": "wo-042",
+  "wo_slug": "wo-add-login-endpoint",
   "local": {
     "title": "Add login endpoint",
-    "path": "work-orders/wo-042/",
+    "path": "work-orders/wo-add-login-endpoint.md",
     "blueprint_ids": ["bp-uuid-1"]
   },
   "created_at": "2026-04-18T10:00:00Z",
@@ -670,7 +674,7 @@ The entire `harness/` directory is **committed to git** — first-class project 
   },
 
   "execution": {
-    "branch": "task/wo-042",
+    "branch": "task/wo-add-login-endpoint",
     "pr_url": "https://github.com/owner/repo/pull/123",
     "pr_number": 123
   },
@@ -689,9 +693,9 @@ The entire `harness/` directory is **committed to git** — first-class project 
   },
 
   "attempts": [
-    { "n": 1, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-1/" },
-    { "n": 2, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-2/" },
-    { "n": 3, "at": "...", "verdict": "pass", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-042/attempt-3/" }
+    { "n": 1, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-add-login-endpoint/attempt-1/" },
+    { "n": 2, "at": "...", "verdict": "fail", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-add-login-endpoint/attempt-2/" },
+    { "n": 3, "at": "...", "verdict": "pass", "summary": "...", "review_dir": "harness/state/reviews/coding-loop/wo-add-login-endpoint/attempt-3/" }
   ],
 
   "history": [
@@ -753,7 +757,7 @@ For coding-loop per-WO execution, the reviewer set is run differently and the ar
 
 ### 7.5 Field rules
 
-- `task_id` — `wo-NNN` zero-padded. Stable forever.
+- `wo_slug` — `wo-<slug>` (kebab-case). Stable forever; the work order's ID. Slugs are never renamed (renaming a slug breaks every cross-reference that points to it).
 - `local.*` — denormalised snapshot of the work order's meta, refreshed on every orchestrator read. Canonical source is `.work-order.meta.yaml`.
 - `status` — canonical enum: `backlog | ready | in_progress | done`. Mirrors `.work-order.meta.yaml`. Loop-level state adds `awaiting_clarification` (any upstream loop) and `exhausted` (any loop).
 - `attempt_count` — number of attempts this session. Increments each time the orchestrator re-spawns the generator within one invocation.
@@ -802,7 +806,7 @@ Orchestrator captures each reviewer subprocess's stdout, greps the final `VERDIC
 
 ## 9. Hooks
 
-Configured in `.claude/settings.json`. Log to `harness/logs/<task_id-or-loop-name>/hooks.log`.
+Configured in `.claude/settings.json`. Log to `harness/logs/<wo-slug-or-loop-name>/hooks.log`.
 
 Hooks do only what must happen inside the Claude Code session — context the orchestrator can't provide from outside. State management is in the orchestrator.
 
@@ -826,7 +830,7 @@ Each carries its own autonomy posture (no clarifying questions, decide and proce
 
 - `requirements-generator` — loads `prd-to-frds`. Identity: lead PM. Writes `requirements/` tree; may append to `requirements/_questions-pending.md` for PRD ambiguities. Reads/writes `requirements_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
 - `blueprint-generator` — loads `frd-to-blueprint`. Identity: lead engineer. Writes the full `blueprints/` tree (containers, components, features) itself — single skill, no sub-skill co-invocation. May append to `blueprints/_questions-pending.md` for architectural decisions requiring operator judgment. Reads/writes `blueprints_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
-- `work-orders-generator` — loads `blueprint-to-work-orders` (single skill, no sub-skill co-invocation). Identity: lead tech lead. Writes `work-orders/wo-NNN/` with the canonical scoped-task body shape (work-orders-loop FRD REQ-WO-002), may append to `work-orders/_questions-pending.md` for decomposition ambiguities. Reads/writes `work-orders_communication/` per §1.8.
+- `work-orders-generator` — loads `blueprint-to-work-orders` (single skill, no sub-skill co-invocation). Identity: lead tech lead. Writes flat `work-orders/wo-<slug>.md` files with the canonical scoped-task body shape (work-orders-loop FRD REQ-WO-002), maintains `work-orders/_sequence.md`, marks operator-action work orders with `type: operator-action` in their meta, may append to `work-orders/_questions-pending.md` for decomposition ambiguities. Reads/writes `work-orders_communication/` per §1.8.
 - `coding-generator` — loads `open-task-pr` + coding-specific capabilities. Identity: IC. Writes code on the task branch, opens/updates PR, commits as part of its flow.
 
 The interactive `blueprint-authoring` skill is **not** orchestrator-spawned. The operator runs it inside an interactive Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD. There is no longer a separate `bubble-up-decision` skill; question-block formats live inline in the generator skill prompts (§1.5).
@@ -837,7 +841,7 @@ Each outputs its review as its final chat message, ending with a `VERDICT: pass`
 
 - Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
 - Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
-- Work-orders: `wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`.
+- Work-orders: `wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`.
 - Coding execution: `tests-runner`, `playwright-runner`, `code-spec-judge`, `code-regression-judge`, `code-security-judge`, `code-quality-judge`.
 
 ### 10.3 Utility

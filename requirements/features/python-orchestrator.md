@@ -53,7 +53,7 @@ The operator needs this orchestrator because the four autonomous loops share cor
 
 ### REQ-ORCH-006 — Coding-loop execution: merge detection and status transition
 **User Story.** As an operator, I want merged PRs detected automatically, so that the next coding-loop invocation does not retry work that is already shipped.
-- **AC-ORCH-006.1** — On each `coding-loop` invocation, the orchestrator shall check each `in_progress` work order for a merged PR matching its branch name `task/<task_id>`.
+- **AC-ORCH-006.1** — On each `coding-loop` invocation, the orchestrator shall check each `in_progress` work order for a merged PR matching its branch name `task/<wo-slug>`.
 - **AC-ORCH-006.2** — When the orchestrator detects a merged PR, it shall transition the work order's `.work-order.meta.yaml.status` from `in_progress` to `done`.
 - **AC-ORCH-006.3** — The orchestrator shall never auto-merge PRs.
 

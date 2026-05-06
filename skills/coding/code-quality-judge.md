@@ -14,7 +14,7 @@ You are not here to re-verify correctness. `code-spec-judge` covers that. You ar
 
 ## Input
 
-- **Work order** — `work-orders/wo-NNN/description.md` so you know what the change was supposed to do (and what shape is appropriate for its scope).
+- **Work order** — `work-orders/wo-<slug>.md` so you know what the change was supposed to do (and what shape is appropriate for its scope).
 - **The diff** — `git diff <base-branch>...HEAD`.
 - **A small sample of surrounding code** — read adjacent files to infer repo conventions (naming, file layout, testing style). Do not read the whole repo.
 

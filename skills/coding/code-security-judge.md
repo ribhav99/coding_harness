@@ -11,7 +11,7 @@ You do not evaluate overall correctness, regressions, or quality. Other judges h
 
 ## Input
 
-- **Work order** — `work-orders/wo-NNN/description.md` for context.
+- **Work order** — `work-orders/wo-<slug>.md` for context.
 - **The diff** — `git diff <base-branch>...HEAD`.
 - **Repo at HEAD** — read files as needed to understand how changed code is reached (who calls it, what validation sits in front of it, how credentials are provisioned).
 

@@ -11,7 +11,7 @@ You do not evaluate whether the intended change is correct — `code-spec-judge`
 
 ## Input
 
-- **Work order** — `work-orders/wo-NNN/description.md`, especially `## Goal`, `## In scope`, and `## Out of scope`. The Out of scope list tells you what the work order shouldn't be touching; collateral damage outside that scope is exactly what you flag.
+- **Work order** — `work-orders/wo-<slug>.md`, especially `## Goal`, `## In scope`, and `## Out of scope`. The Out of scope list tells you what the work order shouldn't be touching; collateral damage outside that scope is exactly what you flag.
 - **The diff** — `git diff <base-branch>...HEAD`.
 - **The repo at HEAD** — you may `grep` / read files to find callers, dependents, implicit contracts.
 
