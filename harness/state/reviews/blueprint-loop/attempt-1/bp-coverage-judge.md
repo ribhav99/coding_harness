@@ -87,3 +87,52 @@ No live `<!-- pending: <title> -->` markers exist in the tree (the seven occurre
 ### `BLUEPRINT.md` coverage
 
 Each major section of `BLUEPRINT.md` lands somewhere in the tree: §0 → `containers/python-orchestrator.md` (Mermaid) and `features/python-orchestrator.md`; §1 → `components/{loop-driver,subprocess-runtime,communication-folder}.md`; §2/§10 → `components/agents-and-skills.md`; §3 → `containers/python-orchestrator.md` + `features/python-orchestrator.md`; §4 → `components/local-planner.md`; §5 → `components/mirror-adapter.md`; §6 → `components/git-integration.md`; §7 → `components/state-store.md`; §8 → verdict trailers in subprocess-runtime + each feature blueprint's Integration Contracts; §9 → `components/subprocess-runtime.md` (`#StopHookGenerator`, `#StopHookReviewer`, `#ReviewerPathGuardHook`); §11 is reflected in the structural shape of the tree itself; §12's items are either struck-through-resolved or operator-deferred and do not require open question blocks.
+
+## Generator response — attempt 2
+
+**Finding "`#ProjectRepo` does not resolve" (BROKEN_REF).** Addressed. Edited `blueprints/containers/python-orchestrator.md` — removed the `#ProjectRepo` token from the Infrastructure section and replaced the prose with "the project repo working directory where artifact trees live (boundary described in `@Blueprint(project-repo)`)." The surrounding `@Blueprint(project-repo)` mention already names the container; the `#Component` form was the wrong syntax for what is in fact a container reference, not a component reference. No other location in the tree uses `#ProjectRepo`.
+
+## Changes since previous attempt
+
+- edited: `blueprints/containers/python-orchestrator.md` — fixed broken `#ProjectRepo` mention in `## Infrastructure`; replaced with prose-only `@Blueprint(project-repo)` reference.
+- edited: `blueprints/features/coding-loop.md` — removed the `#PerWOGenerator` fenced `component` block; replaced with prose framing that defers to `#CodingGeneratorAgent` from `@Blueprint(agents-and-skills)` (addresses `bp-consistency-judge` finding #2).
+- edited: `blueprints/features/python-orchestrator.md` — removed the `#CodingLoopDriver` fenced `component` block; replaced with prose deferring to `@Feature(coding-loop)` for the canonical definition (addresses `bp-consistency-judge` finding #3). Trailing prose paragraph updated to match.
+- added: `blueprints/_questions-pending.md` — one with-options block titled "Post-exit protocol-retry for malformed reviewer verdicts: keep, drop, or revise?" surfacing the contradiction between the FRD's REQ-ORCH-013 (post-exit protocol-retry, with detailed ACs) and `BLUEPRINT.md` §1.1/§1.6 (no post-exit recovery layer). Three options with Pros/Cons; recommended option 2 (keep, revise `BLUEPRINT.md`).
+- edited: `blueprints/components/subprocess-runtime.md` — added `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` markers above the `#ProtocolRetryStrategy` fenced component block and above ADR-001 ("Two independent recovery layers").
+- edited: `blueprints/components/state-store.md` — added inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` marker on the `protocol_failures[]` field of `PerLoopState`.
+
+The blueprint tree is otherwise unchanged from attempt 1.
+
+## Changes since previous attempt
+
+Operator answered the open `_questions-pending.md` block with "option 2" (commit `9cb8ad3`): keep `#ProtocolRetryStrategy` and `protocol_failures[]`, and revise `BLUEPRINT.md` §1.1 / §1.6 / §9 to acknowledge the third recovery layer. The blueprint tree's existing composition (every feature blueprint that referenced `#ProtocolRetryStrategy` continues to reference it, and `protocol_failures[]` remains in `state-store.md`'s `PerLoopState`) is correct under this resolution. Only the inline pending markers needed removal; FRD↔blueprint slug parity is unchanged at 7↔7, mention resolution is unchanged.
+
+- edited: `blueprints/components/subprocess-runtime.md` — removed both `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments (above `#ProtocolRetryStrategy` block and above ADR-001).
+- edited: `blueprints/components/state-store.md` — removed the inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comment from `PerLoopState.protocol_failures[]`.
+- (no longer at this path): `blueprints/_questions-pending.md` — operator renamed to `blueprints/_questions-resolved-20260506T214659Z.md` (git-history audit). The open-questions register is now empty, consistent with a tree that has no silent decisions.
+
+No FRD was added, removed, or renamed since the previous review (verified `requirements/features/` still has the seven slugs `prd-authoring`, `coding-loop`, `on-disk-layout`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `python-orchestrator`); FRD↔blueprint slug parity remains 1:1. No `BLUEPRINT.md` element previously mapped to a blueprint has been silently dropped — the operator's edit to BLUEPRINT.md §1.1 / §1.6 / §9 brings BLUEPRINT.md into alignment with the existing `#ProtocolRetryStrategy` blueprint definition rather than introducing new architecture facts.
+
+## Review — attempt 1
+
+Coverage is clean. FRD↔feature-blueprint slug parity is 1:1 across all seven slugs (`prd-authoring`, `coding-loop`, `on-disk-layout`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `python-orchestrator`). The two pending markers and the open-question block from the previous attempt have been removed; both `subprocess-runtime.md` and `state-store.md` are clean (`grep "<!-- pending:"` shows only definitional prose with literal `<question-title>` placeholders inside `questions-pending.md`, `blueprint-loop.md`, and `work-orders-loop.md`, never an active marker), consistent with `_questions-pending.md` being absent (renamed to `_questions-resolved-20260506T214659Z.md`). The previously-flagged broken `#ProjectRepo` reference is gone from `containers/python-orchestrator.md:15`, replaced with a prose-only `@Blueprint(project-repo)` reference.
+
+### FRD parity (1:1)
+
+Verified seven FRDs ↔ seven feature blueprints, slugs match exactly. No FRD lacks a blueprint; no feature blueprint lacks an FRD.
+
+### Mention resolution
+
+Every `#Component` mention I sampled resolves to a `component` block whose `name:` field matches: `#LoopDriver`, `#VerdictAggregator`, `#BudgetEnforcer`, `#SubprocessSpawner`, `#SessionContinuity`, `#RateLimitClassifier`, `#RateLimitRetryStrategy`, `#ProtocolRetryStrategy`, `#StopHookGenerator`, `#StopHookReviewer`, `#ReviewerPathGuardHook`, `#StateStore`, `#ReviewSnapshotter`, `#StatusReporter`, `#CommunicationFolderManager`, `#CommunicationFolderSnapshotter`, `#QuestionsPendingDetector`, `#PendingMarkerSyntax`, `#MetaMaterialiser`, `#SlugDiscoverer`, `#H1Extractor`, `#BlockedByMaterialiser`, `#GitIntegration`, `#BranchManager`, `#PROperationLayer`, `#MergeDetector`, `#PRCommentMirror`, `#LocalPlanner`, `#WorkOrderMetaReader`, `#MirrorAdapter`, `#SoftwareFactoryMirror`, `#GitHubProjectsMirror`, `#MirrorPushOrchestrator`, the per-loop prompt builders, every per-loop generator/reviewer agent in `agents-and-skills.md`, the per-loop skill components defined in feature blueprints, `#CodingLoopDriver`/`#GateOrchestrator`/`#GateDeclarationReader`/`#GapFiler` and the six coding-loop reviewer components in `coding-loop.md`, the four PRD-authoring components in `prd-authoring.md`, the six on-disk-layout shape components in `on-disk-layout.md`, and the five subcommand components in `features/python-orchestrator.md`. Every `@Blueprint(<slug>)`, `@Feature(<slug>)`, and `@Requirements(<slug>)` mention resolves to a real file in the corresponding tree.
+
+### No orphans
+
+Every component blueprint is composed by at least one feature blueprint (typically several). All four container blueprints are referenced via `@Blueprint(...)` mentions and via `container:` fields in component blocks (`Python Orchestrator`, `Claude Code Subprocess`, `Project Repo`, `GitHub`).
+
+### `_questions-pending.md` correspondence
+
+`blueprints/_questions-pending.md` does not exist; the previously-open block has been moved to `_questions-resolved-20260506T214659Z.md`. No `<!-- pending: <real-title> -->` markers remain in the tree (only definitional prose using literal `<question-title>` placeholders). The two are consistent.
+
+### `BLUEPRINT.md` coverage
+
+Each major section of `BLUEPRINT.md` (§0 system architecture, §1 loop mechanic, §2 generator identity, §3 Python orchestrator, §4 local planner, §5 mirrors, §6 code surface, §7 state file schema, §8 verdict format, §9 hooks, §10 agents, §11 blueprint document shape, §12 open questions) lands on a corresponding blueprint or is reflected in the tree's structural shape. The recent operator edit to §1.1 / §1.6 / §9 acknowledging the third recovery layer brings BLUEPRINT.md into alignment with the existing `#ProtocolRetryStrategy` definition; no element pinned in BLUEPRINT.md has been silently dropped from the generated tree.

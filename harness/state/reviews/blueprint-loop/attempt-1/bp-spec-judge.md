@@ -46,3 +46,29 @@ No `blueprints/_questions-pending.md` was created — every architectural choice
 Walked all 21 blueprints across `containers/` (4), `components/` (10), and `features/` (7). Every file is in the correct subdirectory for its type, opens with a single H1, follows the canonical section order for its blueprint type, and uses well-formed fenced `component` and `model` blocks with the required keys. ADRs are sequential per file (`ADR-001`…) and each carries the three labelled paragraphs **Context** / **Decision** / **Consequences**. Component names referenced via `#PascalCase` mentions resolve consistently within each doc, and I found no refactor breadcrumbs (no `(renamed from …)`, `(previously …)`, `(unchanged)`, `(existing)`, "the old name" parentheticals). The tree is structurally clean from this judge's perspective.
 
 No critical structural findings. Cross-blueprint redefinition concerns (e.g. `CodingLoopDriver` is declared as a feature-specific `component` block in both `blueprints/features/python-orchestrator.md` and `blueprints/features/coding-loop.md`) and unresolved cross-doc mentions (e.g. `#MetaFileFormatRules` referenced in `meta-materialization.md` line 16 with no matching definition anywhere) are out of scope here — those are `bp-consistency-judge` and `bp-coverage-judge` territory respectively, not structural shape.
+
+## Changes since previous attempt
+
+- edited: `blueprints/containers/python-orchestrator.md` — fixed broken `#ProjectRepo` mention in `## Infrastructure` (replaced with prose-only `@Blueprint(project-repo)` reference; addresses `bp-coverage-judge` BROKEN_REF finding).
+- edited: `blueprints/features/coding-loop.md` — removed the `#PerWOGenerator` fenced `component` block; replaced with relationship prose deferring to `#CodingGeneratorAgent` from `@Blueprint(agents-and-skills)` (addresses `bp-consistency-judge` REDEFINITION finding #2).
+- edited: `blueprints/features/python-orchestrator.md` — removed the `#CodingLoopDriver` fenced `component` block; replaced with relationship prose deferring to `@Feature(coding-loop)` for the canonical definition (addresses `bp-consistency-judge` REDEFINITION finding #3, and the same out-of-scope concern you flagged).
+- edited: `blueprints/components/meta-materialization.md` — fixed broken `#MetaFileFormatRules` mention on line 16 (replaced with prose pointing at the four model blocks defined below in the same doc; addresses the second out-of-scope concern you flagged).
+- added: `blueprints/_questions-pending.md` — one with-options block on the post-exit protocol-retry contradiction between FRD REQ-ORCH-013 and `BLUEPRINT.md` §1.1/§1.6.
+- edited: `blueprints/components/subprocess-runtime.md` — added `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` markers above the `#ProtocolRetryStrategy` block and ADR-001.
+- edited: `blueprints/components/state-store.md` — added inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` marker on the `protocol_failures[]` field.
+
+Section order, fenced-block keys, and ADR shape are unchanged across all 21 blueprints — the edits above are targeted text edits and one block deletion, none of which alter structural shape. The `<!-- pending: -->` markers conform to @Blueprint(questions-pending)'s pending-marker syntax (HTML comment, the literal title used in `_questions-pending.md`).
+
+## Changes since previous attempt
+
+Operator resolved the open question (commit `9cb8ad3`, answer "option 2 — keep `#ProtocolRetryStrategy` and revise BLUEPRINT.md to acknowledge the third recovery layer"). The blueprint tree's existing structure aligns with this resolution, so only the inline pending markers needed removal. Blueprint structural shape (section order, fenced-block keys, ADR shape) is unchanged.
+
+- edited: `blueprints/components/subprocess-runtime.md` — removed the two `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments (one above the `#ProtocolRetryStrategy` `component` block, one above ADR-001). The `component` block and ADR-001 themselves are unchanged.
+- edited: `blueprints/components/state-store.md` — removed the inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comment from the `protocol_failures[]` field of `PerLoopState`. The field itself is unchanged.
+- (no longer in tree): `blueprints/_questions-pending.md` — operator renamed to `blueprints/_questions-resolved-20260506T214659Z.md` for git-history audit; the file is no longer in the open-questions register location.
+
+## Review — attempt 1
+
+Walked the full tree: 4 container blueprints, 10 component blueprints, 7 feature blueprints (21 total). Every file is in the correct subdirectory for its declared type, opens with a single H1, follows the canonical section order for its type, and uses well-formed fenced `component` and `model` blocks with all required keys. ADRs are sequentially numbered per file starting at `ADR-001` and each carries the three labelled paragraphs **Context** / **Decision** / **Consequences** in order. Component names referenced as `#PascalCase` mentions resolve consistently within their own document, and there are no refactor breadcrumbs anywhere in the tree (no `(renamed from …)`, `(previously …)`, `(unchanged)`, `(existing)`, "old name" parentheticals). The two targeted edits since the last attempt — removing the `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments from `blueprints/components/subprocess-runtime.md` and `blueprints/components/state-store.md` — leave both files structurally clean (section order, fenced-block keys, ADR shape, and within-doc fact-level consistency unchanged).
+
+No critical structural findings. The tree is structurally clean from this judge's perspective.

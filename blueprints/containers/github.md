@@ -6,7 +6,7 @@ GitHub is the external system the harness uses to surface coding-loop output to 
 
 ## Infrastructure
 
-GitHub is a managed external service. The harness reaches it via the `gh` CLI, authenticated against the operator's GitHub account. The project repo's git remote is the GitHub repository for the project; pushes from the harness target `task/<task_id>` branches on that remote.
+GitHub is a managed external service. The harness reaches it via the `gh` CLI, authenticated against the operator's GitHub account. The project repo's git remote is the GitHub repository for the project; pushes from the harness target `task/<wo-slug>` branches on that remote.
 
 Key platform dependencies:
 - The `gh` CLI installed and authenticated locally.
@@ -19,10 +19,10 @@ Deployment model: nothing to deploy on the harness side. The operator configures
 
 GitHub interactions are confined to the coding loop and the harness's optional outbound mirroring. There are four entry-point classes:
 
-- **Push** — the per-work-order coding-loop generator (`coding-generator`) pushes its `task/<task_id>` branch via `git push`. The orchestrator does not push directly; only the per-WO generator does, as part of its internal flow.
+- **Push** — the per-work-order coding-loop generator (`coding-generator`) pushes its `task/<wo-slug>` branch via `git push`. The orchestrator does not push directly; only the per-WO generator does, as part of its internal flow.
 - **PR open** — the per-work-order coding-loop generator opens the PR on its first internal pass via the `open-task-pr` skill, which wraps `gh pr create`. Idempotent; safe to call again if the PR exists.
 - **PR comment post** — the orchestrator posts the final pass-summary as a PR comment via `gh pr comment` after the per-WO reviewer stack reports all-pass. Owned by #PRCommentMirror inside @Blueprint(python-orchestrator).
-- **Merge detection** — the orchestrator polls merged-PR state at the start of each `coding-loop` invocation by running `gh pr list --head task/<task_id> --state merged`. Owned by #MergeDetector inside @Blueprint(python-orchestrator).
+- **Merge detection** — the orchestrator polls merged-PR state at the start of each `coding-loop` invocation by running `gh pr list --head task/<wo-slug> --state merged`. Owned by #MergeDetector inside @Blueprint(python-orchestrator).
 
 Optional outbound mirrors (Software Factory, GitHub Projects) push status and comments to GitHub Projects or other platforms; this is a separate flow described in @Blueprint(mirror-adapter). The harness never reads from mirrors.
 
@@ -31,7 +31,7 @@ Optional outbound mirrors (Software Factory, GitHub Projects) push status and co
 ### Key Contracts
 
 - **Operator-driven merge.** The harness never auto-merges. The operator reviews the PR (with the orchestrator-posted summary comment for context) and merges via GitHub's UI or `gh pr merge` themselves.
-- **One PR per work order.** Branch name `task/<task_id>` is the link key. The orchestrator and the per-WO generator both use this convention.
+- **One PR per work order.** Branch name `task/<wo-slug>` is the link key. The orchestrator and the per-WO generator both use this convention.
 - **Idempotent PR open.** `open-task-pr` is safe to call multiple times; if a PR already exists for the branch it is a no-op. Required because the per-WO generator may run multiple internal attempts before its first orchestrator-visible exit.
 - **PR comment is the operator-facing summary.** The orchestrator posts exactly one summary comment per pass, after all required gates have passed. The PR page is the operator's single review surface for a work order.
 - **`gh` CLI as the integration layer.** No direct REST/GraphQL calls from the harness. New `gh` features (e.g. better rate-limit handling, new flags) are inherited automatically.
@@ -39,17 +39,17 @@ Optional outbound mirrors (Software Factory, GitHub Projects) push status and co
 
 ### Integration Contracts
 
-- **PR creation.** `gh pr create --head task/<task_id> --base <main-branch> --title "<work-order-title>" --body "<body>"`. Body shape is owned by the `open-task-pr` skill.
+- **PR creation.** `gh pr create --head task/<wo-slug> --base <main-branch> --title "<work-order-title>" --body "<body>"`. Body shape is owned by the `open-task-pr` skill.
 - **PR comment.** `gh pr comment <pr-number> --body "<final-summary>"`. The body is the per-WO pass-summary the orchestrator composes from the verification block.
-- **PR list and view.** `gh pr list --head task/<task_id> --state {open|merged}` and `gh pr view <pr-number> --json state,mergedAt`. Used to populate `execution.pr_*` fields in the per-WO state file.
-- **Merge detection.** Pre-drain polling: any `in_progress` work order whose `task/<task_id>` branch shows a merged PR transitions to `done` and its state file rolls.
+- **PR list and view.** `gh pr list --head task/<wo-slug> --state {open|merged}` and `gh pr view <pr-number> --json state,mergedAt`. Used to populate `execution.pr_*` fields in the per-WO state file.
+- **Merge detection.** Pre-drain polling: any `in_progress` work order whose `task/<wo-slug>` branch shows a merged PR transitions to `done` and its state file rolls.
 - **Authentication.** Inherited from the operator's `gh auth login` token. The harness never handles credentials directly.
 
 ### Integration Boundaries
 
 - **GitHub vs orchestrator.** The orchestrator owns PR comment posting and merge detection (read-only PR queries). The orchestrator does not own PR creation — that is the per-WO generator's job, run inside its subprocess.
 - **GitHub vs per-work-order generator.** The per-WO generator owns commit + push + PR open. It runs inside a Claude Code subprocess with `gh` and `git` available via Bash tool calls.
-- **GitHub vs project-repo.** The git remote is the project's GitHub repo. Local commits are pushed to `task/<task_id>` branches. The local working tree never reads back from the remote during a loop run; merge detection is the only read.
+- **GitHub vs project-repo.** The git remote is the project's GitHub repo. Local commits are pushed to `task/<wo-slug>` branches. The local working tree never reads back from the remote during a loop run; merge detection is the only read.
 - **GitHub vs operator.** The operator reviews PRs, reads comments, and merges. They do not invoke `gh` against the harness's branches directly during normal flow (though they can; the harness has no exclusive lock on its branches).
 
 ## Architecture Decision Records
@@ -68,7 +68,7 @@ Optional outbound mirrors (Software Factory, GitHub Projects) push status and co
 
 **Decision.** One PR comment per work order: the final pass-summary, posted only when all required gates have passed. The orchestrator never posts intermediate attempt updates to the PR.
 
-**Consequences.** The PR comment thread stays signal-rich; the operator does not have to filter through retries to find the final state. Trade-off: in-progress visibility lives in `harness/state/<task_id>.json` and the snapshotted reviewer files, not on GitHub.
+**Consequences.** The PR comment thread stays signal-rich; the operator does not have to filter through retries to find the final state. Trade-off: in-progress visibility lives in `harness/state/<wo-slug>.json` and the snapshotted reviewer files, not on GitHub.
 
 ### ADR-003: Operator merges; harness never auto-merges
 

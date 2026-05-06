@@ -54,7 +54,6 @@ responsibilities:
 	- Continues to count against the per-subprocess wall-clock cap (`max_wall_minutes`); backoff time can push a subprocess past wall-clock and trigger `exhausted` for that reason
 ```
 
-<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->
 ```component
 name: ProtocolRetryStrategy
 container: Python Orchestrator
@@ -79,7 +78,7 @@ responsibilities:
 	- On `Stop` lifecycle event, reads the agent's final chat message and validates it ends with a recognised generator `VERDICT:` line (`VERDICT: ready_for_review` for upstream loops; `VERDICT: awaiting_clarification` with `open_questions: <N>` and `questions_file: <path>` lines; for coding-loop generators, additionally each gate result)
 	- Returns block (non-zero exit) on missing or malformed trailer, prompting the model to add it before the turn ends
 	- Reads `HARNESS_STOP_HOOK_COUNTER` and increments it per block; once it exceeds `HARNESS_MAX_AGENT_RETRIES` the hook returns 0 (allow stop) instead of blocking, so a stubbornly-malformed model can't ping-pong with the hook indefinitely
-	- Logs every block to `harness/logs/<task_id-or-loop-name>/hooks.log`
+	- Logs every block to `harness/logs/<wo-slug-or-loop-name>/hooks.log`
 ```
 
 ```component
@@ -124,7 +123,6 @@ The three hooks are configured in `.claude/settings.json` shipped with the kit; 
 
 ## Architecture Decision Records
 
-<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->
 ### ADR-001: Two independent recovery layers (rate-limit and protocol)
 
 **Context.** A subprocess can fail in two distinct ways: (a) the model never ran (rate limit, network blip, transient infrastructure error), and (b) the model ran but emitted malformed output (verdict trailer missing, truncated). Conflating them would either skip recovery for one mode or apply the wrong recovery to the other.

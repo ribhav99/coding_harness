@@ -58,3 +58,23 @@ No critical structural findings. Cross-blueprint redefinition concerns (e.g. `Co
 - edited: `blueprints/components/state-store.md` — added inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` marker on the `protocol_failures[]` field.
 
 Section order, fenced-block keys, and ADR shape are unchanged across all 21 blueprints — the edits above are targeted text edits and one block deletion, none of which alter structural shape. The `<!-- pending: -->` markers conform to @Blueprint(questions-pending)'s pending-marker syntax (HTML comment, the literal title used in `_questions-pending.md`).
+
+## Changes since previous attempt
+
+Operator resolved the open question (commit `9cb8ad3`, answer "option 2 — keep `#ProtocolRetryStrategy` and revise BLUEPRINT.md to acknowledge the third recovery layer"). The blueprint tree's existing structure aligns with this resolution, so only the inline pending markers needed removal. Blueprint structural shape (section order, fenced-block keys, ADR shape) is unchanged.
+
+- edited: `blueprints/components/subprocess-runtime.md` — removed the two `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments (one above the `#ProtocolRetryStrategy` `component` block, one above ADR-001). The `component` block and ADR-001 themselves are unchanged.
+- edited: `blueprints/components/state-store.md` — removed the inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comment from the `protocol_failures[]` field of `PerLoopState`. The field itself is unchanged.
+- (no longer in tree): `blueprints/_questions-pending.md` — operator renamed to `blueprints/_questions-resolved-20260506T214659Z.md` for git-history audit; the file is no longer in the open-questions register location.
+
+## Review — attempt 1
+
+Walked the full tree: 4 container blueprints, 10 component blueprints, 7 feature blueprints (21 total). Every file is in the correct subdirectory for its declared type, opens with a single H1, follows the canonical section order for its type, and uses well-formed fenced `component` and `model` blocks with all required keys. ADRs are sequentially numbered per file starting at `ADR-001` and each carries the three labelled paragraphs **Context** / **Decision** / **Consequences** in order. Component names referenced as `#PascalCase` mentions resolve consistently within their own document, and there are no refactor breadcrumbs anywhere in the tree (no `(renamed from …)`, `(previously …)`, `(unchanged)`, `(existing)`, "old name" parentheticals). The two targeted edits since the last attempt — removing the `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments from `blueprints/components/subprocess-runtime.md` and `blueprints/components/state-store.md` — leave both files structurally clean (section order, fenced-block keys, ADR shape, and within-doc fact-level consistency unchanged).
+
+No critical structural findings. The tree is structurally clean from this judge's perspective.
+
+## Review — attempt 2
+
+Re-walked all 21 blueprints (4 containers, 10 components, 7 features). No structural shape regressions since attempt 1. Every file still opens with a single H1, follows the canonical section order for its type, uses well-formed fenced `component` and `model` blocks with all required keys (`name`/`container`/`responsibilities` for components; `name`/`store`/`description`/`fields`/`constraints` for models), and carries sequentially numbered `### ADR-NNN: Title` entries with the three labelled paragraphs **Context** / **Decision** / **Consequences** in order. Within-doc fact-level consistency holds — `#PascalCase` mentions resolve against `component` blocks in the same doc, and there are no refactor breadcrumbs anywhere. No leftover `<!-- pending: -->` HTML markers remain in any blueprint file.
+
+No critical structural findings. The tree remains structurally clean from this judge's perspective.

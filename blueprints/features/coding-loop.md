@@ -2,16 +2,16 @@
 
 ## Feature Summary
 
-The coding loop is the fourth and final autonomous stage. It drains the ready work-order queue produced by the work-orders loop in dependency order, executing one work order at a time on its own `task/<task_id>` branch with its own PR opened on first internal pass. A six-reviewer execution stack — two execution gates plus four LLM-as-judge gates — verifies each diff before the orchestrator posts the final summary as a PR comment; the operator merges. The loop is execution-only — sequence generation lives in the work-orders loop. See @Requirements(coding-loop) for the FRD this blueprint satisfies.
+The coding loop is the fourth and final autonomous stage. It drains the ready work-order queue produced by the work-orders loop in execution order (top-to-bottom walk of `work-orders/_sequence.md`), executing one work order at a time on its own `task/<wo-slug>` branch with its own PR opened on first internal pass. A six-reviewer execution stack — two execution gates plus four LLM-as-judge gates — verifies each diff before the orchestrator posts the final summary as a PR comment; the operator merges. The loop is execution-only — sequence generation lives in the work-orders loop. See @Requirements(coding-loop) for the FRD this blueprint satisfies.
 
 ## Component Blueprint Composition
 
 This feature composes:
 
 - **@Blueprint(subprocess-runtime)** — `#SubprocessSpawner` for `claude -p` invocations; `#StopHookGenerator` enforces the per-WO generator's per-gate `VERDICT:` trailer; `#StopHookReviewer` enforces each reviewer's `VERDICT: pass|fail` trailer; `#RateLimitRetryStrategy` and `#ProtocolRetryStrategy` recover from infrastructure throttling and malformed verdicts. The `#ReviewerPathGuardHook` is **not** active for coding-loop reviewers (which run with `Write,Edit,NotebookEdit,Bash` disallowed).
-- **@Blueprint(state-store)** — `#StateStore` writes `harness/state/<task_id>.json` and `harness/state/coding-loop.json`; `#ReviewSnapshotter` archives per-WO reviewer stdout into `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. (Per-WO execution does not use a communication folder; reviewer prose lives in stdout, archived directly.)
-- **@Blueprint(local-planner)** — `#LocalPlanner.get_next_ready()` selects the next ready work order in dependency order; `#LocalPlanner.update_status()` transitions work orders through `ready → in_progress → done`.
-- **@Blueprint(git-integration)** — `#BranchManager` ensures `task/<task_id>` branches; `#PROperationLayer` mediates GitHub CLI calls; `#MergeDetector` polls merged-PR state at invocation start; `#PRCommentMirror` posts the per-WO final summary on all-pass.
+- **@Blueprint(state-store)** — `#StateStore` writes `harness/state/<wo-slug>.json` and `harness/state/coding-loop.json`; `#ReviewSnapshotter` archives per-WO reviewer stdout into `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/<reviewer-name>.md`. (Per-WO execution does not use a communication folder; reviewer prose lives in stdout, archived directly.)
+- **@Blueprint(local-planner)** — `#LocalPlanner.get_next_ready()` walks `work-orders/_sequence.md` top to bottom and selects the first work order whose `status: ready`, whose `blocked_by[]` are all `done`, and whose `type` is not `operator-action`; `#LocalPlanner.update_status()` transitions work orders through `ready → in_progress → done` (or to `blocked_external` mid-execution).
+- **@Blueprint(git-integration)** — `#BranchManager` ensures `task/<wo-slug>` branches; `#PROperationLayer` mediates GitHub CLI calls; `#MergeDetector` polls merged-PR state at invocation start; `#PRCommentMirror` posts the per-WO final summary on all-pass.
 - **@Blueprint(agents-and-skills)** — `#CodingGeneratorAgent` is the IC identity loading the `open-task-pr` skill plus coding capabilities; `#CodingReviewerAgents` are the six per-WO execution reviewers (`tests-runner`, `playwright-runner`, `code-spec-judge`, `code-regression-judge`, `code-security-judge`, `code-quality-judge`).
 - **@Blueprint(github)** — The external system PRs are opened on, comments are posted to, and merges are detected on.
 - **@Blueprint(mirror-adapter)** — `#MirrorPushOrchestrator` pushes per-WO status changes and PR comments to configured outbound mirrors.
@@ -25,10 +25,11 @@ name: CodingLoopDriver
 container: Python Orchestrator
 responsibilities:
 	- Implements `python -m orchestrator coding-loop [--one]` drain logic
-	- At invocation start: invokes `#MergeDetector` to transition any merged `in_progress` work orders to `done`
-	- Drain step: invokes `#LocalPlanner.get_next_ready()` (returns None → exit 0); transitions WO to `in_progress`; initialises `harness/state/<task_id>.json`; sets `execution.branch = "task/<task_id>"`; invokes `#BranchManager.ensure_task_branch`
-	- Spawns `#CodingGeneratorAgent` via `#SubprocessSpawner` with the scoped-task body (`work-orders/wo-NNN/description.md`) injected inline
+	- At invocation start: invokes `#MergeDetector` to transition any merged `in_progress` work orders to `done`; then regenerates `work-orders/_external-blockers.md` from current meta state (anticipated `type: operator-action` entries plus discovered `status: blocked_external` entries) before the drain begins
+	- Drain step: invokes `#LocalPlanner.get_next_ready()` (which walks `_sequence.md` top to bottom and applies the three filters; returns None → exit 0); transitions WO to `in_progress`; initialises `harness/state/<wo-slug>.json`; sets `execution.branch = "task/<wo-slug>"`; invokes `#BranchManager.ensure_task_branch`
+	- Spawns `#CodingGeneratorAgent` via `#SubprocessSpawner` with the scoped-task body (`work-orders/wo-<slug>.md`) injected inline
 	- After per-WO generator exit: reads the work order's `## Gates` block via `#GateDeclarationReader`; spawns the `required` reviewer subprocesses (skipping `not_applicable`) in fastest-first order via `#GateOrchestrator`; aggregates verdicts
+	- If the per-WO generator exited with `status: blocked_external` (mid-execution discovery that operator action is needed), records the verdict and moves on without retrying — the work order stays `blocked_external` until the operator clears it
 	- On any-fail: re-spawns `#CodingGeneratorAgent` with aggregated reviews as context; gen handles fix / push back / file gap (per `#GapFiler`)
 	- On per-WO all-pass: invokes `#PRCommentMirror` to post the final summary, then `#MirrorPushOrchestrator` for outbound mirrors
 	- By default, drains every ready work order in this invocation; `--one` exits after one
@@ -48,18 +49,18 @@ responsibilities:
 name: GateDeclarationReader
 container: Python Orchestrator
 responsibilities:
-	- Parses the work order's `description.md` `## Gates` fenced YAML block
+	- Parses the work order's `wo-<slug>.md` `## Gates` fenced YAML block
 	- Returns a typed view: `{tests, playwright, code-spec, code-regression, code-security, code-quality}` each `required` or `not_applicable`
 	- Validates the four LLM-as-judge gates are always `required` (per the work-order document shape contract); reports a structural error if not
 ```
 
-The per-WO generator runtime entity is `#CodingGeneratorAgent` from @Blueprint(agents-and-skills); the coding loop does not redefine it. Coding-loop-specific framing on top of that shared definition: the agent is spawned per work order with the scoped-task body inlined; it handles its own internal gen/review cycle inside the session (writes code, runs tests locally, fixes, re-runs); on first internal pass it commits, pushes, and opens a PR via `open-task-pr` (idempotent); on subsequent orchestrator-spawned attempts (because the post-exit reviewer stack flagged something) it pushes additional commits to the same branch; it files gaps via #GapFiler to `work-orders/_inbox/wo-NNN/`; and it exits with a stdout summary ending in a `VERDICT:` trailer listing each gate's result (`pass`, `fail`, `not_run`). All of that is `#CodingGeneratorAgent`'s responsibility surface — this paragraph is contextual prose, not a new component.
+The per-WO generator runtime entity is `#CodingGeneratorAgent` from @Blueprint(agents-and-skills); the coding loop does not redefine it. Coding-loop-specific framing on top of that shared definition: the agent is spawned per work order with the scoped-task body inlined; it handles its own internal gen/review cycle inside the session (writes code, runs tests locally, fixes, re-runs); on first internal pass it commits, pushes, and opens a PR via `open-task-pr` (idempotent); on subsequent orchestrator-spawned attempts (because the post-exit reviewer stack flagged something) it pushes additional commits to the same branch; it files gaps via #GapFiler to `work-orders/_inbox/wo-<slug>.md`; on mid-execution discovery that operator action is required (missing credentials, missing external data, etc.), it transitions the work order's `.wo-<slug>.meta.yaml.status` to `blocked_external`, appends a description of the blocker to `work-orders/_external-blockers.md`, and exits cleanly; and it exits with a stdout summary ending in a `VERDICT:` trailer listing each gate's result (`pass`, `fail`, `not_run`). All of that is `#CodingGeneratorAgent`'s responsibility surface — this paragraph is contextual prose, not a new component.
 
 ```component
 name: GapFiler
 container: Claude Code Subprocess
 responsibilities:
-	- When the per-WO generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, creates a `backlog` work order under `work-orders/_inbox/wo-NNN/` with a back-reference to the originating work order
+	- When the per-WO generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, creates a `backlog` work order at `work-orders/_inbox/wo-<slug>.md` (descriptive kebab-case slug chosen by the agent) with a back-reference to the originating work order
 	- Gaps never auto-promote to `ready`; the operator triages `_inbox/` on their own cadence
 	- Filed gaps follow the same canonical scoped-task body shape as in-tree work orders (per @Feature(work-orders-loop) REQ-WO-002)
 ```
@@ -87,7 +88,7 @@ name: CodeSpecJudge
 container: Claude Code Subprocess
 responsibilities:
 	- LLM-as-judge: compares `git diff` against the work order's acceptance-criteria checklist with per-criterion reasoning
-	- Walks each `AC-WO-NNN.M` row and verifies the diff or running app satisfies the declared expected outcome
+	- Walks each `AC-WO-<slug>.M` row and verifies the diff or running app satisfies the declared expected outcome
 	- For criteria tagged `via tests` or `via playwright`, verifies they were actually exercised by their respective execution gates; for criteria tagged `via code-spec`, verifies directly against the diff
 	- Catches code that passes tests but does not implement the acceptance criteria
 ```
@@ -121,9 +122,11 @@ The six-reviewer execution stack is fixed; each work order's `## Gates` block to
 
 ### Key Contracts
 
-- **Execution-only.** Sequence generation lives in @Feature(work-orders-loop). The coding loop reads what is on disk and drains it.
+- **Execution-only.** Sequence generation lives in @Feature(work-orders-loop). The coding loop reads what is on disk and drains it; `pick_next` walks `work-orders/_sequence.md` top to bottom.
+- **Operator-action work orders are skipped.** Work orders with `type: operator-action` are skipped by the drain entirely (regardless of `status`); they appear in `work-orders/_external-blockers.md` for the operator to handle out-of-band.
+- **`blocked_external` is mid-execution.** When the per-WO agent discovers it cannot autonomously proceed (missing credentials, missing external data, missing third-party setup), it transitions the work order to `status: blocked_external`, appends to `work-orders/_external-blockers.md`, and exits cleanly. The orchestrator records the verdict and moves on; the work order stays `blocked_external` until the operator clears it.
 - **One work order at a time.** Single working tree, single sequential drain. Worktree-based parallelism is plausible but deferred.
-- **Per-WO generator owns commits and PR open.** The orchestrator does not commit per-WO code; the generator does, as part of its internal flow. Per-WO commits live on `task/<task_id>` branches.
+- **Per-WO generator owns commits and PR open.** The orchestrator does not commit per-WO code; the generator does, as part of its internal flow. Per-WO commits live on `task/<wo-slug>` branches.
 - **No auto-merge.** Merge is always operator-driven. The orchestrator detects merged PRs at the start of each `coding-loop` invocation and transitions WOs to `done`.
 - **No communication folder.** Per-WO execution communicates through the PR (commits + posted summary comment) and reviewer stdout. The coding loop is execution-only and the artifact under review is `git diff`, which already lives on disk and in git — the prose-conversation transcript pattern does not fit.
 - **Six-reviewer fixed stack; gate declaration toggles two.** `tests` and `playwright` may be `not_applicable`; the four LLM-as-judge gates are always `required`.
@@ -135,13 +138,14 @@ The six-reviewer execution stack is fixed; each work order's `## Gates` block to
 ### Integration Contracts
 
 - **Subcommand.** `python -m orchestrator coding-loop`, with `--one` to run a single work order. Exit code: 0 (drain complete or `--one` succeeded), 1 (per-WO exhausted), 2 (none — coding loop has no `awaiting_clarification`).
-- **Branch convention.** `task/<task_id>` for the per-WO branch.
+- **Branch convention.** `task/<wo-slug>` for the per-WO branch.
 - **PR convention.** One PR per work order, opened by the per-WO generator via `open-task-pr` (idempotent).
-- **State files.** `harness/state/<task_id>.json` (per-WO) and `harness/state/coding-loop.json` (loop-level).
-- **Reviews archive.** `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md` — captured stdout, not communication-file snapshot.
+- **State files.** `harness/state/<wo-slug>.json` (per-WO) and `harness/state/coding-loop.json` (loop-level).
+- **Reviews archive.** `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/<reviewer-name>.md` — captured stdout, not communication-file snapshot.
 - **Per-WO generator verdict trailer.** `VERDICT:` line carrying each gate result (`pass`, `fail`, `not_run`); the orchestrator parses the trailer for both control flow and `verification.*` field updates in the per-WO state.
 - **Reviewer verdict trailer.** `VERDICT: pass` or `VERDICT: fail`. Captured stdout is the full review prose.
-- **Gate declaration block.** YAML inside `## Gates` in the work order's `description.md`. Schema pinned in @Feature(work-orders-loop) REQ-WO-002.
+- **Gate declaration block.** YAML inside `## Gates` in the work order's `wo-<slug>.md`. Schema pinned in @Feature(work-orders-loop) REQ-WO-002.
+- **`_external-blockers.md` regeneration.** The driver regenerates `work-orders/_external-blockers.md` at every coding-loop invocation start (and on every loop-exit verdict) by walking each work order's meta. Two sections — anticipated operator actions (`type: operator-action`) and discovered mid-execution blockers (`status: blocked_external`). Operator clears entries by transitioning the affected work order's status; the next regeneration drops them.
 
 ## Architecture Decision Records
 

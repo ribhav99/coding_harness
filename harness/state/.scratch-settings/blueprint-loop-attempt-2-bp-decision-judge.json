@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/ribhav/Desktop/everything/coding_harness/orchestrator/hooks/stop_verdict.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/homebrew/opt/python@3.13/bin/python3.13 /Users/ribhav/Desktop/everything/coding_harness/orchestrator/hooks/path_guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}

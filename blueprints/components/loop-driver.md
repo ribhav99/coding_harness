@@ -65,8 +65,8 @@ responsibilities:
 name: WorkOrdersLoopPromptBuilder
 container: Python Orchestrator
 responsibilities:
-	- On generator spawn: builds a prompt naming `blueprint-to-work-orders`, the `blueprints/` tree, the existing `work-orders/` tree, the `work-orders/.sequence.meta.yaml`, the `work-orders/_questions-pending.md`, and the `work-orders_communication/` folder
-	- On reviewer spawn: builds a prompt naming the reviewer's skill (`wo-scoping-judge`, `wo-coverage-judge`, or `wo-dependency-judge`), the artifact tree, and the path to its own `work-orders_communication/<reviewer-name>.md`
+	- On generator spawn: builds a prompt naming `blueprint-to-work-orders`, the `blueprints/` tree, the existing `work-orders/` tree (every `wo-<slug>.md` plus `_sequence.md` if present), the `work-orders/.sequence.meta.yaml`, the `work-orders/_questions-pending.md`, and the `work-orders_communication/` folder
+	- On reviewer spawn: builds a prompt naming the reviewer's skill (`wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, or `wo-sequencing-judge`), the artifact tree, and the path to its own `work-orders_communication/<reviewer-name>.md`
 	- Adds the retry preamble on attempts ≥ 2 the same way
 ```
 

@@ -102,6 +102,6 @@ responsibilities:
 
 **Context.** A failed push could either abort the loop (strict consistency) or be logged and retried later (eventual consistency). Strict consistency would couple the harness to mirror availability.
 
-**Decision.** Failures are logged to `harness/logs/<task_id-or-loop-name>/hooks.log` and never propagated. The next successful push reconciles automatically because the local state is canonical and mirrors are stateless from the harness's perspective.
+**Decision.** Failures are logged to `harness/logs/<wo-slug-or-loop-name>/hooks.log` and never propagated. The next successful push reconciles automatically because the local state is canonical and mirrors are stateless from the harness's perspective.
 
 **Consequences.** Network blips, mirror outages, and auth failures do not break the harness. Trade-off: mirror state can lag local state for as long as the mirror is unreachable; acceptable since the local tree is the source of truth.

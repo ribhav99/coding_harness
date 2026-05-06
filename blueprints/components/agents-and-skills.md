@@ -37,7 +37,9 @@ container: Claude Code Subprocess
 responsibilities:
 	- Identity: lead tech lead
 	- Loads `blueprint-to-work-orders` skill (single skill, no sub-skill co-invocation)
-	- Writes `work-orders/wo-NNN/description.md` files in the canonical scoped-task body shape pinned in the work-orders-loop FRD
+	- Writes flat `work-orders/wo-<slug>.md` content files in the canonical scoped-task body shape pinned in the work-orders-loop FRD; slugs are stable kebab-case identifiers and never renamed
+	- Maintains `work-orders/_sequence.md` (numbered markdown list of `wo-<slug>` IDs in valid topological execution order); preserves operator re-orderings on subsequent runs
+	- Marks operator-action work orders with `type: operator-action` in the meta so they surface in `work-orders/_external-blockers.md`
 	- May append to `work-orders/_questions-pending.md` for decomposition ambiguities (bare-question shape only)
 	- Reads/writes `work-orders_communication/` per @Blueprint(communication-folder)
 	- Short-circuits when blueprint-tree hash matches the recorded hash and no failing reviews to address
@@ -50,9 +52,10 @@ container: Claude Code Subprocess
 responsibilities:
 	- Identity: individual contributor
 	- Loads `open-task-pr` plus coding-specific capabilities
-	- Works on branch `task/<task_id>` with the scoped-task body injected inline as context
+	- Works on branch `task/<wo-slug>` with the scoped-task body (`work-orders/wo-<slug>.md`) injected inline as context
 	- Writes code on the task branch; commits, pushes, and opens the PR via `open-task-pr` skill (idempotent)
-	- Files gaps to `work-orders/_inbox/wo-NNN/` when out-of-scope work is discovered
+	- On mid-execution discovery that operator action is required (missing credentials, missing external data, missing third-party setup), transitions the work order's `.wo-<slug>.meta.yaml.status` to `blocked_external`, appends a description of the blocker to `work-orders/_external-blockers.md`, and exits cleanly
+	- Files gaps to `work-orders/_inbox/wo-<slug>.md` when out-of-scope work is discovered (descriptive kebab-case slug chosen by the agent; the file follows the same canonical scoped-task body shape as in-tree work orders)
 	- Emits a per-gate `VERDICT:` trailer with each gate's result
 ```
 
@@ -83,8 +86,8 @@ responsibilities:
 name: WorkOrdersReviewerAgents
 container: Claude Code Subprocess
 responsibilities:
-	- Three reviewer subagents: `wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`
-	- Same shape as the other upstream-loop reviewer agent groups
+	- Four reviewer subagents: `wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`
+	- Same shape as the other upstream-loop reviewer agent groups — read communication file, append review, emit VERDICT, exit
 ```
 
 ```component

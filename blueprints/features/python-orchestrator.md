@@ -13,7 +13,7 @@ This feature composes essentially every component blueprint in the harness:
 - **@Blueprint(communication-folder)** — `#CommunicationFolderManager` and `#CommunicationFolderSnapshotter` ensure-and-snapshot the upstream-loop conversation transcripts.
 - **@Blueprint(questions-pending)** — `#QuestionsPendingDetector` reads each upstream-loop's `_questions-pending.md` after generator exit and triggers `awaiting_clarification` when needed.
 - **@Blueprint(meta-materialization)** — `#MetaMaterialiser` walks artifact trees post-generator-exit to materialise dotted-hidden meta files. `#BlockedByMaterialiser` is the work-orders-specific specialisation.
-- **@Blueprint(state-store)** — `#StateStore` is the only writer of `harness/state/<loop>.json` and `harness/state/<task_id>.json`. `#ReviewSnapshotter` is the snapshotting collaborator. `#StatusReporter` powers `python -m orchestrator status`.
+- **@Blueprint(state-store)** — `#StateStore` is the only writer of `harness/state/<loop>.json` and `harness/state/<wo-slug>.json`. `#ReviewSnapshotter` is the snapshotting collaborator. `#StatusReporter` powers `python -m orchestrator status`.
 - **@Blueprint(git-integration)** — `#GitIntegration` for commits; `#BranchManager` for task branches; `#PROperationLayer` + `#MergeDetector` + `#PRCommentMirror` for the coding-loop's GitHub interactions.
 - **@Blueprint(local-planner)** — `#LocalPlanner` is the work-orders queue reader/writer consumed by the coding loop's drain.
 - **@Blueprint(mirror-adapter)** — `#MirrorAdapter` Protocol plus configurable concrete mirrors (`#SoftwareFactoryMirror`, etc.). `#MirrorPushOrchestrator` is the per-WO push driver.
@@ -66,11 +66,11 @@ responsibilities:
 name: WorkOrdersLoopSubcommand
 container: Python Orchestrator
 responsibilities:
-	- Wires `#LoopDriver` for the work-orders loop: `blueprint-to-work-orders` generator, three reviewers (`wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`), artifact tree `work-orders/`, communication folder `work-orders_communication/`, questions file `work-orders/_questions-pending.md`
+	- Wires `#LoopDriver` for the work-orders loop: `blueprint-to-work-orders` generator, four reviewers (`wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`), artifact tree `work-orders/`, communication folder `work-orders_communication/`, questions file `work-orders/_questions-pending.md`
 	- Precondition check: `blueprints/` non-empty
 	- Post-generator: invokes `#BlockedByMaterialiser` (specialised meta materialiser) before reviewer fan-out
-	- Pass condition: all three reviewers pass AND `work-orders/_questions-pending.md` has zero open questions
-	- On full pass: updates `.sequence.meta.yaml` with current blueprints hash and a generation timestamp; all produced work orders land with `status: ready`
+	- Pass condition: all four reviewers pass AND `work-orders/_questions-pending.md` has zero open questions
+	- On full pass: updates `.sequence.meta.yaml` with current blueprints hash and a generation timestamp; all produced agent-executable work orders land with `status: ready`; operator-action work orders also land with `status: ready` (ready for the operator)
 ```
 
 The fifth subcommand wiring — the coding loop — is the parallel #CodingLoopDriver. The orchestrator hosts that driver but its definition lives in @Feature(coding-loop) (where the coding-loop-specific concerns — gate-declaration reading, gap filing, the six-reviewer execution stack — naturally belong); the orchestrator side is thin glue invoking it from the `coding-loop` subcommand entry point. #CodingLoopDriver does not share #LoopDriver because the coding loop's mechanics differ structurally (per-WO drain, gate-declaration-based reviewer set, generator-owned PR open).
@@ -92,8 +92,8 @@ The five subcommand wirings are thin — each is essentially a per-loop configur
 
 - **`config.yaml` schema.** `max_attempts: int`, `max_wall_minutes: int`, `max_agent_retries: int`, `mirrors: list[{kind, …}]`. Per-project overrides layered on top of kit defaults.
 - **Per-loop state file path.** `harness/state/<subcommand-name>.json` — `requirements-loop.json`, `blueprint-loop.json`, `work-orders-loop.json`, `coding-loop.json`.
-- **Per-WO state file path.** `harness/state/<task_id>.json`.
-- **Per-loop reviews archive path.** `harness/state/reviews/<subcommand-name>/attempt-<N>/<reviewer-name>.md` (upstream loops); `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md` (per-WO execution).
+- **Per-WO state file path.** `harness/state/<wo-slug>.json`.
+- **Per-loop reviews archive path.** `harness/state/reviews/<subcommand-name>/attempt-<N>/<reviewer-name>.md` (upstream loops); `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/<reviewer-name>.md` (per-WO execution).
 - **Subprocess invocation API.** `claude -p "<prompt>"` with `--session-id`, `--resume`, `--append-system-prompt`, `--disallowedTools` per spawn class (per @Blueprint(subprocess-runtime)).
 - **Hooks.** `Stop` (for verdict trailer enforcement) and `PreToolUse` (reviewer path-guard) configured in the kit's `.claude/settings.json` (per @Blueprint(subprocess-runtime)).
 

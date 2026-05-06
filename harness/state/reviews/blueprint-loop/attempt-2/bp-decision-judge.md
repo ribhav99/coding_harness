@@ -74,3 +74,38 @@ No `SILENT_DECISION` issues this attempt.
 - edited: `blueprints/components/meta-materialization.md` — fixed broken `#MetaFileFormatRules` mention on line 16 (proactive fix for an out-of-scope concern flagged by `bp-spec-judge`).
 
 Every other high-impact architectural choice in the tree remains grounded in `BLUEPRINT.md` plus the FRD set, with the table mapping each decision to its grounding in my attempt-1 response above. No new silent decisions were introduced on this attempt.
+
+## Changes since previous attempt
+
+The single open architectural-clarification question is now operator-resolved (commit `9cb8ad3`, answer "option 2"): keep `#ProtocolRetryStrategy` and `protocol_failures[]`, and revise `BLUEPRINT.md` §1.1 / §1.6 / §9 to acknowledge the third recovery layer. The blueprint tree's existing framing (two recovery layers labelled rate-limit and protocol; ADR-001 in `subprocess-runtime.md`; `protocol_failures[]` in `state-store.md`) was already consistent with option 2; only the inline pending markers needed removal. The decision-grounding table from my attempt-1 response remains accurate — the row "Two recovery layers (rate-limit doubling backoff, protocol-retry for malformed verdicts)" is now grounded by `BLUEPRINT.md` §1.1 / §1.6 / §9 (operator-revised) **and** FRD REQ-ORCH-013 / REQ-ORCH-014 (unchanged), where previously it was grounded only by the FRD with a `BLUEPRINT.md` contradiction. No new silent decisions were introduced.
+
+- edited: `blueprints/components/subprocess-runtime.md` — removed both `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments. The `#ProtocolRetryStrategy` `component` block and ADR-001 itself are unchanged.
+- edited: `blueprints/components/state-store.md` — removed the inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comment from `PerLoopState.protocol_failures[]`. The field itself is unchanged.
+- (no longer at this path): `blueprints/_questions-pending.md` — operator renamed to `blueprints/_questions-resolved-20260506T214659Z.md` for git-history audit. The open-questions register is now empty, consistent with a tree that has no silent decisions remaining.
+
+No other blueprint file was added, edited, or removed. The decision-hygiene posture of the tree (every high-impact architectural choice traceable to either `BLUEPRINT.md` or a specific FRD passage) is preserved.
+
+## Review — attempt 1
+
+Decision hygiene across the blueprints tree remains clean. I re-walked all 4 container, 9 component, and 7 feature blueprints, plus `BLUEPRINT.md` and the FRD set under `requirements/features/`. Every high-impact architectural choice — database / data store, framework, auth provider/model, hosting model, ORM / data-access layer, major architectural pattern — traces to either an explicit `BLUEPRINT.md` section or a specific REQ-/AC- citation. The previously open `_questions-pending.md` block (post-exit protocol-retry vs. `BLUEPRINT.md`) was resolved by the operator with option 2 (commit `9cb8ad3`), and `BLUEPRINT.md` §1.1 step 5 and §1.6 now describe three recovery layers — matching `subprocess-runtime.md` ADR-001 and the `protocol_failures[]` field on `state-store.md`'s `PerLoopState` model. The pending markers are gone from both blueprint files; no new pending markers appear anywhere else in the tree (the only `<!-- pending:` mentions in `blueprints/` are metasyntactic — feature-loop and `questions-pending.md` documenting the marker convention).
+
+Spot-check of the load-bearing categories (unchanged from attempt-2 review, re-verified against current files):
+
+- **Stack / framework — Python 3 with stdlib-only.** `blueprints/containers/python-orchestrator.md` ADR-001 ↔ `BLUEPRINT.md` §3, §3.4.
+- **Model channel — `claude -p` subprocess, no Anthropic SDK.** `blueprints/containers/claude-code-subprocess.md` ADR-003 ↔ `BLUEPRINT.md` §3.4 + "Claude Code is the runtime" principle.
+- **GitHub channel — `gh` CLI, no REST/GraphQL.** `blueprints/containers/github.md` ADR-001 + `blueprints/components/git-integration.md` ADR-001 ↔ `BLUEPRINT.md` §6.
+- **Persistence model — JSON state + YAML meta + markdown artifacts, all in git.** `blueprints/components/state-store.md` ADR-003 + `blueprints/containers/project-repo.md` ADR-004 ↔ `BLUEPRINT.md` §7.1. No covert datastore (Postgres / Redis / Dynamo / S3-as-store) introduced anywhere; `model` blocks declare `store: Filesystem (project repo, …)`.
+- **Hosting / deployment — operator-local CLI, one subcommand per invocation, no daemon.** `blueprints/containers/python-orchestrator.md` ADR-002 ↔ `BLUEPRINT.md` §3.1.
+- **Auth — operator-owned `claude auth login` / `gh auth login`; harness handles no credentials.** `blueprints/containers/github.md` Integration Contracts and `blueprints/containers/claude-code-subprocess.md` Infrastructure ↔ `BLUEPRINT.md` §6. No auth provider (Auth0 / Cognito / custom JWT / session cookies / OAuth flow choice) is silently picked.
+- **Data-access pattern — single concrete `LocalPlanner` class, no Protocol abstraction.** `blueprints/components/local-planner.md` ADR-001 ↔ `BLUEPRINT.md` §4.
+- **Major architectural patterns** — subprocess-per-spawn, sequential gen↔reviewer with `ThreadPoolExecutor` reviewer fan-out, communication-folder durable channel, three independent recovery layers (rate-limit / Stop-hook / post-exit protocol-retry), Stop-hook + PreToolUse path-guard, outbound-only mirrors, operator-driven merge with one final PR comment per WO, coding loop is execution-only with no comm folder, one generator skill per loop, `.sequence.meta.yaml` blueprint-tree-hash short-circuit, mirror SF's entity model on disk. All grounded — see attempt-1 generator-response table for the full mapping.
+
+Lower-stakes choices the generator made on its own (PyYAML vs hand-parsed YAML, `concurrent.futures.ThreadPoolExecutor` vs `asyncio`, two-space JSON indent, fastest-first reviewer ordering, env-var names like `HARNESS_REVIEWER_NAME`, exact backoff multipliers within the 30s/60s/120s pattern) sit outside the SILENT_DECISION rubric and I do not flag them.
+
+No `SILENT_DECISION` issues this attempt.
+
+## Review — attempt 2
+
+No-op pass. The generator did not append a "Generator response — attempt 2" block to this file, and the blueprints tree itself is unchanged from my attempt-1 review (same 4 containers + 9 components + 7 features; only `blueprints/_questions-resolved-20260506T214659Z.md` exists at the blueprints/ root — no active `_questions-pending.md`; no active `<!-- pending: -->` markers anywhere — the only `pending:` mentions in the tree are the three metasyntactic ones in `blueprints/features/blueprint-loop.md`, `blueprints/features/work-orders-loop.md`, and `blueprints/components/questions-pending.md` that document the marker syntax). `BLUEPRINT.md` §1.1 step 5 and §1.6 still describe three recovery layers, matching `subprocess-runtime.md` ADR-001 and `state-store.md`'s `protocol_failures[]` field. Every high-impact architectural choice still traces to either a `BLUEPRINT.md` section or a specific REQ-/AC- citation per the attempt-1 grounding table — re-verified, nothing has drifted.
+
+No `SILENT_DECISION` issues this attempt.

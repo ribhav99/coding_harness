@@ -2,7 +2,7 @@
 
 ## Capability Summary
 
-The meta-materialization mechanism is the orchestrator's post-generator step that converts visible content files (`<slug>.md`, `description.md`) into the canonical on-disk shape by writing the dotted-hidden meta files alongside them. Generators write only visible content; the orchestrator owns slug discovery, sibling-position computation, H1-title extraction, and the dependency materialization for work orders. The same mechanism runs for the requirements tree, the blueprints tree, and the work-orders tree, with per-tree differences in which meta files are produced.
+The meta-materialization mechanism is the orchestrator's post-generator step that converts visible content files (`<slug>.md` in requirements/blueprints; `wo-<slug>.md` in work-orders) into the canonical on-disk shape by writing the dotted-hidden meta files alongside them. Generators write only visible content; the orchestrator owns slug discovery, sibling-position computation, H1-title extraction, and the dependency materialization for work orders. The same mechanism runs for the requirements tree, the blueprints tree, and the work-orders tree, with per-tree differences in which meta files are produced.
 
 ## Core Components
 
@@ -13,7 +13,7 @@ name: MetaMaterialiser
 container: Python Orchestrator
 responsibilities:
 	- After the generator exits and before reviewers spawn, walks the loop's artifact tree (`requirements/`, `blueprints/`, or `work-orders/`)
-	- For every visible `<slug>.md` content file, ensures two dotted-hidden sibling meta files exist with canonical content per the `NodeMetaFile`, `RequirementsMetaFile`, `WorkOrderMetaFile`, and `SequenceMetaFile` model definitions below
+	- For every visible `<slug>.md` content file (or `wo-<slug>.md` in the work-orders tree), ensures the sibling dotted-hidden meta files exist with canonical content per the `NodeMetaFile`, `RequirementsMetaFile`, `WorkOrderMetaFile`, and `SequenceMetaFile` model definitions below
 	- For every dotted-hidden meta file whose `<slug>.md` counterpart was deleted, removes the meta file
 	- After cleanup, removes any empty `<slug>_children/` directory (parent node lost all children)
 	- Preserves existing meta files whose fields hold non-null values (an external mirror sync may have populated IDs; never clobber)
@@ -75,20 +75,21 @@ constraints:
 ```model
 name: WorkOrderMetaFile
 store: Filesystem (project repo)
-description: Dotted-hidden YAML file recording per-work-order metadata derived partly from the description and partly from orchestrator state
+description: Dotted-hidden YAML file recording per-work-order metadata derived partly from the description and partly from orchestrator state; flat sibling of the visible `wo-<slug>.md` content file
 fields:
-	- path: `work-orders/wo-NNN/.work-order.meta.yaml`
+	- path: `work-orders/.wo-<slug>.meta.yaml`
 	- id: string (stable, populated on first materialization)
-	- status: enum (backlog | ready | in_progress | done)
+	- status: enum (backlog | ready | in_progress | done | blocked_external)
 	- priority: string | null
-	- type: string (BUILD | FIX | REQUIREMENTS | BLUEPRINT | ARTIFACT | OTHER)
+	- type: enum (feature | refactor | bug-fix | infra | operator-action)
 	- parent_id: string | null
-	- sort_order: string (lexicographic, stable ordering)
-	- blocked_by: list[string] (materialised by #BlockedByMaterialiser from the description's `Depends on.work_orders` block)
+	- blocked_by: list[string] (materialised by #BlockedByMaterialiser from the visible `wo-<slug>.md` `Depends on.work_orders` block)
 	- blueprint_ids: list[string]
 constraints:
-	- Single source of truth for dependencies is `description.md`'s `Depends on.work_orders`; orchestrator never accepts an external write to `blocked_by[]`
-	- Status transitions are owned by the orchestrator (#LocalPlanner from @Blueprint(local-planner) writes through to this file)
+	- Single source of truth for dependencies is `wo-<slug>.md`'s `Depends on.work_orders`; orchestrator never accepts an external write to `blocked_by[]`
+	- Status transitions are owned by the orchestrator (#LocalPlanner from @Blueprint(local-planner) writes through to this file); `blocked_external` is set by the per-WO coding agent mid-execution and cleared by the operator
+	- `type: operator-action` is the agent-skip signal: the coding-loop drain skips these work orders unconditionally, surfacing them in `work-orders/_external-blockers.md`
+	- No `sort_order` field; execution order lives in `work-orders/_sequence.md`, which the planner walks top to bottom
 ```
 
 ```model
@@ -112,9 +113,9 @@ constraints:
 name: BlockedByMaterialiser
 container: Python Orchestrator
 responsibilities:
-	- After the work-orders-loop generator exits and before reviewers spawn, parses each work order's `description.md` `## Depends on` fenced YAML block
-	- Extracts `work_orders: [wo-NNN, ...]` and writes the list to `.work-order.meta.yaml.blocked_by[]`
-	- Treats `description.md` as the single source of truth for dependencies; never accepts a `blocked_by[]` value that disagrees with the description
+	- After the work-orders-loop generator exits and before reviewers spawn, parses each visible `work-orders/wo-<slug>.md` file's `## Depends on` fenced YAML block
+	- Extracts `work_orders: [wo-<slug>, ...]` and writes the list to the sibling `work-orders/.wo-<slug>.meta.yaml.blocked_by[]`
+	- Treats `wo-<slug>.md` as the single source of truth for dependencies; never accepts a `blocked_by[]` value that disagrees with the description
 	- Runs only for the work-orders loop (not requirements or blueprint loops)
 ```
 
@@ -124,17 +125,17 @@ The #BlockedByMaterialiser is the work-orders-specific specialization of the gen
 
 ### Key Contracts
 
-- **Generators write only visible content.** Generators never write `.<slug>.<kind>.meta.yaml`, `.<slug>.requirements.meta.yaml`, `.work-order.meta.yaml`, or `.sequence.meta.yaml`. Trying to do so is a generator-skill violation reviewers can catch.
+- **Generators write only visible content.** Generators never write `.<slug>.<kind>.meta.yaml`, `.<slug>.requirements.meta.yaml`, `.wo-<slug>.meta.yaml`, or `.sequence.meta.yaml`. The work-orders generator does write `work-orders/_sequence.md` (visible content, not a dotted-hidden meta file). Trying to write any dotted meta file from a generator is a generator-skill violation reviewers can catch.
 - **Idempotent materialization.** Running `MetaMaterialiser` twice on the same tree produces identical output. `position` is recomputed; titles are re-extracted; existing non-null `id`/`parent_id` values are preserved.
 - **Cleanup on delete.** When a generator deletes a `<slug>.md`, the orchestrator removes the sibling meta files and any now-empty `<slug>_children/` directory.
-- **Single source of truth for dependencies.** `description.md`'s `Depends on.work_orders` is canonical. `blocked_by[]` is materialised from it; never written by the generator and never accepted from any other source.
+- **Single source of truth for dependencies.** `wo-<slug>.md`'s `Depends on.work_orders` is canonical. `blocked_by[]` is materialised from it; never written by the generator and never accepted from any other source.
 - **No external versioning.** Meta files do not carry version fields, change logs, or history. Git history is the audit trail (per @Blueprint(project-repo)).
 
 ### Integration Contracts
 
 - **Materializer entry point.** `materialise(tree_root: Path, tree_kind: Literal["requirements", "blueprints", "work-orders"]) -> None`. Runs synchronously between generator exit and reviewer fan-out.
 - **YAML format.** UTF-8, two-space indent, no comments. Parsed and emitted via `PyYAML` or stdlib `yaml`-equivalent (small enough to hand-parse if PyYAML is rejected as a dependency).
-- **Slug rules.** Lowercase-kebab-case. No underscores; the `_children` suffix is reserved for sibling children directories. Enforced by reviewers (`bp-spec-judge` for blueprints; `req-spec-judge` for requirements; `wo-coverage-judge` for work orders).
+- **Slug rules.** Lowercase-kebab-case. No underscores; the `_children` suffix is reserved for sibling children directories in the requirements tree. Enforced by reviewers (`bp-spec-judge` for blueprints; `req-spec-judge` for requirements; `wo-spec-judge` for work orders).
 - **H1 extraction.** First non-empty line of the content file; strip leading `# `. Empty H1 falls back to slug-derived title (kebab-case → Title Case).
 
 ## Architecture Decision Records
@@ -149,11 +150,11 @@ The #BlockedByMaterialiser is the work-orders-specific specialization of the gen
 
 ### ADR-002: Description as single source of truth for work-order dependencies
 
-**Context.** `blocked_by[]` could live independently in `.work-order.meta.yaml`, with the description's `Depends on` block being a redundant human-readable view. That would let operators or future tooling write to the meta file directly. But two sources of truth invite divergence — a meta file says X, a description says Y, behaviour depends on which one the orchestrator reads.
+**Context.** `blocked_by[]` could live independently in `.wo-<slug>.meta.yaml`, with the description's `Depends on` block being a redundant human-readable view. That would let operators or future tooling write to the meta file directly. But two sources of truth invite divergence — a meta file says X, a description says Y, behaviour depends on which one the orchestrator reads.
 
-**Decision.** `description.md`'s `Depends on.work_orders` is the only source. `BlockedByMaterialiser` derives `blocked_by[]` after every work-orders-loop generator exit. External writes to `.work-order.meta.yaml.blocked_by[]` are never accepted; the next materialization round overwrites them.
+**Decision.** `wo-<slug>.md`'s `Depends on.work_orders` is the only source. `BlockedByMaterialiser` derives `blocked_by[]` after every work-orders-loop generator exit. External writes to `.wo-<slug>.meta.yaml.blocked_by[]` are never accepted; the next materialization round overwrites them.
 
-**Consequences.** Operators editing a work order's dependencies edit one file (`description.md`). Tooling reads `.work-order.meta.yaml` (machine-friendly) but cannot diverge from the description. Trade-off: a generator can never partially update `blocked_by[]` without changing the description; that is by design — the description is the contract.
+**Consequences.** Operators editing a work order's dependencies edit one file (`wo-<slug>.md`). Tooling reads `.wo-<slug>.meta.yaml` (machine-friendly) but cannot diverge from the description. Trade-off: a generator can never partially update `blocked_by[]` without changing the description; that is by design — the description is the contract.
 
 ### ADR-003: `id` and `parent_id` stay null locally
 

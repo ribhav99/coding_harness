@@ -23,7 +23,7 @@ Work enters the project repo through filesystem operations and `git` commands. T
 - **`BLUEPRINT.md` at the repo root (optional)** — operator-authored architectural scratchpad consumed by the blueprint-loop generator. Never edited by any autonomous loop.
 - **`requirements/`** — overview tree (`requirements/overview/`) and features tree (`requirements/features/`). Visible content files written by the requirements-loop generator; dotted-hidden meta files written by #MetaMaterialiser. Layout pinned in @Blueprint(on-disk-layout).
 - **`blueprints/`** — three subdirectories `containers/`, `components/`, `features/`. Visible content files written by the blueprint-loop generator; meta files by #MetaMaterialiser.
-- **`work-orders/`** — flat `wo-NNN/` directories with `description.md` (generator-written) and `.work-order.meta.yaml` (orchestrator-materialised). Plus `.sequence.meta.yaml`, `_questions-pending.md`, and `_inbox/` (gaps from the coding loop).
+- **`work-orders/`** — flat `wo-<slug>.md` content files (generator-written) plus sibling `.wo-<slug>.meta.yaml` files (orchestrator-materialised). Plus `_sequence.md` (generator-written execution order list), `_external-blockers.md` (orchestrator-regenerated when any work order needs operator action), `.sequence.meta.yaml`, `_questions-pending.md`, and `_inbox/wo-<slug>.md` (gaps from the coding loop).
 - **`requirements_communication/`, `blueprints_communication/`, `work-orders_communication/`** — sibling-of-artifact-tree gen↔reviewer transcript folders; one markdown file per agent. Written by generator and reviewer subprocesses; folder lifecycle managed by the orchestrator (mkdir-with-exists-ok; never wiped).
 - **`harness/`** — orchestrator-owned state and logs. `harness/state/` for JSON state files (per-loop, per-WO) and reviewer review snapshots; `harness/logs/` for hook and session logs. The entire `harness/` tree is committed to git as a first-class project artifact.
 - **`artifacts/`** — byproducts of work-order execution organised by folder slug (`artifacts/{folder-slug}/`).
@@ -38,18 +38,18 @@ Outbound boundaries: git commit history is the local audit trail; pushes to GitH
 - **Local files are the source of truth.** Every loop reads and writes through this tree. Mirrors (Software Factory, GitHub Projects) are optional outbound push targets, never alternative read paths.
 - **No local versioning.** Files represent one current fact, not a history of that fact. Git history is the audit trail; mirrors handle their own versioning if they need it. No version fields embedded in artifact content or meta files.
 - **Slug rules.** Lowercase-kebab-case identifiers, unique within siblings, derived from the node's title. Slugs never contain underscores; the `_children` suffix is reserved.
-- **Visible/hidden split.** Generators write only visible `<slug>.md` content files (or `description.md` for work orders). The orchestrator owns dotted-hidden meta files; generators do not write them.
+- **Visible/hidden split.** Generators write only visible content files (`<slug>.md` in requirements and blueprints; `wo-<slug>.md` plus `_sequence.md` and `_external-blockers.md` markers in work-orders). The orchestrator owns dotted-hidden meta files (`.<slug>.<kind>.meta.yaml`, `.<slug>.requirements.meta.yaml`, `.wo-<slug>.meta.yaml`, `.sequence.meta.yaml`); generators do not write them.
 - **Feature blueprint slug parity.** `blueprints/features/<slug>.md` matches `requirements/features/<slug>.md` exactly. Load-bearing for downstream `blueprint-to-work-orders`.
 - **Communication folders are siblings of artifact trees.** They live next to `requirements/`, `blueprints/`, `work-orders/`, not nested inside. The artifact tree is the deliverable; the conversation lives next door.
 - **`harness/` is committed.** State files, reviewer review snapshots, logs (subject to retention policy) — all in git. The first-class project artifact.
-- **State-file write-through.** Status updates write through to `.work-order.meta.yaml`. The orchestrator is the only writer of state files; the local-planner module is the only reader/writer of `.work-order.meta.yaml`.
+- **State-file write-through.** Status updates write through to `.wo-<slug>.meta.yaml`. The orchestrator is the only writer of state files; the local-planner module is the only reader/writer of `.wo-<slug>.meta.yaml`.
 - **Append-only communication files.** Within a loop invocation, both generator and reviewer append; never overwrite. The folder is never wiped — it accumulates the full conversation across attempts and across invocations.
 - **No autonomous loop edits `PRD.md` or `BLUEPRINT.md`.** Both are operator-authored; loops read but never write.
 
 ### Integration Contracts
 
 - **Layout schema.** Pinned in @Blueprint(on-disk-layout). Every directory's shape (visible content file + meta files + optional `<slug>_children/` for the requirements tree) is enforced by the orchestrator's #MetaMaterialiser and validated by reviewers via the `bp-coverage-judge`-style checks.
-- **Meta file schema.** `.<slug>.<kind>.meta.yaml` carries `id: null`, `parent_id: null`, `position: <int>`, `title: <H1>`. `.<slug>.requirements.meta.yaml` carries `id: null` only. `.work-order.meta.yaml` carries `id`, `status`, `priority`, `type`, `parent_id`, `sort_order`, `blocked_by[]`, `blueprint_ids[]`. `.sequence.meta.yaml` carries blueprint-tree hash and generation timestamp.
+- **Meta file schema.** `.<slug>.<kind>.meta.yaml` carries `id: null`, `parent_id: null`, `position: <int>`, `title: <H1>`. `.<slug>.requirements.meta.yaml` carries `id: null` only. `.wo-<slug>.meta.yaml` carries `id`, `status` (`backlog | ready | in_progress | done | blocked_external`), `priority`, `type` (`feature | refactor | bug-fix | infra | operator-action`), `parent_id`, `blocked_by[]`, `blueprint_ids[]`. `.sequence.meta.yaml` carries blueprint-tree hash and generation timestamp.
 - **State file schemas.** Per-loop and per-WO JSON shapes pinned in @Blueprint(state-store). Two distinct shapes sharing top-level fields (`current`, `history`, `attempts`, `verification`, `limits`).
 - **Questions-pending file format.** Pinned in @Blueprint(questions-pending). Bare-question or with-options block formats; same convention across all three upstream loops.
 - **Communication-file format.** Pinned in @Blueprint(communication-folder). Markdown-only, append-only, top-level `## ` headers tagging speaker and attempt number.
@@ -92,6 +92,6 @@ Outbound boundaries: git commit history is the local audit trail; pushes to GitH
 
 **Context.** State files and logs are runtime byproducts. A common posture is to gitignore them. But losing them means losing the ability to replay a loop run, audit a verdict, or build training data from real runs.
 
-**Decision.** Commit the entire `harness/` tree. State files are never deleted; log files may be pruned on a documented retention policy. Snapshots of every reviewer review live under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`.
+**Decision.** Commit the entire `harness/` tree. State files are never deleted; log files may be pruned on a documented retention policy. Snapshots of every reviewer review live under `harness/state/reviews/<loop>/[<wo-slug>/]attempt-<N>/<reviewer-name>.md`.
 
 **Consequences.** The repo grows with run history, but state files are small JSON and reviewer snapshots are small markdown. Replay and audit become trivial. Trade-off: a long-running project accumulates noise in commits — mitigated by single-commit-per-loop-pass discipline (ADR in @Blueprint(python-orchestrator)).

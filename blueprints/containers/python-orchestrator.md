@@ -23,7 +23,7 @@ Work enters the container exclusively through the CLI. One subcommand per invoca
 
 - `python -m orchestrator requirements-loop` — drives the requirements upstream loop. Owned by #LoopDriver composing #SubprocessSpawner, #CommunicationFolderManager, #QuestionsPendingDetector, #StateStore, #GitIntegration, #MetaMaterialiser.
 - `python -m orchestrator blueprint-loop` — drives the blueprint upstream loop. Owned by #LoopDriver with the same composition; reviewer set and artifact tree differ per `requirements/features/blueprint-loop.md`.
-- `python -m orchestrator work-orders-loop` — drives the work-orders upstream loop. Owned by #LoopDriver; additionally invokes #LocalPlanner-adjacent #BlockedByMaterialiser to populate `.work-order.meta.yaml.blocked_by[]` from each work order's `Depends on.work_orders` block before reviewers run.
+- `python -m orchestrator work-orders-loop` — drives the work-orders upstream loop. Owned by #LoopDriver; additionally invokes #LocalPlanner-adjacent #BlockedByMaterialiser to populate each `work-orders/.wo-<slug>.meta.yaml.blocked_by[]` from the visible `wo-<slug>.md`'s `Depends on.work_orders` block before reviewers run.
 - `python -m orchestrator coding-loop [--one]` — drives the per-work-order execution drain. Owned by #CodingLoopDriver composing #LocalPlanner, #SubprocessSpawner (no communication folder), #GitIntegration (PR comment posting + merge detection), #StateStore.
 - `python -m orchestrator status` — read-only summary. Owned by #StatusReporter reading #StateStore, #LocalPlanner, and the on-disk `_questions-pending.md` files.
 
@@ -33,8 +33,8 @@ Outbound boundaries: `claude -p` subprocesses (the @Blueprint(claude-code-subpro
 
 ### Key Contracts
 
-- **Single-writer for state.** The orchestrator is the only writer of `harness/state/<loop>.json` and `harness/state/<task_id>.json`. Generators write artifact files; the orchestrator commits them.
-- **Single-writer for snapshots.** Reviewer review snapshots under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/` are written only by the orchestrator at attempt boundaries and on every loop-exit verdict.
+- **Single-writer for state.** The orchestrator is the only writer of `harness/state/<loop>.json` and `harness/state/<wo-slug>.json`. Generators write artifact files; the orchestrator commits them.
+- **Single-writer for snapshots.** Reviewer review snapshots under `harness/state/reviews/<loop>/[<wo-slug>/]attempt-<N>/` are written only by the orchestrator at attempt boundaries and on every loop-exit verdict.
 - **Never wipes communication folders.** `requirements_communication/`, `blueprints_communication/`, `work-orders_communication/` are mkdir-with-exists-ok before the generator spawns, never rm-rf'd. The folder is the durable cross-invocation conversation transcript.
 - **Strictly sequential gen↔reviewer per attempt.** Generator → all reviewers → generator → all reviewers. Reviewers fan out in parallel within an attempt (one `ThreadPoolExecutor` job per reviewer) but no two processes ever write the same communication file concurrently — each reviewer writes only its own dedicated file, the generator runs only when reviewers are quiesced.
 - **Verdict parsing is grep-the-trailing-line.** Only the final `VERDICT:` line of each subprocess's captured stdout is parsed for control flow. The body of any review lives in the communication file (upstream loops) or the captured stdout (coding-loop execution); the orchestrator does not parse it.
@@ -49,9 +49,9 @@ Outbound boundaries: `claude -p` subprocesses (the @Blueprint(claude-code-subpro
 - **Generator verdict trailer.** Single trailing line `VERDICT: ready_for_review` or `VERDICT: awaiting_clarification` (with `open_questions: N` and `questions_file: <path>` lines for the latter). For the coding-loop per-work-order generator, the trailer additionally carries each gate result.
 - **Reviewer verdict trailer.** Single trailing line `VERDICT: pass` or `VERDICT: fail`.
 - **Commit messages.** `<loop-name>: attempt <N> passed` on full pass; `<loop-name>: attempt <N> — awaiting_clarification` on the awaiting exit.
-- **Per-loop state schema.** JSON files at `harness/state/<loop>.json` (per-loop) and `harness/state/<task_id>.json` (per-WO) following the shape pinned in @Blueprint(state-store).
+- **Per-loop state schema.** JSON files at `harness/state/<loop>.json` (per-loop) and `harness/state/<wo-slug>.json` (per-WO) following the shape pinned in @Blueprint(state-store).
 - **Mirror push protocol.** Outbound-only; `push_status(work_order)` and `push_comment(work_order, body)` calls per @Blueprint(mirror-adapter). Mirror failures are logged and never block orchestrator progress.
-- **PR comment posting.** On per-WO all-pass during coding-loop execution, the orchestrator posts the final pass-summary as a PR comment via `gh pr comment`. PR creation is owned by the `coding-generator` (`open-task-pr` skill) inside its subprocess; the orchestrator only reads PR state via `gh pr list --head task/<task_id>`.
+- **PR comment posting.** On per-WO all-pass during coding-loop execution, the orchestrator posts the final pass-summary as a PR comment via `gh pr comment`. PR creation is owned by the `coding-generator` (`open-task-pr` skill) inside its subprocess; the orchestrator only reads PR state via `gh pr list --head task/<wo-slug>`.
 
 ### Integration Boundaries
 

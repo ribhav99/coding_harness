@@ -102,3 +102,65 @@ Each major section of `BLUEPRINT.md` lands somewhere in the tree: §0 → `conta
 - edited: `blueprints/components/state-store.md` — added inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` marker on the `protocol_failures[]` field of `PerLoopState`.
 
 The blueprint tree is otherwise unchanged from attempt 1.
+
+## Changes since previous attempt
+
+Operator answered the open `_questions-pending.md` block with "option 2" (commit `9cb8ad3`): keep `#ProtocolRetryStrategy` and `protocol_failures[]`, and revise `BLUEPRINT.md` §1.1 / §1.6 / §9 to acknowledge the third recovery layer. The blueprint tree's existing composition (every feature blueprint that referenced `#ProtocolRetryStrategy` continues to reference it, and `protocol_failures[]` remains in `state-store.md`'s `PerLoopState`) is correct under this resolution. Only the inline pending markers needed removal; FRD↔blueprint slug parity is unchanged at 7↔7, mention resolution is unchanged.
+
+- edited: `blueprints/components/subprocess-runtime.md` — removed both `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comments (above `#ProtocolRetryStrategy` block and above ADR-001).
+- edited: `blueprints/components/state-store.md` — removed the inline `<!-- pending: post-exit-protocol-retry-vs-blueprint-md -->` HTML comment from `PerLoopState.protocol_failures[]`.
+- (no longer at this path): `blueprints/_questions-pending.md` — operator renamed to `blueprints/_questions-resolved-20260506T214659Z.md` (git-history audit). The open-questions register is now empty, consistent with a tree that has no silent decisions.
+
+No FRD was added, removed, or renamed since the previous review (verified `requirements/features/` still has the seven slugs `prd-authoring`, `coding-loop`, `on-disk-layout`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `python-orchestrator`); FRD↔blueprint slug parity remains 1:1. No `BLUEPRINT.md` element previously mapped to a blueprint has been silently dropped — the operator's edit to BLUEPRINT.md §1.1 / §1.6 / §9 brings BLUEPRINT.md into alignment with the existing `#ProtocolRetryStrategy` blueprint definition rather than introducing new architecture facts.
+
+## Review — attempt 1
+
+Coverage is clean. FRD↔feature-blueprint slug parity is 1:1 across all seven slugs (`prd-authoring`, `coding-loop`, `on-disk-layout`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `python-orchestrator`). The two pending markers and the open-question block from the previous attempt have been removed; both `subprocess-runtime.md` and `state-store.md` are clean (`grep "<!-- pending:"` shows only definitional prose with literal `<question-title>` placeholders inside `questions-pending.md`, `blueprint-loop.md`, and `work-orders-loop.md`, never an active marker), consistent with `_questions-pending.md` being absent (renamed to `_questions-resolved-20260506T214659Z.md`). The previously-flagged broken `#ProjectRepo` reference is gone from `containers/python-orchestrator.md:15`, replaced with a prose-only `@Blueprint(project-repo)` reference.
+
+### FRD parity (1:1)
+
+Verified seven FRDs ↔ seven feature blueprints, slugs match exactly. No FRD lacks a blueprint; no feature blueprint lacks an FRD.
+
+### Mention resolution
+
+Every `#Component` mention I sampled resolves to a `component` block whose `name:` field matches: `#LoopDriver`, `#VerdictAggregator`, `#BudgetEnforcer`, `#SubprocessSpawner`, `#SessionContinuity`, `#RateLimitClassifier`, `#RateLimitRetryStrategy`, `#ProtocolRetryStrategy`, `#StopHookGenerator`, `#StopHookReviewer`, `#ReviewerPathGuardHook`, `#StateStore`, `#ReviewSnapshotter`, `#StatusReporter`, `#CommunicationFolderManager`, `#CommunicationFolderSnapshotter`, `#QuestionsPendingDetector`, `#PendingMarkerSyntax`, `#MetaMaterialiser`, `#SlugDiscoverer`, `#H1Extractor`, `#BlockedByMaterialiser`, `#GitIntegration`, `#BranchManager`, `#PROperationLayer`, `#MergeDetector`, `#PRCommentMirror`, `#LocalPlanner`, `#WorkOrderMetaReader`, `#MirrorAdapter`, `#SoftwareFactoryMirror`, `#GitHubProjectsMirror`, `#MirrorPushOrchestrator`, the per-loop prompt builders, every per-loop generator/reviewer agent in `agents-and-skills.md`, the per-loop skill components defined in feature blueprints, `#CodingLoopDriver`/`#GateOrchestrator`/`#GateDeclarationReader`/`#GapFiler` and the six coding-loop reviewer components in `coding-loop.md`, the four PRD-authoring components in `prd-authoring.md`, the six on-disk-layout shape components in `on-disk-layout.md`, and the five subcommand components in `features/python-orchestrator.md`. Every `@Blueprint(<slug>)`, `@Feature(<slug>)`, and `@Requirements(<slug>)` mention resolves to a real file in the corresponding tree.
+
+### No orphans
+
+Every component blueprint is composed by at least one feature blueprint (typically several). All four container blueprints are referenced via `@Blueprint(...)` mentions and via `container:` fields in component blocks (`Python Orchestrator`, `Claude Code Subprocess`, `Project Repo`, `GitHub`).
+
+### `_questions-pending.md` correspondence
+
+`blueprints/_questions-pending.md` does not exist; the previously-open block has been moved to `_questions-resolved-20260506T214659Z.md`. No `<!-- pending: <real-title> -->` markers remain in the tree (only definitional prose using literal `<question-title>` placeholders). The two are consistent.
+
+### `BLUEPRINT.md` coverage
+
+Each major section of `BLUEPRINT.md` (§0 system architecture, §1 loop mechanic, §2 generator identity, §3 Python orchestrator, §4 local planner, §5 mirrors, §6 code surface, §7 state file schema, §8 verdict format, §9 hooks, §10 agents, §11 blueprint document shape, §12 open questions) lands on a corresponding blueprint or is reflected in the tree's structural shape. The recent operator edit to §1.1 / §1.6 / §9 acknowledging the third recovery layer brings BLUEPRINT.md into alignment with the existing `#ProtocolRetryStrategy` definition; no element pinned in BLUEPRINT.md has been silently dropped from the generated tree.
+
+## Review — attempt 2
+
+Coverage stays clean across the work-orders-loop restructure (commit `3df9c25`). The generator switched the work-orders feature to flat slug-named files (`work-orders/wo-<slug>.md` + sibling `.wo-<slug>.meta.yaml`), introduced `_sequence.md` and `_external-blockers.md`, swapped the three-reviewer set (`wo-scoping-judge`, `wo-coverage-judge`, `wo-dependency-judge`) for a four-reviewer set (`wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`), added the `operator-action` type and `blocked_external` status, and dropped the embedded `sort_order` / `task_id` fields. Every downstream blueprint that previously named the old shape has been updated; nothing was silently dropped or left dangling.
+
+### FRD parity (1:1)
+
+Unchanged — same seven slugs (`prd-authoring`, `coding-loop`, `on-disk-layout`, `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `python-orchestrator`); each FRD has its matching feature blueprint.
+
+### Mention resolution after the restructure
+
+The four new reviewer-skill components (`#WoSpecJudgeSkill`, `#WoCoverageJudgeSkill`, `#WoOverlapJudgeSkill`, `#WoSequencingJudgeSkill`) are defined in `blueprints/features/work-orders-loop.md`. The reviewer-agent set in `blueprints/components/agents-and-skills.md:89` lists the same four names; `#WorkOrdersLoopPromptBuilder` in `loop-driver.md:69` and `#WorkOrdersLoopSubcommand` in `features/python-orchestrator.md:69` agree. The communication-folder table in `communication-folder.md:58` lists the corresponding four reviewer files. No reference to the retired `wo-scoping-judge` or `wo-dependency-judge` survives anywhere in the tree (`grep` returns no matches).
+
+The slug-vs-NNN migration is also complete: `grep` finds zero remaining references to `wo-NNN`, `description.md` (for work orders), `.work-order.meta.yaml`, `task_id`, or `<task-id>` across the tree. Every consumer — `state-store.md` (`PerWorkOrderState.wo_slug`, snapshot paths), `git-integration.md` (branch/PR signatures), `github.md` (push/list/comment paths), `project-repo.md`, `on-disk-layout.md`, `local-planner.md` (interface signatures), `meta-materialization.md` (`WorkOrderMetaFile.path`), `coding-loop.md` (drain step + `#GapFiler` filing), `claude-code-subprocess.md`, `subprocess-runtime.md` (`hooks.log` path), `mirror-adapter.md`, `agents-and-skills.md` (`#CodingGeneratorAgent` branch + body) — uses the new `<wo-slug>` form.
+
+The new artifact-shape concepts (`_sequence.md`, `_external-blockers.md`, `blocked_external` status, `operator-action` type) are coherently defined in `features/work-orders-loop.md`, materialised in `WorkOrderMetaFile` (`meta-materialization.md:82-92`), consumed in `WorkOrder` and `PerWorkOrderState` (slugs/enums), walked by `#LocalPlanner.get_next_ready()` (`local-planner.md:16,80`), regenerated by `#CodingLoopDriver` (`features/coding-loop.md:28,148`), and surfaced in `on-disk-layout.md:55-59`. The `#GapFiler` files now write to `work-orders/_inbox/wo-<slug>.md` consistently with the flat shape.
+
+### No orphans
+
+All four container blueprints, ten component blueprints, and seven feature blueprints remain referenced. The new reviewer-skill components are each composed by `features/work-orders-loop.md` plus referenced by `agents-and-skills.md`. No blueprint added by the restructure is orphaned.
+
+### `_questions-pending.md` correspondence
+
+`blueprints/_questions-pending.md` still does not exist (`_questions-resolved-20260506T214659Z.md` remains as the audit trail). No live `<!-- pending: <real-title> -->` markers in the tree — every match is definitional prose with literal `<question-title>` / `<title>` placeholders. Consistent.
+
+### `BLUEPRINT.md` coverage
+
+The work-orders restructure changes implementation-level naming (slug vs NNN) and adds a fourth judge plus two operator-facing files; it does not invalidate the §0–§12 mapping. §0's component map still lands on `containers/python-orchestrator.md`; §4 (local planner) is reflected in `local-planner.md`'s updated `_sequence.md` walk and operator-action skip rules; §7 (state file schema) is reflected in `state-store.md`'s slug-keyed `PerWorkOrderState` and `blocked_external` enum addition. Nothing pinned in BLUEPRINT.md is silently dropped.

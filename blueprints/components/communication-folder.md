@@ -23,7 +23,7 @@ name: CommunicationFolderSnapshotter
 container: Python Orchestrator
 responsibilities:
 	- For each `<agent-name>.md` in the live folder, copies the file content to `harness/state/reviews/<loop>/attempt-<N>/<agent-name>.md`
-	- For coding-loop per-WO execution (which does not use the communication-folder mechanism), captures reviewer subprocess stdout instead and writes to `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`
+	- For coding-loop per-WO execution (which does not use the communication-folder mechanism), captures reviewer subprocess stdout instead and writes to `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/<reviewer-name>.md`
 	- Idempotent on re-run: overwriting an existing snapshot file is fine since attempts are uniquely numbered per invocation
 ```
 
@@ -55,7 +55,7 @@ The agent files inside the folder follow a consistent naming convention per loop
 |---|---|---|
 | Requirements | `prd-to-frds.md` | `req-spec-judge.md`, `req-cross-doc-judge.md`, `req-coverage-judge.md`, `req-scoping-judge.md` |
 | Blueprint | `frd-to-blueprint.md` | `bp-spec-judge.md`, `bp-coverage-judge.md`, `bp-consistency-judge.md`, `bp-decision-judge.md` |
-| Work-Orders | `blueprint-to-work-orders.md` | `wo-scoping-judge.md`, `wo-coverage-judge.md`, `wo-dependency-judge.md` |
+| Work-Orders | `blueprint-to-work-orders.md` | `wo-spec-judge.md`, `wo-coverage-judge.md`, `wo-overlap-judge.md`, `wo-sequencing-judge.md` |
 
 The coding loop has no communication folder — per-WO execution uses PR comments and reviewer stdout instead, per @Blueprint(coding-loop).
 

@@ -24,8 +24,8 @@ name: BranchManager
 container: Python Orchestrator
 responsibilities:
 	- Used by the coding loop only
-	- Before spawning the per-WO generator, ensures the `task/<task_id>` branch exists (creates from main if not, no-op if already exists)
-	- Sets `execution.branch = "task/<task_id>"` in the per-WO state file via #StateStore from @Blueprint(state-store)
+	- Before spawning the per-WO generator, ensures the `task/<wo-slug>` branch exists (creates from main if not, no-op if already exists)
+	- Sets `execution.branch = "task/<wo-slug>"` in the per-WO state file via #StateStore from @Blueprint(state-store)
 	- Does not push — push is owned by the per-WO generator inside its subprocess
 ```
 
@@ -39,7 +39,7 @@ The #GitIntegration is invoked once per loop attempt (commit on pass, commit on 
 name: PROperationLayer
 container: Python Orchestrator
 responsibilities:
-	- Wraps `gh pr list --head task/<task_id> --state {open|merged}` for #MergeDetector pre-drain polling and post-exit PR-state population
+	- Wraps `gh pr list --head task/<wo-slug> --state {open|merged}` for #MergeDetector pre-drain polling and post-exit PR-state population
 	- Wraps `gh pr comment <pr-number> --body <body>` for #PRCommentMirror final-summary posting
 	- Wraps `gh pr view <pr-number> --json state,mergedAt,url,number` for `execution.pr_*` field population
 	- Does not wrap `gh pr create` — PR creation is owned by the per-WO generator's `open-task-pr` skill, run inside its subprocess
@@ -51,8 +51,8 @@ name: MergeDetector
 container: Python Orchestrator
 responsibilities:
 	- At the start of every `coding-loop` invocation, iterates every `in_progress` work order
-	- For each, runs `gh pr list --head task/<task_id> --state merged --json number,mergedAt`
-	- On a hit, transitions the work order's `.work-order.meta.yaml.status` from `in_progress` to `done` via #LocalPlanner from @Blueprint(local-planner) and rolls the per-WO state file to its final history entry
+	- For each, runs `gh pr list --head task/<wo-slug> --state merged --json number,mergedAt`
+	- On a hit, transitions the work order's `.wo-<slug>.meta.yaml.status` from `in_progress` to `done` via #LocalPlanner from @Blueprint(local-planner) and rolls the per-WO state file to its final history entry
 	- Never auto-merges; only detects post-facto merges
 ```
 
@@ -82,7 +82,7 @@ responsibilities:
 ### Integration Contracts
 
 - **Commit signature.** `git_integration.commit(paths: list[Path], message: str) -> bool`. Stages only the listed paths plus `harness/`; runs `git commit -m <message>`; returns success.
-- **Branch creation signature.** `branch_manager.ensure_task_branch(task_id: str, base: str = "main") -> str`. Returns the branch name; idempotent.
+- **Branch creation signature.** `branch_manager.ensure_task_branch(wo_slug: str, base: str = "main") -> str`. Returns the branch name (`task/<wo-slug>`); idempotent.
 - **PR list signature.** `pr_ops.list_prs_for_branch(branch: str, state: Literal["open", "merged"]) -> list[PRSummary]`.
 - **PR comment signature.** `pr_ops.post_comment(pr_number: int, body: str) -> bool`.
 - **Commit message format.** `<loop-name>: attempt <N> passed` on pass; `<loop-name>: attempt <N> — awaiting_clarification` on awaiting; per-WO commits owned by the generator follow its own convention.
@@ -109,6 +109,6 @@ responsibilities:
 
 **Context.** Per-attempt PR comments would give a running view of the per-WO loop's progress on the PR. But that pollutes the comment thread with intermediate retries.
 
-**Decision.** One PR comment per work order: the final pass-summary. No intermediate comments. In-progress visibility lives in `harness/state/<task_id>.json` and `harness/state/reviews/coding-loop/<task-id>/`.
+**Decision.** One PR comment per work order: the final pass-summary. No intermediate comments. In-progress visibility lives in `harness/state/<wo-slug>.json` and `harness/state/reviews/coding-loop/<wo-slug>/`.
 
 **Consequences.** PR comment thread stays signal-rich. Operator reviewing the PR sees one orchestrator-posted summary plus their own merge action. Trade-off: in-progress visibility is local-only; acceptable for the single-operator persona.
