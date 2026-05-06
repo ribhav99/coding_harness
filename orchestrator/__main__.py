@@ -3,8 +3,9 @@
     python -m orchestrator requirements-loop --project-root /path/to/project
     python -m orchestrator blueprint-loop    --project-root /path/to/project
 
-Subcommands available in v0.2: `requirements-loop`, `blueprint-loop`.
-Coding loop lands in v0.3 / v0.4.
+Subcommands implemented today: `requirements-loop`, `blueprint-loop`.
+`work-orders-loop`, `coding-loop`, and `status` are part of the same orchestrator
+program; they will be added as their loop specialisations land.
 """
 
 import argparse
