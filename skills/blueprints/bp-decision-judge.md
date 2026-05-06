@@ -50,7 +50,7 @@ You communicate through `blueprints_communication/bp-decision-judge.md`. That fi
 1. If the file doesn't exist yet, this is the first review — create it.
 2. If it exists, read it to see prior reviews and the generator's responses.
 3. Walk the blueprints tree and run your review.
-4. **Append** (never overwrite) your review to the file under a `## Review` heading. The block contains:
+4. **Append** your review to the end of the file under a new `## Review` heading. **Preserve all prior content verbatim** — when using the Write tool to record your review, include every byte of existing file content unchanged above your new block; never overwrite or modify content already in the file. The cross-attempt back-and-forth depends on the file's history being intact. The block contains:
    - One or two sentences summarising decision hygiene across the tree.
    - One short section per critical issue. Each section names the blueprint file path and the specific decision (e.g. "blueprints/containers/api-server.md picks Postgres as the primary store"), explains why it's high-impact and where it should have come from in one or two sentences, gives the fix in one sentence (file a question block, or cite the FRD/PRD passage that grounds it), and tags the category (`SILENT_DECISION`).
    - If decision hygiene is clean, say so and keep the body short.

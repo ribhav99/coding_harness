@@ -164,7 +164,7 @@ The decision rule is content-driven: look at what's actually in each reviewer's 
   - For each reviewer whose file had open findings you addressed, append a `## Generator response` block to that reviewer's file: per-finding disposition (which you fixed, which you pushed back on with grounded reasoning, which you logged questions for).
   - For **every** reviewer file with prior content (failing and passing alike), append a `## Changes since previous attempt` block enumerating every work-order file you added, edited, or removed since that file's most recent review, with a brief description of the substantive change.
 
-  Append, never overwrite. The communication file accumulates the full back-and-forth across attempts and across orchestrator invocations.
+  **Preserve all prior content verbatim** — when using the Write tool to update a reviewer file, include every byte of existing content unchanged above your new block; never overwrite or modify content already in the file. The communication file accumulates the full back-and-forth across attempts and across orchestrator invocations.
 
 ## Logging questions, don't guess
 

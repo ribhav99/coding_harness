@@ -37,7 +37,7 @@ You communicate through `requirements_communication/req-cross-doc-judge.md`. Tha
 1. If the file doesn't exist yet, this is the first review — create it.
 2. If it exists, read it to see prior reviews and the generator's responses.
 3. Walk the requirements tree and run your review.
-4. **Append** (never overwrite) your review to the file under a `## Review` heading. The block contains:
+4. **Append** your review to the end of the file under a new `## Review` heading. **Preserve all prior content verbatim** — when using the Write tool to record your review, include every byte of existing file content unchanged above your new block; never overwrite or modify content already in the file. The cross-attempt back-and-forth depends on the file's history being intact. The block contains:
    - One or two sentences summarising what you found across the tree.
    - One short section per critical issue. Each section names every file involved, describes what's inconsistent in one or two sentences, gives the fix in one sentence (which doc to update or whether to consolidate), and tags the category (`CONFLICT`, `DUPLICATION`, `AMBIGUOUS`, or `BROKEN_REF`).
    - If the tree is consistent, say so and keep the body short.
