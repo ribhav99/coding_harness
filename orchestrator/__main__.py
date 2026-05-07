@@ -15,6 +15,7 @@ from pathlib import Path
 from .loop_driver import run_loop
 from .loops.blueprints import SPEC as BLUEPRINT_SPEC
 from .loops.requirements import SPEC as REQUIREMENTS_SPEC
+from .loops.work_orders import SPEC as WORK_ORDERS_SPEC
 
 
 def _add_loop_args(p: argparse.ArgumentParser, *, skip_first_help: str) -> None:
@@ -72,6 +73,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    wo = sub.add_parser(
+        "work-orders-loop",
+        help="Decompose blueprints/ + existing code into work-orders/ tree (autonomous, with reviews).",
+    )
+    _add_loop_args(
+        wo,
+        skip_first_help=(
+            "On attempt 1, skip the generator spawn and run reviewers directly "
+            "against the existing work-orders/ tree. Useful when you've run "
+            "blueprint-to-work-orders manually and want to validate without a re-think."
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     project_root = args.project_root.resolve()
@@ -88,6 +102,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.subcommand == "blueprint-loop":
         return run_loop(
             BLUEPRINT_SPEC,
+            project_root,
+            skip_first_generator=args.skip_first_generator,
+            memoryless=args.memoryless,
+        )
+    if args.subcommand == "work-orders-loop":
+        return run_loop(
+            WORK_ORDERS_SPEC,
             project_root,
             skip_first_generator=args.skip_first_generator,
             memoryless=args.memoryless,

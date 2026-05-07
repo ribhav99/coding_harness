@@ -32,10 +32,12 @@ class LoopState:
         artifact_paths = {
             "requirements-loop": ["requirements/"],
             "blueprint-loop": ["blueprints/"],
+            "work-orders-loop": ["work-orders/"],
         }.get(self.loop_name, [])
         comm_dir = {
             "requirements-loop": "requirements_communication/",
             "blueprint-loop": "blueprints_communication/",
+            "work-orders-loop": "work-orders_communication/",
         }.get(self.loop_name)
         return {
             "loop": {

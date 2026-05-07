@@ -29,6 +29,8 @@ def communication_dir(project_root: Path, loop_name: str) -> Path:
         return project_root / "requirements_communication"
     if loop_name == "blueprint-loop":
         return project_root / "blueprints_communication"
+    if loop_name == "work-orders-loop":
+        return project_root / "work-orders_communication"
     raise ValueError(f"loop_name {loop_name!r} has no communication folder")
 
 
@@ -44,7 +46,7 @@ def hook_counter_path(project_root: Path, spawn_label: str) -> Path:
 
 def skill_path(skill_name: str) -> Path:
     """Locate a skill markdown file in the harness's skills/ tree."""
-    for sub in ("requirements", "blueprints", "coding"):
+    for sub in ("requirements", "blueprints", "work-orders", "coding"):
         candidate = SKILLS_DIR / sub / f"{skill_name}.md"
         if candidate.exists():
             return candidate
