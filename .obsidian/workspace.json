@@ -41,54 +41,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "skills/work-orders/blueprint-to-work-orders.md",
+                "file": "skills/blueprints/bp-frd-fidelity-judge.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "blueprint-to-work-orders"
-            }
-          },
-          {
-            "id": "8f28d873042fdd10",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "skills/work-orders/wo-coverage-judge.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "wo-coverage-judge"
-            }
-          },
-          {
-            "id": "2f584ae2c0a59893",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "skills/work-orders/wo-dependency-judge.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "wo-dependency-judge"
-            }
-          },
-          {
-            "id": "6f82d622053edfb6",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "skills/work-orders/wo-scoping-judge.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "wo-scoping-judge"
+              "title": "bp-frd-fidelity-judge"
             }
           }
         ],
@@ -256,6 +214,23 @@
   },
   "active": "7c4e2bc0fc961f03",
   "lastOpenFiles": [
+    "skills/requirements/req-prd-fidelity-judge.md",
+    "skills/work-orders/blueprint-to-work-orders.md",
+    "skills/blueprints/bp-frd-fidelity-judge.md",
+    "orchestrator/loops/__pycache__/work_orders.cpython-313.pyc",
+    "orchestrator/loops/work_orders.py",
+    "skills/work-orders/wo-spec-judge.md",
+    "skills/work-orders/wo-sequencing-judge.md",
+    "skills/work-orders/wo-overlap-judge.md",
+    "skills/work-orders/wo-coverage-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-3/bp-spec-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-3/bp-decision-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-3/bp-coverage-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-3/bp-consistency-judge.md",
+    "harness/state/reviews/blueprint-loop/attempt-3",
+    "BLUEPRINT.md",
+    "blueprints/_questions-pending.md",
+    "blueprints/_questions-resolved-20260506T214659Z.md",
     "harness/state/reviews/blueprint-loop/attempt-2/bp-spec-judge.md",
     "harness/state/reviews/blueprint-loop/attempt-2/bp-decision-judge.md",
     "harness/state/reviews/blueprint-loop/attempt-2/bp-coverage-judge.md",
@@ -263,10 +238,6 @@
     "harness/state/reviews/blueprint-loop/attempt-2",
     "skills/work-orders/wo-scoping-judge.md",
     "skills/work-orders/wo-dependency-judge.md",
-    "skills/work-orders/wo-coverage-judge.md",
-    "skills/work-orders/blueprint-to-work-orders.md",
-    "BLUEPRINT.md",
-    "blueprints/_questions-pending.md",
     "harness/state/reviews/blueprint-loop/attempt-1/bp-spec-judge.md",
     "harness/state/reviews/blueprint-loop/attempt-1/bp-decision-judge.md",
     "harness/state/reviews/blueprint-loop/attempt-1/bp-coverage-judge.md",
@@ -275,23 +246,10 @@
     "harness/state/reviews/blueprint-loop",
     "blueprints/features/coding-loop.md",
     "blueprints/features/work-orders-loop.md",
-    "blueprints/features/blueprint-loop.md",
-    "blueprints/features/requirements-loop.md",
-    "blueprints/features/on-disk-layout.md",
-    "blueprints/features/python-orchestrator.md",
-    "blueprints/features/prd-authoring.md",
-    "blueprints/components/agents-and-skills.md",
-    "blueprints/components/mirror-adapter.md",
-    "blueprints/components/local-planner.md",
-    "blueprints/components/git-integration.md",
-    "blueprints/components/state-store.md",
     "blueprints/containers",
     "blueprints/features",
     "blueprints/components",
     "blueprints",
-    "blueprints_communication",
-    "harness/state/blueprint-loop.json",
-    "harness/state/reviews/requirements-loop/attempt-1",
     "diagrams/exec.png"
   ]
 }
