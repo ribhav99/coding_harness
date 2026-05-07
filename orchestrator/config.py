@@ -12,7 +12,13 @@ from typing import Any
 from . import paths
 
 
-REQUIRED_FIELDS = ("max_attempts", "max_wall_minutes", "max_agent_retries")
+REQUIRED_FIELDS = (
+    "max_attempts",
+    "max_wall_minutes",
+    "max_agent_retries",
+    "model_generator",
+    "model_reviewer",
+)
 
 
 def load_config() -> dict[str, Any]:
@@ -28,6 +34,10 @@ def load_config() -> dict[str, Any]:
     for field in ("max_attempts", "max_wall_minutes", "max_agent_retries"):
         if not isinstance(data[field], int) or data[field] <= 0:
             sys.exit(f"error: config field {field!r} must be a positive integer")
+
+    for field in ("model_generator", "model_reviewer"):
+        if not isinstance(data[field], str) or not data[field].strip():
+            sys.exit(f"error: config field {field!r} must be a non-empty string (a Claude model id, e.g. claude-opus-4-7[1m])")
 
     return data
 

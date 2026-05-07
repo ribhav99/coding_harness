@@ -74,6 +74,7 @@ def spawn_claude(
     timeout_seconds: int,
     max_agent_retries: int,
     existing_session_id: str | None = None,
+    model: str | None = None,
 ) -> ClaudeResult:
     """Spawn one `claude -p` subprocess with rate-limit retries.
 
@@ -82,6 +83,11 @@ def spawn_claude(
     `append_system_prompt`. If provided, resumes the existing session
     (`--resume <uuid>`) and the system prompt is inherited from that session,
     so `append_system_prompt` is ignored in the resume branch.
+
+    `model` is the Claude model id passed via `--model` (e.g. `claude-opus-4-7[1m]`,
+    `claude-sonnet-4-6`). When None, the subprocess inherits the operator's `claude`
+    CLI default. Generators and reviewers each receive their own model per
+    `config.yaml`'s `model_generator` / `model_reviewer` fields.
 
     Returns a ClaudeResult on the first success. Returns a result with
     `rate_limited_out=True` only if every retry also rate-limits. Raises
@@ -95,6 +101,8 @@ def spawn_claude(
         "--permission-mode", "bypassPermissions",
         "--output-format", "text",
     ]
+    if model is not None:
+        cmd += ["--model", model]
     if existing_session_id is None:
         cmd += ["--session-id", sid, "--append-system-prompt", append_system_prompt]
     else:

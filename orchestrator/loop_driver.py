@@ -35,6 +35,8 @@ def run_loop(
     max_attempts: int = config["max_attempts"]
     max_wall_minutes: int = config["max_wall_minutes"]
     max_agent_retries: int = config["max_agent_retries"]
+    model_generator: str = config["model_generator"]
+    model_reviewer: str = config["model_reviewer"]
     timeout_seconds = max_wall_minutes * 60
 
     state = LoopState(project_root, spec.name)
@@ -104,6 +106,7 @@ def run_loop(
                     timeout_seconds=timeout_seconds,
                     max_agent_retries=max_agent_retries,
                     existing_session_id=gen_session_id,
+                    model=model_generator,
                 )
             except claude.ClaudeSpawnError as e:
                 print(f"generator subprocess failed: {e}\n--- stderr ---\n{e.stderr}", file=sys.stderr)
@@ -155,6 +158,7 @@ def run_loop(
             timeout_seconds=timeout_seconds,
             max_agent_retries=max_agent_retries,
             memoryless=memoryless,
+            model=model_reviewer,
             reviewer_session_ids={
                 name: state.get_reviewer_session_id(name) for name in spec.reviewers
             },
@@ -239,6 +243,7 @@ def _run_reviewers_parallel(
     timeout_seconds: int,
     max_agent_retries: int,
     memoryless: bool,
+    model: str,
     reviewer_session_ids: dict[str, str | None],
 ) -> tuple[dict[str, str], list[dict], dict[str, str]]:
     """Spawn all reviewers concurrently.
@@ -300,6 +305,7 @@ def _run_reviewers_parallel(
                 timeout_seconds=timeout_seconds,
                 max_agent_retries=max_agent_retries,
                 existing_session_id=existing_sid,
+                model=model,
             )
         except claude.ClaudeSpawnError as e:
             return reviewer_name, None, f"spawn error: {e}"
@@ -371,10 +377,45 @@ def _summary_tail(text: str, limit: int = 4000) -> str:
 
 
 def _count_open_questions(questions_file: Path) -> int:
+    """Count unanswered/unresolved questions in the per-loop questions file.
+
+    Two layouts to support:
+
+      * **Blueprint-loop questions** carry a `**Your answer:**` line per block.
+        The operator resolves by either deleting the block or filling in the
+        line. Open questions are blocks where the line exists and is blank.
+
+      * **Requirements-loop questions** don't have a `Your answer:` field —
+        the operator resolves by clarifying `PRD.md` and deleting the block.
+        Open questions are surviving `## <title>` blocks that don't have
+        children with a `Your answer:` field (since a surviving block is by
+        definition unresolved here).
+
+    Heading level (`## ` vs `### `) varies: some operators use `## ` for
+    section grouping and `### ` for individual questions. This counter does
+    not gate on heading level — it scans the file for both `**Your answer:**`
+    lines (blueprint shape) and surviving `## ` headings (requirements shape)
+    and reports the residual.
+    """
     if not questions_file.exists():
         return 0
+
+    text = questions_file.read_text()
+
+    has_answer_field = "**Your answer:**" in text
+    if has_answer_field:
+        unanswered = 0
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("**Your answer:**"):
+                after = stripped[len("**Your answer:**"):].strip()
+                if not after:
+                    unanswered += 1
+        return unanswered
+
     return sum(
-        1 for line in questions_file.read_text().splitlines()
+        1
+        for line in text.splitlines()
         if line.strip().startswith("## ") and not line.strip().startswith("## ~~")
     )
 

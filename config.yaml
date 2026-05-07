@@ -9,4 +9,15 @@ max_wall_minutes: 60
 # Independent of max_attempts — these are recovery from infrastructure
 # or output-format glitches, not from anything the model said.
 max_agent_retries: 3
-mirrors: []        # placeholder for v1.0; v0.1 has no mirrors
+
+# Per-role model selection. Generators do heavy decomposition / synthesis
+# work and benefit from Opus 4.7's reasoning + 1M context (the work-orders
+# generator in particular reads blueprints + current code in a single
+# pass). Reviewers run focused single-rubric judgment and are cheaper on
+# Sonnet 4.6. Override either by editing this file; passed to `claude -p`
+# via `--model`. Tool-wrappers and per-WO coding execution will use the
+# generator model by default once the coding loop lands.
+model_generator: claude-opus-4-7[1m]
+model_reviewer: claude-sonnet-4-6
+
+mirrors: []        # placeholder; no mirrors are configured yet
