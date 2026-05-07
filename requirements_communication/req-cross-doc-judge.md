@@ -90,3 +90,86 @@ Cross-doc consistency sweep across the tree:
 - **Cross-references** all resolve: REQ-WO-002 (referenced from on-disk-layout.md AC-LAYOUT-005.4 and appendix.md); REQ-ORCH-013 (referenced from per-loop FRDs); the project's blueprint document-shape contract (referenced from on-disk-layout.md AC-LAYOUT-006.5, blueprint-loop.md AC-BL-002.6, appendix.md, and BLUEPRINT.md §11).
 
 No fact-level mismatches, no terminology drift, no significant duplication, no broken cross-references found across the tree.
+
+## Review
+
+Walked the tree after the three changes (operator-action carve-out, `_inbox/` → `_backlog/` rename, dropped backlog-check from `wo-overlap-judge`). The rename and the overlap-judge change are clean. The carve-out is internally consistent inside `requirements/features/work-orders-loop.md` (AC-WO-002.1, .7, .8, .10) and the work-orders judge skills, but the PRD and `project-lifecycle.md` describe the canonical scoped-task shape as universal, without acknowledging the operator-action exception. Five fact-level mismatches.
+
+### CONFLICT — PRD §6.4 work-order document shape claims universal canonical shape
+
+**Files:** `PRD.md:194`, `requirements/features/work-orders-loop.md` AC-WO-002.1 / .7 / .8 / .10.
+**Mismatch:** PRD.md:194 says "Every work order's `wo-<slug>.md` follows a single canonical shape" and lists `## Acceptance criteria` as "each `- [ ] AC-WO-<slug>.M (via tests|playwright|code-spec) — Outcome` with the bare gate key" plus `## Gates` (fenced YAML…) as required components. The work-orders-loop FRD AC-WO-002.7 carves out the `(via <gate>)` tag for operator-action work orders (rows omit the tag), and AC-WO-002.8 says the `## Gates` section is omitted entirely for operator-action. PRD §6.4 currently overstates universality.
+**Fix:** PRD.md:194 — note the operator-action carve-out (e.g. add a sentence: "Operator-action work orders use the same shape minus `## Gates`, and AC rows omit the `(via <gate>)` tag — see work-orders-loop FRD REQ-WO-002 for the exception").
+
+### CONFLICT — PRD §9 resolved-bullet describes universal AC/Gates shape
+
+**Files:** `PRD.md:478`, `requirements/features/work-orders-loop.md` AC-WO-002.7 / .8.
+**Mismatch:** PRD.md:478 (the "~~Work-order artifact shape.~~ Resolved" bullet) describes the per-work-order document shape as universal — `## Acceptance criteria` rows match `- [ ] AC-WO-<slug>.M (via tests|playwright|code-spec) — Outcome` and `## Gates` is a required fenced YAML section — without acknowledging the operator-action carve-out.
+**Fix:** PRD.md:478 — note the carve-out, or qualify the shape description as "agent-executable shape; operator-action work orders carve out per AC-WO-002.7 / .8 / .10."
+
+### CONFLICT — PRD §8.3 wo-spec-judge rubric overstates AC-format universality
+
+**Files:** `PRD.md:447`, `skills/work-orders/wo-spec-judge.md`, `requirements/features/work-orders-loop.md` AC-WO-002.7.
+**Mismatch:** PRD.md:447 describes `wo-spec-judge` as checking that "AC rows match `AC-WO-<slug>.M (via <gate>) — <outcome>` format" — universally. The `wo-spec-judge` skill itself carves out operator-action ACs as `- [ ] AC-WO-<slug>.M — <verifiable outcome>` (no `(via <gate>)` tag), and AC-WO-002.7 backs it. The PRD prose summary diverges from the skill's actual rubric.
+**Fix:** PRD.md:447 — either qualify ("for agent-executable work orders, AC rows match …") or trim the AC-format detail and reference the skill/FRD.
+
+### CONFLICT — PRD §8.3 wo-coverage-judge rubric overstates AC-gate universality
+
+**Files:** `PRD.md:448`, `skills/work-orders/wo-coverage-judge.md`, `requirements/features/work-orders-loop.md` AC-WO-002.7 / .8 / .10.
+**Mismatch:** PRD.md:448 lists `wo-coverage-judge` check (c) as "every acceptance criterion declares an observation gate (`tests`, `playwright`, or `code-spec`) that the gate set in `## Gates` actually declares `required`." The coverage-judge skill itself carves out operator-action work orders (their AC rows omit the `(via <gate>)` tag and they have no `## Gates` block). PRD prose claims universality.
+**Fix:** PRD.md:448 — qualify check (c) as applying to agent-executable work orders only, or reference the skill's carve-out.
+
+### AMBIGUOUS — project-lifecycle.md §Stage 4 prose describes canonical shape without carve-out
+
+**Files:** `requirements/overview/project-lifecycle.md:11`, `requirements/features/work-orders-loop.md` AC-WO-002.7 / .8 / .10.
+**Mismatch:** project-lifecycle.md:11 (Stage 4 prose) describes the canonical scoped-task shape with "Acceptance criteria (each row carrying an ID, observation gate, and binary outcome), Gates (fenced YAML declaring which execution and LLM-as-judge gates apply)" — without acknowledging that operator-action work orders omit the observation-gate tag and the Gates section. The same paragraph mentions operator-action work orders later but only in the context of being skipped on drain, not in terms of their differing AC/Gates shape.
+**Fix:** project-lifecycle.md:11 — when describing the canonical AC/Gates shape, note the operator-action carve-out (e.g. one trailing clause: "Operator-action work orders use the same shape minus the `## Gates` section, and their AC rows omit the `(via <gate>)` tag because the operator manually verifies").
+
+Other spot-verifications agree across the tree:
+
+- **`_inbox/` → `_backlog/` rename** is clean: PRD §6.5.1 + §7.2 tree, on-disk-layout.md AC-LAYOUT-005.8, coding-loop.md Terminology + AC-CL-007.1 + AC-CL-007.2 + Feature Behavior, technical-requirements.md, and the four wo-* judge skills all reference `_backlog/`. No remaining `_inbox` references in the requirements tree.
+- **`wo-overlap-judge` backlog-check** drop is consistent with the skill itself; no other doc described an inbox/backlog-check expectation, so no cross-doc fix needed.
+- **`## Type` marker** (optional, immediately after the title; values `feature` | `refactor` | `bug-fix` | `infra` | `operator-action`) consistent between work-orders-loop.md AC-WO-002.10, on-disk-layout.md AC-LAYOUT-005.3, blueprint-to-work-orders skill, and wo-spec-judge skill.
+- **Operator-action shape** (Gates omitted; AC rows omit `(via <gate>)` tag) consistent between work-orders-loop.md AC-WO-002.7 / .8, blueprint-to-work-orders skill (concrete example), wo-spec-judge skill, and wo-coverage-judge skill.
+
+## Review
+
+Walked the tree after the five previously-flagged drifts were addressed (PRD §6.4 §9 §8.3, project-lifecycle.md Stage 4 prose). Verified each.
+
+Verified the prior fixes:
+
+- `PRD.md:194` (§6.4 work-order document shape) — now describes the operator-action carve-out: AC rows omit `(via <gate>)` tag, `## Gates` section is omitted entirely. Clean.
+- `PRD.md:478` (§9 "Resolved" appendix bullet) — same carve-out language now present. Clean.
+- `PRD.md:447` (§8.3 wo-spec-judge rubric) — splits agent-executable and operator-action shapes. Clean.
+- `PRD.md:448` (§8.3 wo-coverage-judge check (c)) — scopes the AC-gate check to agent-executable WOs; explicitly notes operator-action skip. Clean.
+- `project-lifecycle.md:11` (Stage 4 prose) — now mentions the carve-out (operator-action AC rows omit `(via <gate>)` tag, Gates block omitted). Clean.
+
+But the broader sweep surfaces two new fact-level mismatches **within `requirements/features/work-orders-loop.md` itself**: REQ-WO-006 ACs (which describe what each judge spawned by the orchestrator must check) overstate universality and contradict REQ-WO-002's carve-out.
+
+### CONFLICT — REQ-WO-006.1 wo-spec-judge rubric overstates AC-format universality (within-FRD)
+
+**Files:** `requirements/features/work-orders-loop.md` AC-WO-006.1 vs AC-WO-002.7.
+**Mismatch:** AC-WO-006.1 binds the orchestrator to spawn `wo-spec-judge` to verify (among other things) "AC rows match `AC-WO-<slug>.M (via <gate>) — <outcome>` format" — universally. AC-WO-002.7 in the same FRD carves out operator-action work orders, whose AC rows omit the `(via <gate>)` tag. A reviewer following AC-WO-006.1 literally would (wrongly) flag every operator-action AC row as a structural violation. The carve-out language now present in PRD §8.3 (line 447) and the wo-spec-judge skill itself agrees with AC-WO-002.7; only AC-WO-006.1 still overstates.
+**Fix:** AC-WO-006.1 — qualify the AC-format clause as "for agent-executable work orders, AC rows match …; for operator-action work orders, AC rows omit the `(via <gate>)` tag (per AC-WO-002.7)" — or trim the format detail and reference AC-WO-002.7.
+
+### CONFLICT — REQ-WO-006.2(c) wo-coverage-judge rubric overstates AC-gate universality (within-FRD)
+
+**Files:** `requirements/features/work-orders-loop.md` AC-WO-006.2(c) vs AC-WO-002.7 / AC-WO-002.8 / AC-WO-002.10.
+**Mismatch:** AC-WO-006.2(c) binds the orchestrator to spawn `wo-coverage-judge` to verify "every acceptance criterion declares an observation gate (`tests`, `playwright`, or `code-spec`) that the gate set in `## Gates` actually declares `required`." Operator-action work orders' AC rows omit the gate tag and have no `## Gates` block (per AC-WO-002.7 / .8 / .10), so this universal check is unsatisfiable for them. The wo-coverage-judge skill and PRD §8.3 (line 448) both qualify check (c) to agent-executable work orders; only AC-WO-006.2(c) still claims universality.
+**Fix:** AC-WO-006.2(c) — scope to agent-executable work orders ("for agent-executable work orders, every acceptance criterion declares an observation gate …"), with explicit note that operator-action work orders skip this check.
+
+### AMBIGUOUS — Feature Behavior prose in work-orders-loop.md describes universal Gates structure
+
+**Files:** `requirements/features/work-orders-loop.md` (Feature Behavior, ~line 125 and ~line 135) vs AC-WO-002.8 / .10.
+**Mismatch:** The Feature Behavior section says "The seven structural elements — Goal, Blueprints, In/Out scope, Produces, Depends on, Acceptance criteria, Gates — are what the work-orders-loop reviewers check …" (universal seven-element claim) and later "The four LLM-as-judge gates (`code-spec`, `code-regression`, `code-security`, `code-quality`) are always `required` …" (universal). Operator-action work orders carry six structural elements (no `## Gates`) and don't declare any gates at all. Soft drift; not as load-bearing as the AC findings above, but should be qualified for consistency.
+**Fix:** Add a short clause acknowledging the operator-action shape ("operator-action work orders carry the same shape minus `## Gates`; the four LLM-as-judge gates are always `required` for agent-executable work orders only").
+
+Other spot-verifications agree across the tree:
+
+- The five previously-flagged drifts (PRD §6.4, §9, §8.3 ×2, project-lifecycle.md Stage 4) are clean, as listed at the top.
+- `_inbox/` → `_backlog/` rename clean across PRD §6.5.1 + §7.2 tree, on-disk-layout.md AC-LAYOUT-005.8, coding-loop.md Terminology + REQ-CL-007 + Feature Behavior, technical-requirements.md, and the four wo-* judge skills.
+- `wo-overlap-judge` backlog-check drop has no cross-doc impact.
+- `## Type` marker semantics (optional, after title, values `feature` | `refactor` | `bug-fix` | `infra` | `operator-action`) consistent between work-orders-loop.md AC-WO-002.10 + AC-WO-003.5, on-disk-layout.md AC-LAYOUT-005.3, blueprint-to-work-orders skill, wo-spec-judge skill, and PRD §6.4.
+- Operator-action shape (Gates omitted; AC rows omit `(via <gate>)` tag) consistent between AC-WO-002.7 / .8 / .10, the blueprint-to-work-orders skill's concrete example, wo-spec-judge skill, wo-coverage-judge skill, PRD §6.4 + §8.3 + §9, and project-lifecycle.md Stage 4 prose. The only outliers are AC-WO-006.1 / .2(c) flagged above.
+- Subcommand list, four-loop framing, communication-folder never-wipe semantics, branch naming `task/<wo-slug>`, AC ID format `AC-WO-<slug>.M`, mention syntax `@wo-<slug>`, and reviewer name set (`wo-spec`, `wo-coverage`, `wo-overlap`, `wo-sequencing`) all agree across the tree.
+
