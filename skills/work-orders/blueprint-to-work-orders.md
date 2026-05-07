@@ -25,9 +25,44 @@ In order. Use these to weigh every decision — what to produce, what to reshape
 
 1. **Grounding.** Nothing in the work orders exceeds what the blueprints (plus answered questions) support. Hard floor.
 2. **Atomicity.** Each work order produces one cohesive change: at most one named interface in `## Produces` (or two-to-three tightly cohesive entries), or (for refactor-only work orders) one cohesive purpose stated in `## Goal`. If the Goal sentence requires "and" to describe the change, split.
-3. **Coverage.** The union of all work orders covers every blueprint's delivery surface — every `component` block, `model` block, feature commitment, and exposed interface should be reachable from at least one work order via a `#<blueprint-slug>` mention or a corresponding `Produces` entry.
+3. **Coverage.** Every blueprint's delivery surface — every `component` block, `model` block, feature commitment, and exposed interface — is covered by *either* a work order claiming it (via `#<blueprint-slug>` mention or `Produces` entry) *or* by code that already realizes it. You don't write a work order for work that's already done.
 4. **Sequencing.** The directed graph derived from `Depends on.work_orders` is acyclic, every `Depends on.interfaces` entry resolves to a `Produces` entry of the named upstream work order, and `_sequence.md` is a valid topological sort of that graph (no work order appears before any of its dependencies).
 5. **Structure.** Every work order's `wo-<slug>.md` follows the canonical shape (next section).
+
+## Codebase awareness
+
+You are not a greenfield generator. The project repo may already contain code — operator-authored, prior coding-loop output, hand-written experiments. Before deciding what work orders to write, you scan the codebase to understand current state.
+
+### What to scan
+
+Everything in the project repo at the operator's `--project-root` *except* the harness-managed trees: `requirements/`, `blueprints/`, `work-orders/`, `harness/`, and any `*_communication/` folders. Everything else is "the code."
+
+For each invocation, walk:
+- **Top-level structure.** Use `Glob` or directory listing to see what's at the project root; identify the language(s) and frameworks from config files (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, etc.).
+- **Entry points named in container blueprints.** If `blueprints/containers/api-server.md` says `Entry Points: src/index.ts`, read that file.
+- **Symbols named in component blueprints.** For each `component` block in any blueprint with a `name:` field (e.g. `AuthCoordinator`), grep the codebase for the name. If found, read the file containing it to assess shape.
+- **Models named in component blueprints.** Same pattern for `model` blocks — grep for the model name (e.g. `User`); if found, read the file to compare fields against the blueprint's `model` block.
+- **Routes named in `endpoint` Produces entries.** Grep for the route string (e.g. `POST /sign-in`); if found, read the handler to compare contract.
+
+This is targeted, not exhaustive. Don't read every file in the repo. Read enough to make a judgment about whether each blueprint surface element is realized.
+
+### Decision rule
+
+For each blueprint surface element (a `component` block, a `model` block, an exposed interface in a feature blueprint, etc.):
+
+- **Fully realized in code** (the symbol exists, matches the blueprint shape, is wired into its declared container) → **do not create a work order for it.** The code itself is the coverage.
+- **Partially realized** (the symbol exists but is missing a field, a method, the wiring, or differs from the blueprint shape) → **create a work order scoped to the gap.** Goal sentence describes the delta — "Add `created_at` column to `User` model and update inserts to set it" rather than "Implement User model." `## Produces` lists only the new interfaces being added (or stays empty `[]` if you're just modifying existing).
+- **Not realized** → create a work order for the whole thing, as you would for a greenfield project.
+
+When in doubt, lean toward creating a work order. A redundant WO is cheaper than a missing one — the implementing coding-loop agent will discover the redundancy when it reads the code, and either no-op or file a gap.
+
+### Dependency implications
+
+The dependency graph (`Depends on.work_orders` and `Depends on.interfaces`) lists only **other work orders that need to run first.** If an interface is already in the codebase, no dependency declaration is needed for it — the implementing agent reads the code directly to find and use it. `Depends on` is for inter-WO ordering, not for "anything I need."
+
+### When to log a question
+
+If you scan the code and find a partial implementation that diverges from the blueprint *materially* — e.g. the blueprint says `#AuthCoordinator` should expose `authenticate(email, password)` but the code has `authenticate(token)` — log a clarification question. The operator may have intended the code's shape (in which case the blueprint should be updated) or the blueprint's shape (in which case a refactor work order is needed). Don't guess; surface and let the operator decide.
 
 ## Output: work-order document shape
 
@@ -210,7 +245,8 @@ The hash itself is computed by the orchestrator and recorded in `.sequence.meta.
 Every invocation, you receive:
 
 - **`blueprints/{containers,components,features}/`** — the approved blueprints tree. Authoritative for technical decomposition.
-- **`work-orders/`** — the current work-orders tree (every `wo-<slug>.md` plus `_sequence.md`). Read existing work orders first; preserve work orders that are still correct, edit work orders that need refining, delete work orders whose blueprint surface no longer exists, add new work orders for newly-introduced blueprint surface.
+- **The project's source code** — everything in the project repo *outside* the harness-managed trees (`requirements/`, `blueprints/`, `work-orders/`, `harness/`, `*_communication/`). Scan it per the "Codebase awareness" section above to determine what's already realized; skip work orders for fully-realized blueprint surface, scope work orders to the gap for partial realizations.
+- **`work-orders/`** — the current work-orders tree (every `wo-<slug>.md` plus `_sequence.md`). Read existing work orders first; preserve work orders that are still correct, edit work orders that need refining, delete work orders whose blueprint surface no longer exists or has since been realized in code, add new work orders for newly-introduced blueprint surface or for code that's drifted from the blueprint.
 - **`work-orders/.sequence.meta.yaml`** if it exists — the recorded blueprint-tree hash and generation timestamp. Use it for the short-circuit check above.
 - **`work-orders/_questions-pending.md`** if it exists — the running list of open and answered decomposition-clarification questions. Treat answered questions as resolved (the operator has clarified the named source artifact); treat open questions as still-pending.
 - **The communication folder** at `work-orders_communication/` (sibling to `work-orders/`). It holds one markdown file per reviewer in this loop (`wo-spec-judge.md`, `wo-coverage-judge.md`, `wo-overlap-judge.md`, `wo-sequencing-judge.md`) — append-only conversation transcripts that record each reviewer's prior reviews and your prior responses. **Always read every reviewer file in this folder before deciding what to write or edit** — the gate is whether the file has content, not which "attempt" or "invocation" you think you're in.

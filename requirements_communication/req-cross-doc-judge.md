@@ -173,3 +173,40 @@ Other spot-verifications agree across the tree:
 - Operator-action shape (Gates omitted; AC rows omit `(via <gate>)` tag) consistent between AC-WO-002.7 / .8 / .10, the blueprint-to-work-orders skill's concrete example, wo-spec-judge skill, wo-coverage-judge skill, PRD §6.4 + §8.3 + §9, and project-lifecycle.md Stage 4 prose. The only outliers are AC-WO-006.1 / .2(c) flagged above.
 - Subcommand list, four-loop framing, communication-folder never-wipe semantics, branch naming `task/<wo-slug>`, AC ID format `AC-WO-<slug>.M`, mention syntax `@wo-<slug>`, and reviewer name set (`wo-spec`, `wo-coverage`, `wo-overlap`, `wo-sequencing`) all agree across the tree.
 
+
+## Review
+
+Walked the tree after the FRD-internal fixes (AC-WO-006.1, AC-WO-006.2, work-orders-loop.md Feature Behavior prose) targeting the operator-action carve-out drift the prior run flagged.
+
+Verified the prior fixes:
+
+- `requirements/features/work-orders-loop.md` AC-WO-006.1 — `wo-spec-judge` rubric now splits agent-executable vs operator-action shapes, qualifies the AC-format check (`for agent-executable work orders, AC rows match …; for operator-action work orders, AC rows omit the `(via <gate>)` tag and `## Gates` is omitted entirely`), validates `## Type` placement and value when present. Clean.
+- `requirements/features/work-orders-loop.md` AC-WO-006.2(c) — `wo-coverage-judge` rubric now scopes the AC-gate check to agent-executable work orders explicitly; operator-action skip is named (`Operator-action work orders skip check (c) — their AC rows are operator-verified prose without gate tags`). Clean.
+- `requirements/features/work-orders-loop.md` Feature Behavior — line 125 ("structural elements …") now lists "Type (optional)" and notes "(for agent-executable work orders) Gates"; explicitly says "Operator-action work orders carve out a different shape (no Gates block; AC rows omit the `(via <gate>)` tag) because the agent never runs them — the operator verifies them manually." Line 135 ("four LLM-as-judge gates …") now qualifies "for agent-executable work orders" and adds "Operator-action work orders omit `## Gates` entirely — the agent never runs them, so there are no gates to declare." Clean.
+
+Cross-doc consistency sweep across the tree:
+
+- **Operator-action shape** (no `## Gates`; AC rows omit `(via <gate>)` tag) consistent across `work-orders-loop.md` AC-WO-002.1 / .7 / .8 / .10 + AC-WO-006.1 / .2 + Feature Behavior, `on-disk-layout.md` AC-LAYOUT-005.3 (status/type sets), PRD.md §6.4 (line 194) + §8.3 (line 447–448) + §9 (line 478), `project-lifecycle.md:11` Stage 4 prose, `blueprint-to-work-orders.md` skill (Operator-action work orders section + concrete example), `wo-spec-judge.md` skill, `wo-coverage-judge.md` skill, BLUEPRINT.md §3.3 work-orders-loop subsection + §4 WorkOrder TypedDict + §10.1 generator-agents.
+- **`## Type` marker** (optional; immediately after title; values `feature` | `refactor` | `bug-fix` | `infra` | `operator-action`) consistent across `work-orders-loop.md` AC-WO-002.10 + AC-WO-003.5, `on-disk-layout.md` AC-LAYOUT-005.3, blueprint-to-work-orders skill, `wo-spec-judge` skill, PRD §6.4.
+- **`_inbox/` → `_backlog/` rename** clean: PRD §6.5.1 + §7.2 tree, `on-disk-layout.md` AC-LAYOUT-005.8, `coding-loop.md` Terminology + REQ-CL-007 + Feature Behavior, `technical-requirements.md`, and the four wo-* judge skills all reference `_backlog/`. No remaining `_inbox` references in the tree.
+- **`wo-overlap-judge` backlog-check drop** consistent with the skill itself; the FRD AC-WO-006.3 doesn't reference inbox/backlog, so no cross-doc fix needed.
+- **Reviewer counts and names**: 4 work-orders judges (`wo-spec`, `wo-coverage`, `wo-overlap`, `wo-sequencing`) consistent across PRD §8.3, BLUEPRINT §0.1 + §3.3 + §10.2, `work-orders-loop.md` AC-WO-005.2 + REQ-WO-006, `project-lifecycle.md`. No leftover `wo-scoping-judge`/`wo-dependency-judge` references.
+- **AC ID format** `AC-WO-<slug>.M` consistent across PRD.md §6.4 + §7.4 + §8.3 + §9, `work-orders-loop.md` AC-WO-002.7 + Feature Behavior, blueprint-to-work-orders skill, code-spec-judge skill, wo-spec-judge skill, wo-coverage-judge skill. No remaining `AC-WO-NNN.M`.
+- **Branch naming** `task/<wo-slug>` consistent in PRD §6.5, BLUEPRINT §3.3 + §7, coding-loop FRD, python-orchestrator AC-ORCH-006.1, project-lifecycle.md. No remaining `task/<task_id>`.
+- **WO file naming** `wo-<slug>.md` + `.wo-<slug>.meta.yaml` (flat, no per-WO directories) consistent across PRD §6.4 + §7.2, BLUEPRINT §3.3 + §7.2, work-orders-loop.md, on-disk-layout.md REQ-LAYOUT-005, coding-loop.md, technical-requirements.md, project-lifecycle.md.
+- **`_sequence.md` and `_external-blockers.md`** referenced consistently in PRD, BLUEPRINT, work-orders-loop FRD, coding-loop FRD, on-disk-layout FRD, python-orchestrator FRD, technical-requirements.md.
+- **Status set** `backlog | ready | in_progress | done | blocked_external` and **type set** `feature | refactor | bug-fix | infra | operator-action` agree between BLUEPRINT.md WorkOrder TypedDict (§4) and on-disk-layout.md AC-LAYOUT-005.3.
+- **Gate-key set** (six bare keys; four code-* always `required` for agent-executable WOs) agrees between work-orders-loop.md AC-WO-002.8 and coding-loop.md AC-CL-004.8.
+- **Subcommand list** `requirements-loop`, `blueprint-loop`, `work-orders-loop`, `coding-loop`, `status` consistent across PRD §7.1, BLUEPRINT §3.1, python-orchestrator AC-ORCH-001.2 + Terminology, technical-requirements.md.
+- **Five-stages / four-autonomous-loops framing** consistent across PRD §1, project-lifecycle.md, product-description.md, architecture.md, design-principles.md, BLUEPRINT §0.2.
+- **Communication-folder never-wipe semantics** consistent across on-disk-layout.md REQ-LAYOUT-012, python-orchestrator.md REQ-ORCH-012, the three upstream-loop FRDs, BLUEPRINT §1.8 + §7.6, technical-requirements.md, measurement.md.
+- **Coding loop has no communication folder** consistent across coding-loop.md, python-orchestrator.md AC-ORCH-012.7, on-disk-layout.md AC-LAYOUT-012.7, architecture.md, technical-requirements.md, product-description.md, BLUEPRINT §0.1.
+- **Cross-references** all resolve (REQ-WO-002 from on-disk-layout AC-LAYOUT-005.4 and appendix; REQ-ORCH-013 from per-loop FRDs; blueprint document-shape contract from on-disk-layout AC-LAYOUT-006.5, blueprint-loop AC-BL-002.6, appendix.md, BLUEPRINT.md §11).
+
+Two soft within-FRD prose observations (out of cross-doc-judge's strict scope — these are within a single document and would be `req-spec-judge`'s territory rather than mine — but worth flagging for the operator):
+
+- `requirements/features/work-orders-loop.md:39` (User Story for REQ-WO-002) still reads "I want every work order to follow a single canonical shape", which understates the post-carve-out reality where REQ-WO-002.7 / .8 / .10 explicitly define a different shape for operator-action work orders. Within-doc; not a cross-doc fact-level mismatch.
+- `requirements/features/coding-loop.md:87` Feature Behavior prose says "The four LLM-as-judge gates are always `required` because their failure modes apply to every diff regardless of work-order shape." Technically still true (operator-action WOs produce no diff and are skipped on drain per AC-CL-002.1), but the prose doesn't acknowledge the carve-out. Within-doc; not a cross-doc fact-level mismatch.
+
+No fact-level mismatches across docs, no terminology drift, no significant duplication, no broken cross-references found across the tree.
+
