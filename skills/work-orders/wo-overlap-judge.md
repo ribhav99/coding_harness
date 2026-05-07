@@ -38,7 +38,7 @@ You only check produced-interface uniqueness across pairs of work orders.
 ## Where things live
 
 - Work orders live at `work-orders/wo-<slug>.md`. Walk every `wo-<slug>.md` at the top level of `work-orders/`. For each, parse the fenced ` ```yaml ` block under `## Produces`.
-- `work-orders/_inbox/` holds backlog gaps; include those work orders in the overlap check too — a backlog work order claiming the same interface as a main-tree work order is also `OVERLAP`.
+- `work-orders/_backlog/` holds gaps the coding loop filed for operator triage; ignore them for overlap review (they haven't been promoted to the active tree, so they don't run and can't conflict yet — overlap will be re-checked when/if the operator promotes them).
 - Ignore `_sequence.md`, `_questions-pending.md`, `_external-blockers.md`.
 
 ## Output

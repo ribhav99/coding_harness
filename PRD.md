@@ -234,7 +234,7 @@ The coding loop is execution-only. It reads the work-orders tree produced by the
 
 #### 6.5.1 Gap filing
 
-When the per-work-order generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it creates a `backlog` work order under `work-orders/_inbox/wo-<slug>.md` (the slug chosen by the agent, descriptive and kebab-case) with a back-reference to the originating work order. The operator triages on their own cadence; gaps never auto-promote to `ready`. After triage, accepted gaps move into the main `work-orders/` tree (typically by re-running the work-orders loop with the gap as seed input).
+When the per-work-order generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it creates a `backlog` work order under `work-orders/_backlog/wo-<slug>.md` (the slug chosen by the agent, descriptive and kebab-case) with a back-reference to the originating work order. The operator triages on their own cadence; gaps never auto-promote to `ready`. After triage, accepted gaps move into the main `work-orders/` tree (typically by re-running the work-orders loop with the gap as seed input).
 
 The upstream loops do not file gaps — they log clarification questions to `_questions-pending.md` in their artifact tree (§6.2, §6.3, §6.4). Different mechanisms because the response shape differs (clarify the source artifact vs. queue new code work).
 
@@ -304,7 +304,7 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
     .sequence.meta.yaml                # blueprints hash + generation timestamp (for change detection)
     wo-<slug>.md                       # one per work order; scoped-task body (per work-orders-loop FRD REQ-WO-002)
     .wo-<slug>.meta.yaml               # id (= slug), status, priority, type, parent_id, blocked_by[], blueprint_ids[]
-    _inbox/                            # gaps filed by the coding loop (§6.5.1); flat wo-<slug>.md files; operator triages
+    _backlog/                            # gaps filed by the coding loop (§6.5.1); flat wo-<slug>.md files; operator triages
   work-orders_communication/           # bidirectional gen↔reviewer channel for the work-orders loop (§6.4)
     blueprint-to-work-orders.md        # generator's outbound
     wo-spec-judge.md                   # one file per reviewer

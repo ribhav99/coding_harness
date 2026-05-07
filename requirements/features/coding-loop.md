@@ -18,7 +18,7 @@ Unlike the upstream loops (requirements, blueprint, work-orders), the coding loo
 - **Gate declaration** — the `## Gates` block in the work order's `wo-<slug>.md`, which declares which gates are `required` and which are `not_applicable`. The orchestrator reads this block to decide which gates to spawn.
 - **Operator-action work order** — a work order with `type: operator-action`. The agent cannot do this work autonomously (e.g. set up OAuth credentials, obtain sample data, run a one-time external configuration step). The orchestrator's drain skips these; they appear in `work-orders/_external-blockers.md` for the operator to handle out-of-band.
 - **`blocked_external` status** — set by the per-work-order coding agent when it discovers mid-execution that it cannot proceed without operator action. The agent appends a description of the blocker to the work order's entry in `work-orders/_external-blockers.md` and exits cleanly. The orchestrator's drain skips `blocked_external` work orders. The operator clears the blocker (does the external thing) and transitions the work order's `status` back to `ready`; the next coding-loop run picks it up.
-- **Gap** — an out-of-scope missing piece of work (missing prerequisite, latent bug, useful refactor) the per-work-order generator discovers mid-run and files as a backlog work order under `work-orders/_inbox/wo-<slug>.md` with a back-reference to the originator.
+- **Gap** — an out-of-scope missing piece of work (missing prerequisite, latent bug, useful refactor) the per-work-order generator discovers mid-run and files as a backlog work order under `work-orders/_backlog/wo-<slug>.md` with a back-reference to the originator.
 
 ## Requirements
 
@@ -71,8 +71,8 @@ Unlike the upstream loops (requirements, blueprint, work-orders), the coding loo
 
 ### REQ-CL-007 — Gap filing
 **User Story.** As an operator, I want the per-work-order generator to file out-of-scope missing work as backlog entries, so that discovered gaps are captured without polluting the current work order's scope.
-- **AC-CL-007.1** — When the per-work-order generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it shall create a `backlog` work order under `work-orders/_inbox/wo-<slug>.md` with a back-reference to the originating work order. The slug for the gap is chosen by the agent (descriptive, kebab-case).
-- **AC-CL-007.2** — Gaps shall never auto-promote to `ready`; the operator triages `_inbox/` on their own cadence and may, after triage, move accepted gaps into the main `work-orders/` tree (typically by re-running the work-orders loop with the gap as seed input).
+- **AC-CL-007.1** — When the per-work-order generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it shall create a `backlog` work order under `work-orders/_backlog/wo-<slug>.md` with a back-reference to the originating work order. The slug for the gap is chosen by the agent (descriptive, kebab-case).
+- **AC-CL-007.2** — Gaps shall never auto-promote to `ready`; the operator triages `_backlog/` on their own cadence and may, after triage, move accepted gaps into the main `work-orders/` tree (typically by re-running the work-orders loop with the gap as seed input).
 
 ## Feature Behavior & Rules
 
@@ -92,6 +92,6 @@ Operator-action work orders and `blocked_external` status are the harness's esca
 
 Merge is always operator-driven. The harness never auto-merges. This is intentional: the operator is the last line of defense before shipping. The harness gets the diff to a state where all six gates pass, posts a final summary as a PR comment, and then stops. The operator reviews the PR, merges when satisfied. On the next `coding-loop` invocation, the orchestrator detects the merge by branch name and transitions the work order to `done`.
 
-The coding loop runs one work order at a time. Worktree-based parallelism is plausible but deferred. Non-web work orders (library, CLI) declare `playwright: not_applicable` in their `## Gates` block; a future iteration may add a behavioral surface for non-web work orders. Gap filing is supported via the `work-orders/_inbox/` mechanism; the operator triages `_inbox/` on their own cadence.
+The coding loop runs one work order at a time. Worktree-based parallelism is plausible but deferred. Non-web work orders (library, CLI) declare `playwright: not_applicable` in their `## Gates` block; a future iteration may add a behavioral surface for non-web work orders. Gap filing is supported via the `work-orders/_backlog/` mechanism; the operator triages `_backlog/` on their own cadence.
 
 The coding loop does not use the communication-folder mechanism. Per-work-order execution review content lives in stdout (captured by the orchestrator) and on the PR (commits + posted summary comment). The artifact under review — a `git diff` — already lives on disk and in git, so the prose-conversation transcript pattern that the upstream loops use is not the right fit here.

@@ -41,7 +41,7 @@ You only check the dependency graph and the sequence.
 - Work orders live at `work-orders/wo-<slug>.md`. Walk every `wo-<slug>.md` at the top level of `work-orders/`.
 - The execution order is in `work-orders/_sequence.md`.
 - The orchestrator materialises `.wo-<slug>.meta.yaml.blocked_by[]` from each work order's `## Depends on.work_orders`; the description is the source of truth, so judge from the description and ignore any drift between the description and the meta file (that's an orchestrator concern, not a generator finding).
-- `work-orders/_inbox/` holds backlog gaps; ignore for sequencing review.
+- `work-orders/_backlog/` holds backlog gaps; ignore for sequencing review.
 
 ## Output
 

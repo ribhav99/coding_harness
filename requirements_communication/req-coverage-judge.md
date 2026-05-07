@@ -40,3 +40,17 @@ PRD §3 Goals & Non-Goals has no dedicated overview node; it is folded into `pro
 
 Coverage is clean.
 
+## Review
+
+PRD↔tree mapping is clean after the work-orders-loop restructure (flat slug-named WOs, four reviewers, `_sequence.md`, `_external-blockers.md`, operator-action type, blocked_external status). Walked PRD.md and the requirements tree:
+
+**Overview tree (11 files)** — every PRD-shaped topic has a home: `product-description.md` (§1), `business-problem.md`, `current-state.md`, `personas.md`, `success-metrics.md`, `measurement.md` (§2 subsections), `design-principles.md` (§4), `architecture.md` (§5), `project-lifecycle.md` (§6), `technical-requirements.md` (§7 synthesis), `appendix.md` (§9). PRD §3 Goals & Non-Goals continues to be folded into `product-description.md` / `design-principles.md` — consistent prior choice, not a defect.
+
+**Feature tree (7 files)** — every loop and component has its FRD: `prd-authoring.md` (§6.1), `requirements-loop.md` (§6.2), `blueprint-loop.md` (§6.3), `work-orders-loop.md` (§6.4 — restructured to four reviewers, slug-named WOs, `_sequence.md`, operator-action type, blocked_external status — all visible in the rewritten REQ-WO-002 through REQ-WO-011), `coding-loop.md` (§6.5 — slug-based branch naming, `_external-blockers.md` regeneration, `blocked_external` mid-execution handling), `python-orchestrator.md` (§7.1), `on-disk-layout.md` (§7.2 — REQ-LAYOUT-005 rewritten for flat slug shape, `_sequence.md`, `_external-blockers.md`).
+
+**No fabricated nodes.** Every node traces to specific PRD content. Spot-checked the new mechanics introduced by the restructure: AC-WO-011 (`_external-blockers.md` regeneration) traces to PRD §6.4 "Operator-action work orders" + PRD §6.5 "Discovered external blockers"; the four-reviewer set (wo-spec / wo-coverage / wo-overlap / wo-sequencing) traces to PRD §8.3.
+
+**No missing nodes detected.** All five lifecycle stages, both component-level features, and all overview-shaped PRD topics remain represented.
+
+Coverage is clean.
+

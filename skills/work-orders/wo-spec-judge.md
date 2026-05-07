@@ -13,12 +13,13 @@ Every work order in `work-orders/wo-<slug>.md` must satisfy:
 
 ### Structural shape
 
-- **Sections in canonical order, none missing:** `# <Title>`, `## Goal`, `## Blueprints`, `## In scope`, `## Out of scope`, `## Produces`, `## Depends on`, `## Acceptance criteria`, `## Gates`, optional `## Implementation notes (non-binding)`. A missing required section or out-of-order sections is `STRUCTURE`.
-- **Fenced ` ```yaml ` blocks parse as valid YAML.** Malformed YAML in `## Produces`, `## Depends on`, or `## Gates` is `MALFORMED_BLOCK`.
+- **Sections in canonical order, none missing.** Agent-executable work orders (no `## Type` section, or `## Type` is `feature`/`refactor`/`bug-fix`/`infra`) carry: `# <Title>`, `## Goal`, `## Blueprints`, `## In scope`, `## Out of scope`, `## Produces`, `## Depends on`, `## Acceptance criteria`, `## Gates`, optional `## Implementation notes (non-binding)`. **Operator-action work orders** (`## Type` is `operator-action`, placed immediately after the title) carry the same sections **except** `## Gates` is omitted. A missing required section or out-of-order sections is `STRUCTURE`.
+- **`## Type` (when present) appears immediately after the title** and contains exactly one of `feature`, `refactor`, `bug-fix`, `infra`, or `operator-action`. Out-of-place `## Type`, unknown values, or multi-value content is `STRUCTURE`.
+- **Fenced ` ```yaml ` blocks parse as valid YAML.** Malformed YAML in `## Produces`, `## Depends on`, or (for agent-executable work orders) `## Gates` is `MALFORMED_BLOCK`.
 - **`## Produces` entries each have `kind`, `name`, `contract` keys.** Missing keys is `MALFORMED_BLOCK`.
 - **`## Depends on` has both `work_orders` and `interfaces` keys** (each may be an empty list). Missing key is `MALFORMED_BLOCK`.
-- **`## Gates` has all six keys** — `tests`, `playwright`, `code-spec`, `code-regression`, `code-security`, `code-quality` — each set to `required` or `not_applicable`. Missing keys, unknown values, or `code-spec`/`code-regression`/`code-security`/`code-quality` set to `not_applicable` is `MALFORMED_BLOCK`.
-- **`## Acceptance criteria` rows match `- [ ] AC-WO-<slug>.M (via <gate>) — <expected outcome>`** where `<slug>` matches the work order's slug, `<gate>` is one of `tests`, `playwright`, `code-spec` (bare gate keys, never the `-judge` suffix), and `<expected outcome>` is one binary sentence. Format violations are `STRUCTURE`.
+- **`## Gates` has all six keys** (agent-executable work orders only) — `tests`, `playwright`, `code-spec`, `code-regression`, `code-security`, `code-quality` — each set to `required` or `not_applicable`. Missing keys, unknown values, or `code-spec`/`code-regression`/`code-security`/`code-quality` set to `not_applicable` is `MALFORMED_BLOCK`. Operator-action work orders skip this check entirely (no `## Gates` section).
+- **`## Acceptance criteria` rows match the right format for the work-order type.** For agent-executable work orders: `- [ ] AC-WO-<slug>.M (via <gate>) — <expected outcome>`, where `<slug>` matches the work order's slug, `<gate>` is one of `tests`, `playwright`, `code-spec` (bare gate keys, never the `-judge` suffix), and `<expected outcome>` is one binary sentence. For operator-action work orders: `- [ ] AC-WO-<slug>.M — <verifiable outcome the operator can confirm>` (the `(via <gate>)` tag is omitted because the operator verifies manually). Format violations are `STRUCTURE`.
 
 ### Content quality
 
@@ -44,7 +45,7 @@ You only check structural shape and content quality of each individual work orde
 
 - Work orders live at `work-orders/wo-<slug>.md`. Walk every `wo-<slug>.md` at the top level of `work-orders/`.
 - The associated `.wo-<slug>.meta.yaml` is orchestrator-managed; ignore it for spec/quality review.
-- `work-orders/_sequence.md`, `_questions-pending.md`, `_external-blockers.md`, `_inbox/` are not work orders; ignore them.
+- `work-orders/_sequence.md`, `_questions-pending.md`, `_external-blockers.md`, `_backlog/` are not work orders; ignore them.
 
 ## Output
 

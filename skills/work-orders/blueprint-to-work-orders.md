@@ -7,7 +7,7 @@ description: Autonomous generator for the work-orders loop. Reads the approved `
 
 ## Your role
 
-You are the **lead tech lead** on this project. The operator has approved a structural blueprints tree under `blueprints/{containers,components,features}/`. Your job is to decompose those blueprints into a flat tree of slug-named work orders under `work-orders/` (one `wo-<slug>.md` per work order, no per-WO directories), plus a separate `_sequence.md` recording the execution order. The work order's `## Depends on` block plus the `_sequence.md` ordering encode the dependency graph.
+You are the **tech lead** on this project. The operator has approved a structural blueprints tree under `blueprints/{containers,components,features}/`. Your job is to decompose those blueprints into a flat tree of slug-named work orders under `work-orders/` (one `wo-<slug>.md` per work order, no per-WO directories), plus a separate `_sequence.md` recording the execution order. The work order's `## Depends on` block plus the `_sequence.md` ordering encode the dependency graph.
 
 The blueprints are the authority on *how* the product gets built. Your work orders decide *what to do first, second, third* — the implementation slicing that the downstream coding loop will execute one work order at a time, each on its own `task/<wo-slug>` branch with its own PR and reviewer stack.
 
@@ -126,11 +126,56 @@ Surface heuristic: if your `## Goal` sentence requires "and" to describe the cha
 
 Some work has to be done by the operator, not the agent — set up OAuth credentials with a third-party provider, obtain sample data from a manual export, run a one-time external configuration step. When you encounter such a work item:
 
-- **Author it as a real work order** with the canonical scoped-task body. The Goal / In scope / Out of scope / Acceptance criteria sections should clearly describe what the operator needs to do and how to know it's complete.
-- **The orchestrator materialises `type: operator-action`** in `.wo-<slug>.meta.yaml` based on a marker in the body. To trigger this, include a top-level marker section right after the Title: `## Type\noperator-action` (a single line — `operator-action`). For all other work orders, omit `## Type` (the orchestrator defaults to `feature`/`refactor`/`bug-fix`/`infra` based on the work order's content; if you want to force a non-default type for an agent-executable work order, include `## Type` with the value).
+- **Author it with a `## Type` section right after the title** containing exactly `operator-action`. For all other work orders, omit `## Type` (the orchestrator defaults to `feature`/`refactor`/`bug-fix`/`infra` based on content; if you want to force a non-default type for an agent-executable work order, include `## Type` with the value).
+- **Operator-action work orders use a slightly different document shape** — the agent never runs them, so two of the agent-execution surfaces are dropped:
+  - **`## Acceptance criteria` rows omit the `(via <gate>)` tag.** Format: `- [ ] AC-WO-<slug>.M — <verifiable outcome the operator can confirm>`. The criterion describes something the operator manually verifies (e.g. "the `.env` file has `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set").
+  - **The `## Gates` section is omitted entirely.** No agent-side gates run for this work order, so there's nothing to declare.
+  All other sections (`# Title`, `## Type`, `## Goal`, `## Blueprints`, `## In scope`, `## Out of scope`, `## Produces`, `## Depends on`, `## Acceptance criteria`, optional `## Implementation notes (non-binding)`) appear with their normal shape and serve their normal roles. `## Produces` may be empty `[]` (typical) or list real produced artifacts (e.g. `kind: config, name: GOOGLE_OAUTH_CREDENTIALS, contract: …`) if downstream work orders consume them.
 - **Operator-action work orders still participate in the dependency graph normally.** Other work orders may depend on an operator-action work order; the orchestrator's drain skips operator-action items so the operator handles them out-of-band, but downstream work orders only become unblocked once the operator has marked the operator-action item `done` in its meta.
 
 The operator sees all operator-action work orders (plus any work orders that exited mid-execution with `status: blocked_external`) summarised in `work-orders/_external-blockers.md`, which the orchestrator regenerates on every loop run.
+
+### Concrete example: operator-action work order
+
+````markdown
+# Set up Google OAuth client
+
+## Type
+operator-action
+
+## Goal
+Configure a Google OAuth client and place the credentials into `.env` so downstream auth work orders can authenticate.
+
+## Blueprints
+- #auth — provides credentials the auth component will read at runtime.
+
+## In scope
+- Create a Google Cloud Console project (or reuse an existing one).
+- Configure OAuth consent screen and scopes (`openid`, `email`, `profile`).
+- Generate a Web application OAuth client and download credentials.
+- Place `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the project's `.env`.
+
+## Out of scope
+- Workspace-domain restrictions (configure later if needed).
+- Refresh-token rotation policy.
+
+## Produces
+```yaml
+- kind: config
+  name: GOOGLE_OAUTH_CREDENTIALS
+  contract: ".env keys GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
+```
+
+## Depends on
+```yaml
+work_orders: []
+interfaces: []
+```
+
+## Acceptance criteria
+- [ ] AC-WO-setup-google-oauth.1 — `.env` contains `GOOGLE_CLIENT_ID=<value>` and `GOOGLE_CLIENT_SECRET=<value>`, both non-empty.
+- [ ] AC-WO-setup-google-oauth.2 — Running `python -m my-app verify-oauth` prints "OAuth credentials accepted" and exits 0.
+````
 
 ## The sequence file (`_sequence.md`)
 

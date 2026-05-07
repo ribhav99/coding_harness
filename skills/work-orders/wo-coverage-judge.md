@@ -11,11 +11,11 @@ You judge whole-tree coverage between blueprints and work orders, mention resolu
 
 - **Blueprint surface coverage.** Every approved blueprint's delivery surface — its `component` blocks, `model` blocks, feature commitments, and explicit interface exposures — should be reachable from at least one work order. A delivery-surface element with no work order claiming it (no `#<blueprint-slug>` mention from any work order's `## Blueprints` section, no `Produces` entry that aligns with a blueprint contract) is a `MISSING_COVERAGE` finding.
 - **Mention resolution.** Every `#<blueprint-slug>` mention in any work order's `## Blueprints` section must resolve to an existing file at `blueprints/{containers,components,features}/<blueprint-slug>.md`. A mention to a non-existent blueprint is `BROKEN_REF`.
-- **AC observation-gate coverage.** Every acceptance criterion in `## Acceptance criteria` declares an observation gate as `(via tests)`, `(via playwright)`, or `(via code-spec)` — bare gate keys matching the keys in `## Gates`. The work order's `## Gates` block must declare the corresponding gate `required` (not `not_applicable`):
+- **AC observation-gate coverage** (agent-executable work orders only). For work orders where `## Type` is absent or any of `feature`/`refactor`/`bug-fix`/`infra`, every acceptance criterion in `## Acceptance criteria` declares an observation gate as `(via tests)`, `(via playwright)`, or `(via code-spec)` — bare gate keys matching the keys in `## Gates`. The work order's `## Gates` block must declare the corresponding gate `required` (not `not_applicable`):
   - `(via tests)` requires `tests: required`
   - `(via playwright)` requires `playwright: required`
   - `(via code-spec)` requires `code-spec: required` (always required by contract, but verify it's not been written `not_applicable` by mistake).
-  An AC tagged `via tests` paired with `tests: not_applicable` is `AC_GATE_MISMATCH`. An AC observation gate that is not one of the three valid bare names is also `AC_GATE_MISMATCH` (e.g. `(via code-spec-judge)` with the `-judge` suffix is wrong; the bare `code-spec` is correct).
+  An AC tagged `via tests` paired with `tests: not_applicable` is `AC_GATE_MISMATCH`. An AC observation gate that is not one of the three valid bare names is also `AC_GATE_MISMATCH` (e.g. `(via code-spec-judge)` with the `-judge` suffix is wrong; the bare `code-spec` is correct). **Operator-action work orders skip this check** — their AC rows omit the `(via <gate>)` tag (the operator verifies manually) and they have no `## Gates` block.
 - **No orphans.** A work order whose `## Blueprints` section is empty or missing — i.e. it does not contribute to any blueprint surface — is an `ORPHAN`. (Refactor-only work orders that explicitly target a code area should still cite the relevant blueprint via `#<blueprint-slug>`.)
 
 ## What you don't check
@@ -32,7 +32,7 @@ You only check coverage of blueprint surface, mention resolution, AC-gate consis
 
 - Approved blueprints live at `blueprints/{containers,components,features}/<blueprint-slug>.md`. Walk all three subdirectories.
 - Work orders live at `work-orders/wo-<slug>.md`. Walk every `wo-<slug>.md` at the top level of `work-orders/`.
-- `work-orders/_inbox/` holds operator-triaged gaps; ignore for coverage review.
+- `work-orders/_backlog/` holds operator-triaged gaps; ignore for coverage review.
 - `work-orders/_sequence.md`, `_questions-pending.md`, `_external-blockers.md` are not work orders; ignore them.
 
 ## Output
