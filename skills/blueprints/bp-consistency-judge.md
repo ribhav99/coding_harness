@@ -34,11 +34,12 @@ You judge semantic consistency across the `blueprints/` tree. Critical issues on
 
 ## What you don't check
 
-Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
+Four other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
 - **`bp-spec-judge`** — per-blueprint structural shape.
 - **`bp-coverage-judge`** — coverage and reference resolution.
 - **`bp-decision-judge`** — silent architectural decisions.
+- **`bp-frd-fidelity-judge`** — REQ-level coverage of each FRD by its blueprint, OOS alignment, terminology consistency. (You compare blueprints to *each other*; that judge compares each blueprint to its FRD.)
 
 You only check semantic consistency across blueprints: contracts align between consumer and provider, feature blueprints don't redefine shared components, container blueprints stay at the boundary, generated blueprints don't drift from `BLUEPRINT.md`.
 

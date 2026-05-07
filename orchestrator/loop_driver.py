@@ -293,7 +293,7 @@ def _run_reviewers_parallel(
                 append_system_prompt=reviewer_skill_bodies[reviewer_name],
                 cwd=project_root,
                 settings_file=rev_settings,
-                disallowed_tools=["Bash", "NotebookEdit"],
+                disallowed_tools=["Bash", "NotebookEdit", "Task"],
                 extra_env={
                     "HARNESS_AGENT_KIND": "reviewer",
                     "HARNESS_LOOP_NAME": spec.name,

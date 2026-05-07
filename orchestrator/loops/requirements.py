@@ -17,6 +17,7 @@ REVIEWERS = (
     "req-cross-doc-judge",
     "req-coverage-judge",
     "req-scoping-judge",
+    "req-prd-fidelity-judge",
 )
 LOOP_NAME = "requirements-loop"
 COMMIT_PATHS = [

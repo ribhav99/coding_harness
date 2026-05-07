@@ -28,11 +28,12 @@ If a high-impact decision appears in a blueprint as a concrete choice, with no g
 
 ## What you don't check
 
-Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
+Four other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
 - **`bp-spec-judge`** — per-blueprint structural shape.
 - **`bp-coverage-judge`** — coverage and reference resolution.
 - **`bp-consistency-judge`** — semantic consistency across blueprints.
+- **`bp-frd-fidelity-judge`** — REQ-level coverage of each FRD by its blueprint, OOS alignment, terminology consistency.
 
 You only check decision hygiene: every high-impact architectural choice in the tree is either grounded in requirements or surfaced as a question for the operator. You do not evaluate whether a decision is *correct* — you evaluate whether it was made silently.
 

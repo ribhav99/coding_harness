@@ -16,13 +16,14 @@ You judge the mapping between `PRD.md` and the generated `requirements/` tree. C
 
 ## What you don't check
 
-Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
+Four other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
 - **`req-spec-judge`** — per-doc structural shape and within-doc consistency.
 - **`req-cross-doc-judge`** — whole-tree consistency.
 - **`req-scoping-judge`** — feature-unit scoping and parent/child correctness.
+- **`req-prd-fidelity-judge`** — REQ-level coverage of PRD by tree, OOS alignment, terminology consistency, fabricated REQs. (You stop at topic-level PRD↔node parity; that judge reads inside the file bodies for REQ-level matching.)
 
-You only check coverage: every PRD topic maps to a node in the tree, and nothing in the tree is fabricated.
+You only check coverage at topic granularity: every PRD topic maps to a node in the tree, and nothing in the tree is fabricated at the node level.
 
 ## Where things live
 

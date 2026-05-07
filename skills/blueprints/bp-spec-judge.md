@@ -25,11 +25,12 @@ You judge structural conformance of every blueprint in the `blueprints/` tree. C
 
 ## What you don't check
 
-Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
+Four other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
 - **`bp-coverage-judge`** — coverage and reference resolution.
 - **`bp-consistency-judge`** — semantic consistency across blueprints.
 - **`bp-decision-judge`** — silent architectural decisions.
+- **`bp-frd-fidelity-judge`** — REQ-level coverage of each FRD by its blueprint, OOS alignment, terminology consistency.
 
 You only check structural shape: section order per blueprint type, fenced blocks well-formed, ADRs shaped correctly, internal fact-level consistency, no refactor breadcrumbs.
 

@@ -19,6 +19,7 @@ REVIEWERS = (
     "bp-coverage-judge",
     "bp-consistency-judge",
     "bp-decision-judge",
+    "bp-frd-fidelity-judge",
 )
 LOOP_NAME = "blueprint-loop"
 COMMIT_PATHS = [

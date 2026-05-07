@@ -20,11 +20,12 @@ You judge feature-unit shape per FRD and parent/child correctness across the fea
 
 ## What you don't check
 
-Three other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
+Four other judges run in parallel against the same tree. If you see something that fits one of their rubrics, ignore it.
 
 - **`req-spec-judge`** — per-doc structural shape and within-doc consistency.
 - **`req-cross-doc-judge`** — whole-tree consistency.
-- **`req-coverage-judge`** — PRD↔tree coverage.
+- **`req-coverage-judge`** — PRD↔tree coverage (topic-level).
+- **`req-prd-fidelity-judge`** — REQ-level coverage of PRD by tree, OOS alignment, terminology consistency.
 
 You only check feature-unit shape and parent/child correctness within `requirements/features/`. Don't second-guess whether a feature should exist — that's the operator's call. Only flag scoping shape: lumping, splitting, or invalid parent/child.
 
