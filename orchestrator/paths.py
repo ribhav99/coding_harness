@@ -20,17 +20,26 @@ def reviews_archive_dir(project_root: Path, loop_name: str, attempt: int) -> Pat
     return project_root / "harness" / "state" / "reviews" / loop_name / f"attempt-{attempt}"
 
 
+def coding_reviews_archive_dir(project_root: Path, wo_slug: str, attempt: int) -> Path:
+    """Per-WO review archive under `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/`."""
+    return project_root / "harness" / "state" / "reviews" / "coding-loop" / wo_slug / f"attempt-{attempt}"
+
+
 def loop_state_file(project_root: Path, loop_name: str) -> Path:
     return harness_state_dir(project_root) / f"{loop_name}.json"
 
 
-def communication_dir(project_root: Path, loop_name: str) -> Path:
+def communication_dir(project_root: Path, loop_name: str, wo_slug: str | None = None) -> Path:
     if loop_name == "requirements-loop":
         return project_root / "requirements_communication"
     if loop_name == "blueprint-loop":
         return project_root / "blueprints_communication"
     if loop_name == "work-orders-loop":
         return project_root / "work-orders_communication"
+    if loop_name == "coding-loop":
+        if wo_slug is None:
+            raise ValueError("coding-loop communication_dir requires wo_slug")
+        return project_root / "coding_communication" / wo_slug
     raise ValueError(f"loop_name {loop_name!r} has no communication folder")
 
 

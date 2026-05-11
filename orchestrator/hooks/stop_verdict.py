@@ -18,10 +18,14 @@ Env vars (set by the orchestrator when spawning):
     HARNESS_MAX_AGENT_RETRIES   integer cap on retries (matches config.yaml)
     HARNESS_STOP_HOOK_COUNTER   path to a per-spawn counter file
 
-Reviewer trailers: `VERDICT: pass` | `VERDICT: fail`.
+Reviewer trailers: `VERDICT: pass` | `VERDICT: fail` (with optional `not_run`
+for execution-gate reviewers in the coding loop — treated as fail by the
+orchestrator's verdict parser, but accepted as well-formed by the hook so the
+turn can end cleanly).
 Generator trailers:
     VERDICT: ready_for_review
-    VERDICT: awaiting_clarification     (may be followed by metadata lines)
+    VERDICT: awaiting_clarification     (upstream loops; may be followed by metadata lines)
+    VERDICT: blocked_external           (coding-loop generator only)
 """
 
 import json
@@ -30,8 +34,12 @@ import sys
 from pathlib import Path
 
 
-REVIEWER_VERDICTS = {"VERDICT: pass", "VERDICT: fail"}
-GENERATOR_VERDICTS = {"VERDICT: ready_for_review", "VERDICT: awaiting_clarification"}
+REVIEWER_VERDICTS = {"VERDICT: pass", "VERDICT: fail", "VERDICT: not_run"}
+GENERATOR_VERDICTS = {
+    "VERDICT: ready_for_review",
+    "VERDICT: awaiting_clarification",
+    "VERDICT: blocked_external",
+}
 
 
 def main() -> int:
@@ -50,6 +58,9 @@ def main() -> int:
 
     last_line = _last_nonblank_line(last_text)
     if kind == "generator" and last_line.startswith(("open_questions:", "questions_file:")):
+        last_line = _verdict_line_above_metadata(last_text) or last_line
+    if kind == "reviewer" and last_line.startswith("REASON:"):
+        # tests-runner / playwright-runner format: `VERDICT: ...\nREASON: ...`
         last_line = _verdict_line_above_metadata(last_text) or last_line
 
     if last_line in valid:

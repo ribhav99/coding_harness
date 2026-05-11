@@ -15,7 +15,7 @@ A reusable harness for running long-horizon software engineering work through Cl
 4. **Work-Orders Loop** (upstream, autonomous, with non-blocking clarification questions). Decomposes approved blueprints into a flat tree of slug-named work orders under `work-orders/` (one `wo-<slug>.md` plus `.wo-<slug>.meta.yaml` per work order, no per-WO directories), plus a separate `_sequence.md` recording the execution order. The work order's `Depends on` block plus the `_sequence.md` order encode the dependency graph. Reviews against four rubrics (structural conformance + content quality, blueprint coverage, no-overlap of produced surface, sequencing correctness — both structural and semantic). When the generator hits a decomposition ambiguity (overlapping responsibilities between blueprints, an unclear capability boundary), it logs a bare question to `work-orders/_questions-pending.md` and keeps decomposing the rest. Same `awaiting_clarification` exit mechanism as the requirements and blueprint loops. The operator clarifies the source artifact (typically a blueprint) and re-triggers.
 5. **Coding Loop** (execution, autonomous). Drains the ready work-order queue produced by the work-orders loop, executing each work order in dependency order on `task/<id>` branches with its own reviewer stack and PR-per-work-order flow. The work-order document shape (atomicity rule, structured `Produces`/`Depends on`/`Gates` blocks, acceptance-criteria schema) is what makes per-work-order execution mechanically verifiable rather than guesswork. The coding loop does not generate work orders; that is the work-orders loop's job.
 
-Each autonomous loop has the same shape: orchestrator spawns a generator → orchestrator spawns each reviewer → orchestrator aggregates verdicts → if any fail, orchestrator re-spawns the generator with the aggregated feedback → if all pass, artifact is committed. The orchestrator owns the loop; generators and reviewers are single-purpose subprocesses. The three upstream loops (requirements, blueprint, work-orders) share identical plumbing — communication folders, dual completion condition, `awaiting_clarification` exit verdict, no PR for output. The coding loop is execution-only — per-work-order subprocesses, PR-per-work-order, no communication folder; reviewer content lives in stdout and on the PR.
+Each autonomous loop has the same shape: orchestrator spawns a generator → orchestrator spawns each reviewer → orchestrator aggregates verdicts → if any fail, orchestrator re-spawns the generator with the aggregated feedback → if all pass, artifact is committed. The orchestrator owns the loop; generators and reviewers are single-purpose subprocesses. All four loops use the same communication-folder mechanism for gen↔reviewer transcripts — the three upstream loops have one folder per loop (`requirements_communication/`, `blueprints_communication/`, `work-orders_communication/`), the coding loop has one folder per work order (`coding_communication/<wo-slug>/`). The upstream loops share the rest of the plumbing too — dual completion condition, `awaiting_clarification` exit verdict, no PR for output. The coding loop differs from the upstream loops on execution shape — per-work-order subprocesses, PR-per-work-order, no `awaiting_clarification` exit (a per-WO blocker exits `blocked_external` instead).
 
 The harness drives the Claude Code CLI as a subprocess from a Python orchestrator. Canonical state lives on disk at the project repo's root; the entity layout mirrors Software Factory's model so upload to SF is mechanical.
 
@@ -107,7 +107,7 @@ The project lives in a single git repo containing the operator's `PRD.md` at the
 
 One project, end to end. Five stages: a manual PRD-authoring stage followed by four autonomous loops. The first three autonomous loops (requirements, blueprint, work-orders) are *upstream* loops — they each use the same mechanic: orchestrator spawns a generator, then spawns each reviewer; the generator and reviewers communicate bidirectionally through files in a per-loop communication folder (`<loop>_communication/<reviewer-name>.md`); the orchestrator aggregates `VERDICT:` lines from reviewer stdouts, re-spawns the generator on any fail, commits on all-pass. The three upstream loops share state-file plumbing, communication-folder plumbing, reviewer review snapshots, dual completion condition (all reviewers pass AND `_questions-pending.md` empty), and budget enforcement. They differ in generator skill, reviewer set, and target artifact tree.
 
-The fourth autonomous loop (coding) is *execution-only* — per-work-order subprocess, PR-per-work-order flow, reviewer content in stdout and on the PR. No communication folder; the artifact under review is a `git diff` rather than a prose document.
+The fourth autonomous loop (coding) is *execution-only* — per-work-order subprocess, PR-per-work-order flow. The diff and PR comments are the operator-facing review surface; the per-WO communication folder at `coding_communication/<wo-slug>/` carries the agent-to-agent gen↔reviewer transcript that drives retries, identically to the upstream loops.
 
 ### 6.1 Stage 1 — Manual PRD authoring
 
@@ -230,7 +230,9 @@ The coding loop is execution-only. It reads the work-orders tree produced by the
 
 **Queue drain.** By default, a single `coding-loop` invocation drains all work orders whose dependencies are ready, in order. A `--one` flag runs one work order and exits.
 
-**No communication folder.** The coding loop does not use the communication-folder mechanism. Per-work-order execution review content lives in stdout (captured by the orchestrator) and on the PR (commits + posted summary comment). The artifact under review — a `git diff` — already lives on disk and in git, so the prose-conversation transcript pattern that the upstream loops use is not the right fit here.
+**Per-WO communication folder.** Live conversation between the per-work-order generator and the reviewer stack happens in `coding_communication/<wo-slug>/` at the project root (sibling to `work-orders_communication/`, but per-WO rather than per-loop). One file per agent (`implement-work-order.md` for the generator, one per reviewer). Reviewers append `## Review` blocks to their own files; the generator reads each failing reviewer's file on retry and appends per-finding `## Response` blocks to the same files. Same lifecycle as the upstream loops: orchestrator ensures the folder exists, snapshots to `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/` at attempt boundaries, and never wipes — the folder accumulates the full conversation across attempts and across orchestrator invocations forever.
+
+The PR is the operator-facing review surface (commits + posted summary comment on pass); the communication folder is the agent-to-agent transcript that drives retries.
 
 #### 6.5.1 Gap filing
 
@@ -305,6 +307,15 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
     wo-<slug>.md                       # one per work order; scoped-task body (per work-orders-loop FRD REQ-WO-002)
     .wo-<slug>.meta.yaml               # id (= slug), status, priority, type, parent_id, blocked_by[], blueprint_ids[]
     _backlog/                            # gaps filed by the coding loop (§6.5.1); flat wo-<slug>.md files; operator triages
+  coding_communication/                # bidirectional gen↔reviewer channel for the coding loop, per-WO (§6.5)
+    <wo-slug>/                         # one subdir per work order
+      implement-work-order.md          # generator's outbound
+      code-spec-judge.md               # one file per reviewer (bidirectional)
+      code-regression-judge.md
+      code-security-judge.md
+      code-quality-judge.md
+      tests-runner.md                  # present when tests gate is required
+      playwright-runner.md             # present when playwright gate is required
   work-orders_communication/           # bidirectional gen↔reviewer channel for the work-orders loop (§6.4)
     blueprint-to-work-orders.md        # generator's outbound
     wo-spec-judge.md                   # one file per reviewer
@@ -317,7 +328,7 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
     state/requirements-loop.json       # loop-level state
     state/blueprint-loop.json          # loop-level state
     state/work-orders-loop.json        # loop-level state for the work-orders loop
-    state/reviews/<loop>/[<wo-slug>/]attempt-<N>/<reviewer>.md   # snapshots from communication folders (upstream loops) or stdout (coding execution)
+    state/reviews/<loop>/[<wo-slug>/]attempt-<N>/<reviewer>.md   # snapshots from the loop's communication folder at each attempt boundary
     logs/<wo-slug>/...                 # hook/session logs
 ```
 
@@ -332,7 +343,7 @@ A reference skeleton lives at `project-template/` inside this kit repo. Clone it
 
 **`blueprints/` subtree** has the same per-node shape as `requirements/` (visible `<slug>.md` plus two dotted-hidden meta files), divided into three subdirectories — `containers/`, `components/`, `features/` — corresponding to the three blueprint types. Feature-blueprint slugs are 1:1 with `requirements/features/<slug>.md` (enforced by `bp-coverage-judge`). Per-type document shape (sections, mention syntax, fenced blocks, ADRs) is pinned in `BLUEPRINT.md §11`.
 
-**Communication folders** (`requirements_communication/`, `blueprints_communication/`, `work-orders_communication/`) sit at the project root, sibling to the artifact trees. Each holds one markdown file per agent in the loop (one for the generator, one per reviewer) — append-only conversation transcripts. Both the generator and the named reviewer read and write the file; the orchestrator never wipes the folder — it accumulates the project's full reviewer-generator conversation across attempts and across invocations forever. The orchestrator snapshots it to `harness/state/reviews/<loop>/attempt-<N>/` at attempt boundaries for audit. Lifecycle and race-condition argument live in `BLUEPRINT.md §1.8`.
+**Communication folders** (`requirements_communication/`, `blueprints_communication/`, `work-orders_communication/`, `coding_communication/<wo-slug>/`) sit at the project root, sibling to the artifact trees. Each holds one markdown file per agent in the loop (one for the generator, one per reviewer) — append-only conversation transcripts. The three upstream loops have one folder per loop; the coding loop has one folder per work order so per-WO conversations don't interleave. Both the generator and the named reviewer read and write the file; the orchestrator never wipes the folder — it accumulates the project's full reviewer-generator conversation across attempts and across invocations forever. The orchestrator snapshots it to `harness/state/reviews/<loop>/[<wo-slug>/]attempt-<N>/` at attempt boundaries for audit. Lifecycle and race-condition argument live in `BLUEPRINT.md §1.8`.
 
 **Work-order document shape** is pinned in `requirements/features/work-orders-loop.md` REQ-WO-002 (sections, structured fenced YAML blocks for `Produces`/`Depends on`/`Gates`, acceptance-criteria schema, mention syntax).
 
@@ -342,7 +353,7 @@ A local-planner module reads and writes the on-disk layout as a single concrete 
 
 ### 7.3 State files
 
-All loop and per-work-order state is JSON under `harness/state/`. Reviewer reviews are archived under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`. For the upstream loops (requirements, blueprint), the orchestrator snapshots each reviewer's communication file from the live folder at attempt boundaries and on every loop-exit verdict — the reviewer wrote that file directly during the attempt (§6.2, §6.3). For the coding-loop's per-work-order execution, the orchestrator captures each reviewer subprocess's stdout (the reviewer's final chat message ending in a `VERDICT:` line) and writes it to the same archive path. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
+All loop and per-work-order state is JSON under `harness/state/`. Reviewer reviews are archived under `harness/state/reviews/<loop>/[<task-id>/]attempt-<N>/<reviewer-name>.md`. For every loop — upstream and coding — the orchestrator snapshots each reviewer's communication file from the live folder at attempt boundaries and on every loop-exit verdict (the reviewer wrote that file directly during the attempt; the stdout the orchestrator captures is a short ack ending in the `VERDICT:` line). The coding-loop snapshot path includes the `<wo-slug>/` subdir because the coding folder is per-WO. The entire `harness/` tree is committed to git as a first-class project artifact — audit, replay, failure-mode analysis, future training data. State files are never deleted; log files may be pruned on a documented retention policy.
 
 ### 7.4 Skills
 
@@ -388,7 +399,7 @@ Each skill carries its own autonomy posture: no clarifying questions mid-loop, d
 - `code-security-judge` *(reviewer, LLM-as-judge)* — OWASP-class issues in the diff.
 - `code-quality-judge` *(reviewer, LLM-as-judge)* — structural + textual maintainability of the diff.
 
-Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the path to its communication file. Reviewers in the upstream loops (requirements, blueprint, work-orders) are spawned with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed so the reviewer can append its review to its own communication file, but a `PreToolUse` path-guard hook (§7.5) blocks any path other than that file. Reviewers in the coding-loop's per-WO execution stack run with the original `--disallowedTools Write,Edit,NotebookEdit,Bash` since they don't use the communication-folder mechanism. In all cases, the orchestrator greps the trailing `VERDICT:` line from the reviewer's stdout, archives the full review (from the communication file for upstream loops, from stdout for coding-loop execution), and aggregates.
+Each reviewer skill runs in a fresh Claude Code context with a scoped prompt — it sees only the artifacts it needs to review plus the path to its communication file. Reviewers in the upstream loops (requirements, blueprint, work-orders) are spawned with `--disallowedTools Bash,NotebookEdit`; `Write` and `Edit` are allowed so the reviewer can append its review to its own communication file, but a `PreToolUse` path-guard hook (§7.5) blocks any path other than that file. Reviewers in the coding-loop's per-WO execution stack run with `--disallowedTools NotebookEdit,Task` (the same path-guard hook applies); `Bash` is allowed because execution gates run their suite and LLM judges run `git diff` to read the diff. In all cases, the orchestrator greps the trailing `VERDICT:` line from the reviewer's stdout and archives the full review from the reviewer's communication file (snapshotted at attempt boundaries).
 
 **Not skills** (and why):
 

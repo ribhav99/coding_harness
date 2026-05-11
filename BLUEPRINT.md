@@ -164,7 +164,7 @@ For each attempt of a loop, the orchestrator:
 1. **Spawns the generator.** Builds a prompt containing:
    - The generator's skill (e.g. `prd-to-frds`).
    - Current on-disk state of every artifact tree the generator reads or writes (for requirements loop: `PRD.md` + existing `requirements/` tree; for blueprint loop: `requirements/features/` + existing `blueprints/` + `blueprints/_questions-pending.md`; etc.).
-   - On retry attempts: a pointer to the loop's communication folder (`requirements_communication/`, `blueprints_communication/`, or `work-orders_communication/`) — the generator reads each reviewer's file directly to see prior reviews and its own prior responses (§1.8).
+   - On retry attempts: a pointer to the loop's communication folder (`requirements_communication/`, `blueprints_communication/`, `work-orders_communication/`, or — for the coding loop — `coding_communication/<wo-slug>/`) — the generator reads each reviewer's file directly to see prior reviews and its own prior responses (§1.8).
    - Attempt counter and remaining budget.
    Spawns `claude -p "<prompt>"`. Wall-clock cap enforced per subprocess. By default attempt 1 spawns a fresh session via `--session-id <uuid>` and attempts 2+ resume that session via `--resume <uuid>` with a short follow-up message — the agent retains its own reasoning across attempts. Pass `--memoryless` to force every attempt to spawn a fresh session and rely on the communication folder alone (§1.10).
 
@@ -329,7 +329,7 @@ On attempt 1 the generator writes its initial proposal block to each reviewer's 
 
 ### 1.8 Reviewer ↔ generator communication channel
 
-Each upstream loop has a dedicated communication folder at the project root, sibling to the artifact tree:
+Each loop has a dedicated communication folder at the project root, sibling to the artifact tree. The three upstream loops have one folder per loop; the coding loop has one folder per work order (per-WO, because each WO is its own conversation thread):
 
 ```
 requirements_communication/        # for the requirements loop
@@ -345,9 +345,26 @@ blueprints_communication/          # for the blueprint loop
   bp-coverage-judge.md
   bp-consistency-judge.md
   bp-decision-judge.md
+
+work-orders_communication/         # for the work-orders loop
+  blueprint-to-work-orders.md
+  wo-spec-judge.md
+  wo-coverage-judge.md
+  wo-overlap-judge.md
+  wo-sequencing-judge.md
+
+coding_communication/              # for the coding loop, per-WO
+  <wo-slug>/                       # one subdir per work order
+    implement-work-order.md        # generator's outbound
+    code-spec-judge.md             # bidirectional, one per reviewer
+    code-regression-judge.md
+    code-security-judge.md
+    code-quality-judge.md
+    tests-runner.md                # present when tests gate is required
+    playwright-runner.md           # present when playwright gate is required
 ```
 
-The coding loop does not use this mechanism; per-WO execution communicates through the PR (commits + PR comments).
+The diff and PR are the *operator-facing* review surface for the coding loop; `coding_communication/<wo-slug>/` carries the *agent-to-agent* transcript that drives retries — same mechanic as the upstream loops.
 
 **Why outside the artifact tree.** The communication folders are siblings of `requirements/` and `blueprints/`, not nested inside them. Rationale: the artifact tree is the deliverable — the operator and downstream loops should be able to read it as the spec without wading through generator-vs-reviewer conversation transcripts. Conversation lives next door, not in the deliverable.
 
@@ -757,9 +774,12 @@ The entire `harness/` directory is **committed to git** — first-class project 
 
 ### 7.4 Reviewer review archive
 
-For upstream loops (requirements, blueprint, work-orders), the live conversation between generator and reviewers happens in the loop's communication folder (§1.8). At each attempt boundary — and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`) — the orchestrator snapshots each `<reviewer-name>.md` file from the live communication folder into `harness/state/reviews/<loop-name>/attempt-<N>/<reviewer-name>.md`, where `<loop-name>` is the full subcommand name (`requirements-loop`, `blueprint-loop`, `work-orders-loop`, or `coding-loop` — matches the file naming under `harness/state/<loop-name>.json`). The audit dir is the per-attempt frozen record.
+For every autonomous loop, the live conversation between generator and reviewers happens in a per-loop (upstream) or per-WO (coding) communication folder (§1.8). At each attempt boundary — and on every loop-exit verdict (`pass`, `awaiting_clarification`, `exhausted`, `blocked_external`) — the orchestrator snapshots each `<reviewer-name>.md` file from the live communication folder into the audit archive. The audit dir is the per-attempt frozen record.
 
-For coding-loop per-WO execution, the reviewer set is run differently and the archive path is `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. (Per-WO execution does not use the communication-folder mechanism — that mechanism is for the upstream loops where the gen↔review back-and-forth is the load-bearing dynamic; per-WO execution is a single-shot review.)
+Snapshot paths:
+
+- **Upstream loops** (requirements, blueprint, work-orders): `harness/state/reviews/<loop-name>/attempt-<N>/<reviewer-name>.md`, where `<loop-name>` is the full subcommand name (`requirements-loop`, `blueprint-loop`, `work-orders-loop`) and matches the file naming under `harness/state/<loop-name>.json`.
+- **Coding loop**: `harness/state/reviews/coding-loop/<wo-slug>/attempt-<N>/<reviewer-name>.md`, with a `<wo-slug>/` subdir because the coding communication folder is per-WO rather than per-loop.
 
 ### 7.5 Field rules
 
@@ -796,15 +816,13 @@ Generator ends its stdout summary with a `VERDICT:` line that the orchestrator p
 - **Requirements loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: requirements/_questions-pending.md`.
 - **Blueprint loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: blueprints/_questions-pending.md`. Same verdict and same mechanism as the requirements loop, just a different file location.
 - **Work-orders loop alternative exit**: `VERDICT: awaiting_clarification` with `open_questions: N` and `questions_file: work-orders/_questions-pending.md`. Same verdict and same mechanism as the requirements and blueprint loops.
-- **Per-WO coding execution**: generator self-reports `VERDICT: ready_for_review` after opening/updating the PR; the orchestrator then reads the work order's `## Gates` block and spawns the gates declared `required`.
+- **Per-WO coding execution**: generator self-reports `VERDICT: ready_for_review` after opening/updating the PR; the orchestrator then reads the work order's `## Gates` block and spawns the gates declared `required`. Alternative exit: `VERDICT: blocked_external` when the generator discovers mid-implementation that operator action is required (missing credentials, missing external setup, missing sample data) — the orchestrator records the verdict, transitions the WO's status to `blocked_external`, and moves on to the next WO without retrying.
 
 This is simpler than the prior model because the generator never aggregates cross-reviewer state.
 
 ### 8.2 Reviewer output
 
-For upstream loops (requirements, blueprint, work-orders), reviewers append their full review block to their own communication file (§1.8) and emit a short stdout acknowledgement ending with `VERDICT: pass` or `VERDICT: fail`. The orchestrator parses only the stdout `VERDICT:` line for loop control; the prose review lives in the file. The orchestrator snapshots the file into `harness/state/reviews/<loop>/attempt-<N>/<reviewer-name>.md` at attempt boundaries (§7.4).
-
-For coding-loop per-WO execution reviewers, the reviewer's full review is its stdout (no communication file involved); the orchestrator captures stdout and writes it to `harness/state/reviews/coding-loop/<task-id>/attempt-<N>/<reviewer-name>.md`. Same `VERDICT:` line contract.
+For every autonomous loop — upstream and coding — reviewers append their full review block to their own communication file (§1.8) and emit a short stdout acknowledgement ending with `VERDICT: pass` or `VERDICT: fail` (coding-loop execution gates may also emit `VERDICT: not_run` for gates that aren't applicable to the current WO). The orchestrator parses only the stdout `VERDICT:` line for loop control; the prose review lives in the file. The orchestrator snapshots the file into `harness/state/reviews/<loop>/[<wo-slug>/]attempt-<N>/<reviewer-name>.md` at attempt boundaries (§7.4). The coding-loop snapshot path includes the `<wo-slug>/` subdir because the coding communication folder is per-WO.
 
 ### 8.3 Orchestrator aggregation
 
@@ -818,7 +836,7 @@ Hooks do only what must happen inside the Claude Code session — context the or
 
 - **`Stop` (generator)** — validates the stdout summary ends with a recognised `VERDICT:` line. Blocks completion if missing.
 - **`Stop` (reviewer)** — validates that the reviewer's final chat message ends with a `VERDICT: pass` or `VERDICT: fail` line. Blocks completion if the verdict line is missing or malformed, prompting the model to add it before the turn ends. This is the in-session verdict-format enforcement layer; the post-exit protocol-retry (REQ-ORCH-013, summarised in §1.6) is the second layer that recovers from cases the hook can't catch. The hook self-caps at `max_agent_retries` blocks per subprocess (default 3, configurable in `config.yaml`) using a per-spawn counter file passed via the `HARNESS_STOP_HOOK_COUNTER` env var: each block increments the counter, and once it exceeds `HARNESS_MAX_AGENT_RETRIES` the hook returns 0 (allow stop) instead of blocking. The cap exists so a stubbornly-malformed model can't ping-pong with the hook indefinitely. If a subprocess still exits with malformed stdout (cap reached, hook bypass, subprocess crash, truncated output), the orchestrator's post-exit protocol-retry takes over.
-- **`PreToolUse` (reviewer path-guard)** — fires on every `Write` / `Edit` tool call inside a reviewer subprocess and blocks the call unless the target path is exactly `<requirements_communication|blueprints_communication|work-orders_communication>/<this-reviewer-name>.md`. Prevents a reviewer from mutating the artifact tree, the operator's questions file, or any other reviewer's communication file even if the reviewer skill or the artifacts it reads contain adversarial instructions. Required because reviewers run with `Write`/`Edit` allowed (so they can append to their own communication file); without this hook the denylist would have to forbid all writes, which would break the channel.
+- **`PreToolUse` (reviewer path-guard)** — fires on every `Write` / `Edit` tool call inside a reviewer subprocess and blocks the call unless the target path is exactly the reviewer's own communication file (`<requirements_communication|blueprints_communication|work-orders_communication>/<this-reviewer-name>.md` for the upstream loops; `coding_communication/<wo-slug>/<this-reviewer-name>.md` for the coding loop). Prevents a reviewer from mutating the artifact tree, the diff under review, the operator's questions file, or any other reviewer's communication file even if the reviewer skill or the artifacts it reads contain adversarial instructions. Required because reviewers run with `Write`/`Edit` allowed (so they can append to their own communication file); without this hook the denylist would have to forbid all writes, which would break the channel. The hook reads the allowed path from the `HARNESS_REVIEWER_COMM_FILE` env var the orchestrator sets per spawn, so one hook covers all four loops.
 
 Not hooks (and why):
 - Context injection at session start — orchestrator builds the full prompt and passes it as the argument to `claude -p`. No `SessionStart` hook.
@@ -837,13 +855,13 @@ Each carries its own autonomy posture (no clarifying questions, decide and proce
 - `requirements-generator` — loads `prd-to-frds`. Identity: lead PM. Writes `requirements/` tree; may append to `requirements/_questions-pending.md` for PRD ambiguities. Reads/writes `requirements_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
 - `blueprint-generator` — loads `frd-to-blueprint`. Identity: lead engineer. Writes the full `blueprints/` tree (containers, components, features) itself — single skill, no sub-skill co-invocation. May append to `blueprints/_questions-pending.md` for architectural decisions requiring operator judgment. Reads/writes `blueprints_communication/` per §1.8. Emits `ready_for_review` or `awaiting_clarification`.
 - `work-orders-generator` — loads `blueprint-to-work-orders` (single skill, no sub-skill co-invocation). Identity: lead tech lead. Reads `blueprints/`, the existing `work-orders/` tree, and the project's existing source code (a targeted scan — top-level structure + config, entry-point files named in container blueprints, greps for blueprint-named symbols/models/routes; harness-managed trees skipped). Applies the decision rule: blueprint surface fully realised in code → no work order (the code is the coverage); partially realised → work order scoped to the gap; unrealised → full work order. Writes flat `work-orders/wo-<slug>.md` files with the canonical scoped-task body shape (work-orders-loop FRD REQ-WO-002), maintains `work-orders/_sequence.md`, marks operator-action work orders with `type: operator-action` in their meta, may append to `work-orders/_questions-pending.md` for decomposition ambiguities and material code↔blueprint divergences. Reads/writes `work-orders_communication/` per §1.8.
-- `coding-generator` — loads `open-task-pr` + coding-specific capabilities. Identity: IC. Writes code on the task branch, opens/updates PR, commits as part of its flow.
+- `coding-generator` — loads `implement-work-order` (which itself wraps `open-task-pr`). Identity: IC. Reads the work-order body at `$HARNESS_WO_PATH`, writes code on `$HARNESS_BRANCH` (`task/<wo-slug>`), opens/updates the PR, commits as part of its flow. Reads each failing reviewer's communication file in `coding_communication/<wo-slug>/` on retry attempts and appends per-finding `## Response` blocks plus a per-attempt change-summary; appends its own per-attempt change-summary to `coding_communication/<wo-slug>/implement-work-order.md`. Emits `VERDICT: ready_for_review` on normal exit; emits `VERDICT: blocked_external` when it discovers operator-action is required (missing credentials, missing external setup) and logs the blocker to `work-orders/_external-blockers.md`.
 
 The interactive `blueprint-authoring` skill is **not** orchestrator-spawned. The operator runs it inside an interactive Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD. There is no longer a separate `bubble-up-decision` skill; question-block formats live inline in the generator skill prompts (§1.5).
 
 ### 10.2 Reviewer subagents (orchestrator-spawned)
 
-Each outputs its review as its final chat message, ending with a `VERDICT: pass` or `VERDICT: fail` line. The orchestrator captures stdout; reviewers don't touch the filesystem.
+Each appends its full review as a `## Review` block to its own communication file (§1.8) and emits a short stdout acknowledgement ending with a `VERDICT: pass` or `VERDICT: fail` line (coding-loop execution gates may also emit `VERDICT: not_run`). The orchestrator parses only the stdout `VERDICT:` line; the prose review lives in the file and is snapshotted at attempt boundaries.
 
 - Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`, `req-prd-fidelity-judge`.
 - Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`, `bp-frd-fidelity-judge`.

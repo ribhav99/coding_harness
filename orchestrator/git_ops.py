@@ -44,6 +44,135 @@ def commit_artifacts(project_root: Path, paths: list[str], message: str) -> Comm
     return CommitOutcome.COMMITTED
 
 
+def detect_base_branch(project_root: Path) -> str:
+    """Best-effort detection of the repo's default branch (typically `main` or `master`).
+
+    Order: `gh repo view` → `git symbolic-ref refs/remotes/origin/HEAD` →
+    fall back to `main` (a sensible modern default; if the repo actually uses
+    `master` and there's no remote, the operator can pass --base-branch).
+    """
+    if not is_git_repo(project_root):
+        return "main"
+    try:
+        out = subprocess.run(
+            ["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
+            cwd=str(project_root), capture_output=True, text=True,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except FileNotFoundError:
+        pass
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(project_root), "symbolic-ref", "refs/remotes/origin/HEAD"],
+            capture_output=True, text=True,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            # form: refs/remotes/origin/<branch>
+            return out.stdout.strip().split("/")[-1]
+    except FileNotFoundError:
+        pass
+    # Local-only repos: check whether master or main exists.
+    for candidate in ("main", "master"):
+        check = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "--verify", "--quiet", candidate],
+            capture_output=True,
+        )
+        if check.returncode == 0:
+            return candidate
+    return "main"
+
+
+def checkout_task_branch(project_root: Path, branch: str, base_branch: str) -> None:
+    """Switch to `branch` (creating it from `base_branch` if it doesn't exist).
+
+    On first use the branch is created with `git checkout -b <branch> <base>`.
+    On subsequent uses (the branch already exists locally) it's a plain
+    `git checkout <branch>`. The orchestrator does NOT reset the branch — any
+    prior commits the generator made are preserved across attempts.
+    """
+    if not is_git_repo(project_root):
+        return
+    exists = subprocess.run(
+        ["git", "-C", str(project_root), "rev-parse", "--verify", "--quiet", branch],
+        capture_output=True,
+    ).returncode == 0
+    if exists:
+        subprocess.run(["git", "-C", str(project_root), "checkout", branch], check=True)
+    else:
+        subprocess.run(
+            ["git", "-C", str(project_root), "checkout", "-b", branch, base_branch],
+            check=True,
+        )
+
+
+def current_branch(project_root: Path) -> str | None:
+    if not is_git_repo(project_root):
+        return None
+    out = subprocess.run(
+        ["git", "-C", str(project_root), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return None
+    name = out.stdout.strip()
+    return name or None
+
+
+def lookup_pr(project_root: Path, branch: str) -> tuple[int | None, str | None, str | None]:
+    """Return (pr_number, pr_url, state) for the open/closed PR on `branch`, or (None, None, None).
+
+    `state` is one of `OPEN | MERGED | CLOSED`. Best-effort: returns None tuple
+    if `gh` isn't installed, isn't authenticated, or the call otherwise fails.
+    """
+    try:
+        out = subprocess.run(
+            [
+                "gh", "pr", "list",
+                "--head", branch,
+                "--state", "all",
+                "--json", "number,url,state",
+                "--limit", "1",
+            ],
+            cwd=str(project_root), capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return None, None, None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None, None, None
+    import json as _json
+    try:
+        items = _json.loads(out.stdout)
+    except _json.JSONDecodeError:
+        return None, None, None
+    if not items:
+        return None, None, None
+    item = items[0]
+    return item.get("number"), item.get("url"), item.get("state")
+
+
+def post_pr_comment(project_root: Path, pr_number: int, body: str) -> bool:
+    """Post a comment on the PR. Returns True on success."""
+    try:
+        out = subprocess.run(
+            ["gh", "pr", "comment", str(pr_number), "--body", body],
+            cwd=str(project_root), capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return False
+    return out.returncode == 0
+
+
+def working_tree_clean(project_root: Path) -> bool:
+    if not is_git_repo(project_root):
+        return True
+    out = subprocess.run(
+        ["git", "-C", str(project_root), "status", "--porcelain"],
+        capture_output=True, text=True,
+    )
+    return out.returncode == 0 and not out.stdout.strip()
+
+
 def working_tree_changes(project_root: Path, scope: list[str]) -> list[tuple[str, str]]:
     """Return [(status, path)] for files changed in `scope` relative to HEAD.
 

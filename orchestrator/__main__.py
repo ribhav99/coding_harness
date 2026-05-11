@@ -2,10 +2,10 @@
 
     python -m orchestrator requirements-loop --project-root /path/to/project
     python -m orchestrator blueprint-loop    --project-root /path/to/project
+    python -m orchestrator work-orders-loop  --project-root /path/to/project
+    python -m orchestrator coding-loop       --project-root /path/to/project [--one]
 
-Subcommands implemented today: `requirements-loop`, `blueprint-loop`.
-`work-orders-loop`, `coding-loop`, and `status` are part of the same orchestrator
-program; they will be added as their loop specialisations land.
+`status` is part of the same orchestrator program; will be added later.
 """
 
 import argparse
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .loop_driver import run_loop
 from .loops.blueprints import SPEC as BLUEPRINT_SPEC
+from .loops.coding import run_coding_loop
 from .loops.requirements import SPEC as REQUIREMENTS_SPEC
 from .loops.work_orders import SPEC as WORK_ORDERS_SPEC
 
@@ -86,6 +87,38 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    cd = sub.add_parser(
+        "coding-loop",
+        help="Drain the ready work-order queue: one PR per work order, with reviewer gates.",
+    )
+    cd.add_argument(
+        "--project-root",
+        type=Path,
+        required=True,
+        help="Path to the project repo root.",
+    )
+    cd.add_argument(
+        "--one",
+        action="store_true",
+        help="Run a single work order and exit, instead of draining the full queue.",
+    )
+    cd.add_argument(
+        "--base-branch",
+        type=str,
+        default=None,
+        help="Override the auto-detected default branch (e.g. main, master). "
+             "Useful for local-only repos with no `gh` / `origin` configured.",
+    )
+    cd.add_argument(
+        "--memoryless",
+        action="store_true",
+        help=(
+            "Disable session continuity within a single work order: every attempt "
+            "spawns fresh generator and reviewer sessions. Default resumes within "
+            "the WO's invocation; each new orchestrator invocation still starts fresh."
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     project_root = args.project_root.resolve()
@@ -111,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
             WORK_ORDERS_SPEC,
             project_root,
             skip_first_generator=args.skip_first_generator,
+            memoryless=args.memoryless,
+        )
+    if args.subcommand == "coding-loop":
+        return run_coding_loop(
+            project_root,
+            one=args.one,
+            base_branch_override=args.base_branch,
             memoryless=args.memoryless,
         )
 
