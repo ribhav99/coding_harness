@@ -22,8 +22,8 @@ flowchart TB
     subgraph Harness [Coding Harness kit]
       direction TB
       Orch[Orchestrator<br/>orchestrator/main.py]
-      LoopR[Requirements loop<br/>generator + 4 reviewers]
-      LoopB[Blueprint loop<br/>generator + 4 reviewers<br/>non-blocking decisions]
+      LoopR[Requirements loop<br/>generator + 5 reviewers]
+      LoopB[Blueprint loop<br/>generator + 5 reviewers<br/>non-blocking decisions]
       LoopWO[Work-orders loop<br/>generator + 4 reviewers<br/>flat slug-named work orders]
       LoopC[Coding loop<br/>per-WO execution<br/>PR per work order]
       Sync[Sync script<br/>orchestrator/sync.py]
@@ -73,7 +73,7 @@ flowchart TB
       direction TB
       OrchR{{orchestrator<br/>requirements-loop}}
       GenR[Generator<br/>prd-to-frds]
-      RevR["Reviewers<br/>req-spec-judge<br/>req-cross-doc-judge<br/>req-coverage-judge<br/>req-scoping-judge"]
+      RevR["Reviewers<br/>req-spec-judge<br/>req-cross-doc-judge<br/>req-coverage-judge<br/>req-scoping-judge<br/>req-prd-fidelity-judge"]
       CommR[("requirements_communication/<br/>one file per reviewer<br/>bidirectional channel")]
       QFileR[("requirements/_questions-pending.md<br/>PRD-clarification questions")]
       ReqTree[("requirements/<br/>overview/ + features/<br/>structural decomposition")]
@@ -93,7 +93,7 @@ flowchart TB
       OrchB{{orchestrator<br/>blueprint-loop}}
       GenB[Generator<br/>frd-to-blueprint]
       QFileB[("blueprints/_questions-pending.md<br/>structured Qs + optional<br/>pre-researched options")]
-      RevB["Reviewers<br/>bp-spec-judge<br/>bp-coverage-judge<br/>bp-consistency-judge<br/>bp-decision-judge"]
+      RevB["Reviewers<br/>bp-spec-judge<br/>bp-coverage-judge<br/>bp-consistency-judge<br/>bp-decision-judge<br/>bp-frd-fidelity-judge"]
       CommB[("blueprints_communication/<br/>one file per reviewer<br/>bidirectional channel")]
       BPs[("Blueprints<br/>blueprints/{containers,components,features}/")]
       Exit{Exit check}
@@ -287,7 +287,7 @@ All three upstream loops can exit in a non-failure, non-pass state when they hav
   Don't fabricate options to fill the second shape — only use it when the choice is genuine.
 
 - How the operator resolves: edits the source as required (clarifies `PRD.md` for requirements-loop questions; for blueprint-loop questions, fills in `Your answer:`), deletes resolved blocks (or renames the file to `_questions-resolved-<timestamp>.md` for git-history audit), re-runs the loop.
-- Full `pass` requires all four reviewers pass AND `_questions-pending.md` has no open questions.
+- Full `pass` requires every reviewer in the loop's set to pass AND `_questions-pending.md` has no open questions. (The set is five for the requirements and blueprint loops; four for the work-orders loop.)
 
 **Coding loop has no equivalent** — work-order execution either passes, fails, or exhausts. If the operator has input to provide, they provide it by editing blueprints or work-order descriptions directly before re-running.
 
@@ -526,7 +526,7 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
   - After cleanup, if a `<slug>_children/` directory is empty (its parent node lost all children), delete it.
   - Preserve existing meta files whose fields hold non-null values (an SF mirror sync may have populated IDs; don't clobber).
 - Communication folder: `requirements_communication/`.
-- Reviewers: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`. They see the fully-materialised tree and read their own communication file.
+- Reviewers: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`, `req-prd-fidelity-judge`. They see the fully-materialised tree and read their own communication file.
 - Generator prompt inputs: `PRD.md` + current `requirements/` tree + current `requirements/_questions-pending.md` (if any) + the path to `requirements_communication/` (where the generator reads prior reviews and appends responses).
 - Pass condition: all reviewers pass AND `requirements/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
 
@@ -534,7 +534,7 @@ Per-loop specializations supply: prompt builders, reviewer list, the artifact tr
 - Precondition: `requirements/features/` non-empty.
 - Artifact trees: writes `blueprints/` (including `blueprints/_questions-pending.md` appends). On-disk subtree layout: `blueprints/containers/<slug>.md`, `blueprints/components/<slug>.md`, `blueprints/features/<slug>.md`, each with sibling `.<slug>.<kind>.meta.yaml` and `.<slug>.requirements.meta.yaml` files. Feature-blueprint slugs match the corresponding `requirements/features/<slug>.md` 1:1 (enforced by `bp-coverage-judge`).
 - Communication folder: `blueprints_communication/`.
-- Reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
+- Reviewers: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`, `bp-frd-fidelity-judge`.
 - Pass condition: all reviewers pass AND `blueprints/_questions-pending.md` has zero open questions. Otherwise `awaiting_clarification`.
 - Generator prompt inputs: `requirements/features/` + current `blueprints/` + current `blueprints/_questions-pending.md` + the path to `blueprints_communication/` (where the generator reads prior reviews and appends responses).
 - The `blueprint-authoring` skill is **not** invoked by the orchestrator. It is an interactive skill the operator runs in a Claude Code session to refine blueprints after the loop has produced them — same posture as `prd-authoring` for the PRD.
@@ -845,8 +845,8 @@ The interactive `blueprint-authoring` skill is **not** orchestrator-spawned. The
 
 Each outputs its review as its final chat message, ending with a `VERDICT: pass` or `VERDICT: fail` line. The orchestrator captures stdout; reviewers don't touch the filesystem.
 
-- Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`.
-- Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`.
+- Requirements: `req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`, `req-scoping-judge`, `req-prd-fidelity-judge`.
+- Blueprint: `bp-spec-judge`, `bp-coverage-judge`, `bp-consistency-judge`, `bp-decision-judge`, `bp-frd-fidelity-judge`.
 - Work-orders: `wo-spec-judge`, `wo-coverage-judge`, `wo-overlap-judge`, `wo-sequencing-judge`.
 - Coding execution: `tests-runner`, `playwright-runner`, `code-spec-judge`, `code-regression-judge`, `code-security-judge`, `code-quality-judge`.
 
