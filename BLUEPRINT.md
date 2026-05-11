@@ -981,7 +981,110 @@ blueprints/
 
 Feature-blueprint slug parity (`blueprints/features/<slug>.md` matches `requirements/features/<slug>.md`) is the load-bearing invariant for downstream `blueprint-to-work-orders`. Container and component slugs are operator-readable; the meta files carry the canonical IDs.
 
-## 12. Open architecture questions
+## 12. Bundled harnesses
+
+Some gates in the coding loop need orchestration mechanics that are *identical across projects* but *fragile to write correctly* in an LLM-driven subprocess — booting a long-lived process, polling for ready, running a command against it, tearing the process group down. The Playwright gate is the canonical example. The kit ships a `playwright-harness/` directory containing the mechanism once, every project that opts in invokes it the same way.
+
+This section pins the pattern. Future bundled harnesses (Postgres test harness, docker-compose harness) slot in the same way.
+
+### 12.1 Why bundled
+
+The alternative is to push the orchestration into the project — every project carries its own `with_server.py`, every project drifts. Two costs:
+
+- **Drift.** A bug in one project's wrapper doesn't get fixed in the others. We've watched this happen with shell scripts in monorepos for fifteen years.
+- **Reinvention.** Every project's first work order has to re-derive how to boot a dev server and poll for ready. Wasted attempts, more loop iterations.
+
+Bundling solves both: the mechanism lives in one place, every project gets the same robust version on every coding-loop run.
+
+### 12.2 What stays in the project, what moves to the kit
+
+The split is **policy vs mechanism**.
+
+- **Mechanism (kit):** the wrapper script (process management, health polling, teardown), template files the project copies in once.
+- **Policy (project):** which command boots the dev server, which port, where specs live, what fixtures to seed.
+
+The kit's wrapper takes **zero config**. It pins conventions in code:
+
+- Project must expose `make dev` (boots the app).
+- Project must expose `make playwright` (runs the suite).
+- App must listen on `localhost:3000`.
+- Specs live in `tests/e2e/*.spec.ts`.
+
+A project that genuinely can't conform marks the gate `not_applicable` in the WO's `## Gates` block. There is no per-project config knob — the wrapper is convention-over-configuration on purpose, and a project's `Makefile` is where the per-project bits hide.
+
+### 12.3 Why no config file
+
+Earlier sketches had a `harness/playwright-harness.toml` carrying per-project overrides (dev_server_cmd, port, health URL). Dropped because:
+
+- The `Makefile` already absorbs project-specific shell commands cleanly — `make dev` and `make playwright` *are* the configurable hooks, with no extra file format.
+- Conventions removed by config tend to drift back to per-project bespoke setup. Pinning convention in code keeps every project's surface identical.
+- Fewer moving parts. A bare wrapper that does one thing in one way is easier to debug than one with an interpreter for a config file.
+
+If a per-project override eventually becomes load-bearing, we add it then — until then it's hypothetical.
+
+### 12.4 Why no git submodule
+
+The kit is *already* a separate checkout the operator clones once and points at many projects. A submodule would pin each project to a specific kit commit and require `--recurse-submodules` on every clone. The simpler model — operator has one kit checkout, orchestrator knows its own root, env var passed to subprocesses — gives the same "single source of truth" benefit with zero git-submodule ceremony.
+
+### 12.5 The Playwright harness, concretely
+
+```
+<coding-harness-repo-root>/
+  playwright-harness/
+    with_server.py                 # boot dev server → poll http://localhost:3000/ →
+                                   #   run argv → kill process group → exit with argv's rc
+    templates/
+      playwright.config.ts         # baseline config; copied verbatim into projects at bootstrap
+      smoke.spec.ts                # one trivial spec; verifies the bootstrap worked
+```
+
+The wrapper, paraphrased:
+
+```python
+def main():
+    server = Popen("make dev", shell=True, preexec_fn=os.setsid)
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        try:
+            if requests.get("http://localhost:3000/", timeout=2).ok:
+                break
+        except OSError:
+            pass
+        time.sleep(1)
+    else:
+        os.killpg(server.pid, signal.SIGTERM)
+        sys.exit("dev server did not come up on localhost:3000 within 60s")
+    rc = subprocess.run(sys.argv[1:]).returncode
+    os.killpg(server.pid, signal.SIGTERM)
+    sys.exit(rc)
+```
+
+The `playwright-runner` skill body becomes a one-liner — `python3 "$PLAYWRIGHT_HARNESS_ROOT/with_server.py" make playwright`. The orchestrator exports `PLAYWRIGHT_HARNESS_ROOT = <kit-repo-root>/playwright-harness` in the env when spawning the `playwright-runner` reviewer (alongside the existing `HARNESS_*` env block, §9).
+
+### 12.6 Bootstrap responsibility
+
+The first work order in a project that needs Playwright owns project-side setup:
+
+1. Copies `playwright.config.ts` from `${PLAYWRIGHT_HARNESS_ROOT}/templates/` into the project root.
+2. Copies `smoke.spec.ts` into `tests/e2e/`.
+3. Adds `@playwright/test` to `package.json` devDependencies.
+4. Adds `dev` and `playwright` targets to the project's `Makefile`.
+5. Appends `playwright-report/`, `test-results/`, and `traces/` to `.gitignore`.
+
+After this work order merges, the project is standalone-runnable — `npx playwright test` works from a fresh clone, and GitHub Actions (which has no kit checkout) runs the same suite the coding loop runs. The kit wrapper is a convenience layer around an already-working project setup, not a replacement for it.
+
+Browser binaries (`npx playwright install`, ~500MB) are too large to script reliably across machines. The bootstrap WO does not run them; instead, a second `operator-action` work order is filed to `_external-blockers.md` (§6.5) asking the operator to run the install once per machine.
+
+### 12.7 When to add a second bundled harness
+
+Trigger: a second gate appears (or the same gate appears in a second project) and we find ourselves re-writing the same orchestration boilerplate. Plausible future bundled harnesses:
+
+- **Postgres test harness** — spin up an ephemeral postgres via testcontainers, run a target command against it, tear down.
+- **Docker compose harness** — bring up a compose stack, wait for healthy, run, tear down.
+
+When that happens, move the flat `playwright-harness/` into a `harnesses/playwright/` subdir and add the new one alongside. Cheap refactor; defer until needed.
+
+## 13. Open architecture questions
 
 Tracked separately from PRD §8 (which tracks product/scope questions).
 

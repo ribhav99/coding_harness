@@ -1,146 +1,210 @@
 # Coding Harness
 
-A reusable harness for running long-horizon coding work through Claude Code
-autonomously. See [`PRD.md`](PRD.md) for the full design.
+Operator manual. For the design, see [`PRD.md`](PRD.md); for the architecture, see [`BLUEPRINT.md`](BLUEPRINT.md).
 
-## Layout
+This kit drives a project from a PRD to merged code through four autonomous loops, each backed by Claude Code subprocesses with reviewer-style verification. You run the loops from your laptop; the orchestrator owns spawn/retry/state/git.
 
-- `PRD.md` — design document.
-- `skills/` — source markdown for the Claude Code skills (planning + execution).
-- `.claude/skills/` — the same skills in the form Claude Code loads them
-  (`<name>/SKILL.md`). Symlink each subdirectory into `~/.claude/skills/` to
-  make the harness skills available in every repo on your machine.
-- `orchestrator/` — Python entry points.
-  - `__main__.py` — `python -m orchestrator <subcommand>`. v0.1 ships
-    `requirements-loop` (PRD → reviewed FRD tree).
-  - `sync_from_sf.py` — pulls requirements documents from a Software Factory
-    deployment into a local project repo.
-- `research/` — background notes from the design phase.
+---
 
-A project repo's on-disk layout (`requirements/`, `blueprints/`,
-`work-orders/`, `artifacts/`) is defined by the skills themselves — they
-create whatever directories they need on first use. No template to clone.
+## What this is
 
-## Sync from Software Factory
+The harness is a kit you check out once and point at as many projects as you like. A project is a separate git repo; the kit drives it from outside via `python -m orchestrator <subcommand> --project-root /path/to/project`.
 
-The harness can mirror a project's requirements (PRD overview sections + FRDs,
-recursively including children) from a deployed SF instance into the project's
-own repo. The script is run from inside the project repo:
+```
+Project lifecycle
+─────────────────────────────────────────────────────────────────────
+   PRD.md  ──►  requirements/  ──►  blueprints/  ──►  work-orders/  ──►  merged PRs
+   (Stage 1)     (Stage 2)           (Stage 3)         (Stage 4)         (Stage 5)
+   manual        requirements-loop   blueprint-loop    work-orders-loop  coding-loop
+```
+
+Each loop:
+- reads what's on disk in the project,
+- spawns a generator that writes a tree of markdown (or, for the coding loop, code),
+- spawns a set of reviewers in parallel that judge it,
+- iterates until every reviewer passes,
+- commits the result (upstream loops) or opens a PR per work order (coding loop).
+
+---
+
+## Install
+
+You need:
+- **Python 3.10+** (uses `match`-statement-friendly typing, no extra deps).
+- **Claude Code** installed and authenticated (`claude` on your PATH).
+- **`gh` CLI** authenticated against the host you'll be opening PRs on (only needed for `coding-loop`).
+- **`git`**.
+
+Clone this repo somewhere stable; the orchestrator references its own scripts by path.
 
 ```bash
-cd /path/to/some-project-repo
-python /path/to/coding_harness/orchestrator/sync_from_sf.py
+git clone https://github.com/ribhav99/coding_harness.git ~/code/coding_harness
+cd ~/code/coding_harness
 ```
 
-Each project repo carries its own `.env` with the SF credentials:
+Edit [`config.yaml`](config.yaml) to set caps and the per-role model (Opus 4.7 for generators, Sonnet 4.6 for reviewers by default). One config, every project.
 
+Make the harness skills available globally:
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s ~/code/coding_harness/skills/* ~/.claude/skills/
 ```
-SF_API_KEY=sf-...
-SF_BASE_URL=https://api.factory.8090.dev
-SF_PROJECT_ID=<uuid>
+
+---
+
+## Quick start (new project)
+
+```bash
+mkdir my-project && cd my-project
+git init
+# write your PRD
+$EDITOR PRD.md
+
+# decompose PRD → reviewed FRD tree
+python -m orchestrator requirements-loop --project-root .
+
+# decompose FRDs → reviewed blueprints
+python -m orchestrator blueprint-loop --project-root .
+
+# decompose blueprints → reviewed work-orders + drain order
+python -m orchestrator work-orders-loop --project-root .
+
+# drain work orders, one PR per work order
+python -m orchestrator coding-loop --project-root .
 ```
 
-`.env` must be gitignored. The script writes documents flat inside
-`requirements/overview/` and `requirements/features/` in the project repo
-root. Each node is three sibling files at the same level: a visible
-`<slug>.md` content file plus two dotted-hidden meta files
-(`.<slug>.<overview|feature>.meta.yaml` and `.<slug>.requirements.meta.yaml`).
-If a node has children, they live in a sibling dir named `<slug>_children/`
-with the same flat shape, recursively. Existing files are overwritten on each
-sync; other top-level dirs (`blueprints/`, `work-orders/`, `artifacts/`) are
-untouched.
+You merge each PR when you're satisfied. The next `coding-loop` invocation detects the merge and moves on to the next ready work order.
 
-Use `--tree` to print the requirements tree without writing anything.
+---
 
-The API path is `/v2/external-api/requirements/...` on the SF host; routes are
-documented in
-`sf-platform/backend/software_factory/modules/external_api/controllers/`.
+## The four loops
 
-## Requirements loop (v0.1)
+All four share the same shape — orchestrator spawns generator and reviewers, parses the trailing `VERDICT:` line of each subprocess's stdout, retries on fail. The differences are which artifacts are read/written and what each reviewer judges.
+
+### 1. requirements-loop (`PRD.md` → `requirements/` tree)
 
 ```bash
 python -m orchestrator requirements-loop --project-root /path/to/project
 ```
 
-Drives Stage 2 of the harness: reads `PRD.md`, decomposes it into
-`requirements/overview/` and `requirements/features/`, runs four reviewers
-(`req-spec-judge`, `req-cross-doc-judge`, `req-coverage-judge`,
-`req-scoping-judge`), iterates on failures, commits on pass when the project
-repo is a git repo.
+Reads `PRD.md`, produces `requirements/overview/` (business problem, personas, success metrics, …) and `requirements/features/` (one FRD per feature). Five reviewers check structural shape, cross-doc consistency, PRD coverage, feature scoping, and PRD-to-tree fidelity.
 
-**Optional flags.**
+**Precondition:** `PRD.md` exists at the project root.
 
-- `--skip-first-generator` — on attempt 1, skip the generator and run
-  reviewers directly against the existing `requirements/` tree. Use this
-  when you've run `prd-to-frds` manually (e.g. in an interactive Claude
-  Code session) and want to validate the result without the generator
-  re-thinking it. If reviewers fail, attempts 2+ run the generator
-  normally with the failing reviewers' feedback.
-- `--memoryless` — disable session continuity. Every attempt spawns a
-  fresh `claude -p` subprocess for both the generator and each reviewer,
-  and they rely on the communication folder for prior context. Default
-  behavior is to resume the same session across attempts within an
-  invocation (each new invocation still starts fresh — sessions are
-  per-invocation, not persisted across orchestrator runs). Use
-  `--memoryless` for a clean replay or when you've edited `PRD.md` /
-  the artifact tree mid-invocation and want the agents to re-derive
-  without prior bias.
-
-**Git is a soft requirement.** If the project repo isn't a git repo, the
-orchestrator runs in no-commit mode — reviewers, state files, and the
-communication folder still work; commits are skipped with a warning. To
-capture a per-pass diff in git history, `git init` and make an initial
-commit before running.
-
-**Communication folder is never wiped.** The
-`requirements_communication/<reviewer>.md` files accumulate the
-generator-vs-reviewer conversation across every attempt and every
-invocation, even after a full pass. With session-resume on (the default)
-the folder is the operator audit trail and the cross-invocation /
-`--memoryless` fallback memory channel; with `--memoryless` it's the
-agents' only memory of prior attempts.
-
-Loop caps live in `config.yaml` at the **harness** repo root (this kit), not
-in each project repo. Edit it there once; it applies to every project the
-orchestrator is run against.
-
-```yaml
-max_attempts: 25
-max_wall_minutes: 60
-max_agent_retries: 3   # per-subprocess: rate-limit re-spawns and Stop-hook in-session retries
-mirrors: []            # v0.1 has no mirrors; placeholder for v1.0
-```
-
-Exit codes: `0` full pass, `1` exhausted, `2` `awaiting_clarification` (open
-questions in `requirements/_questions-pending.md` block further progress —
-operator clarifies `PRD.md` and re-runs).
-
-## Blueprint loop (v0.2)
+### 2. blueprint-loop (`requirements/features/` → `blueprints/` tree)
 
 ```bash
 python -m orchestrator blueprint-loop --project-root /path/to/project
 ```
 
-Drives Stage 3 of the harness: reads the approved `requirements/features/`
-tree (and the optional project-root `BLUEPRINT.md` if present), produces
-the structural blueprints tree under `blueprints/{containers,components,features}/`,
-runs four reviewers (`bp-spec-judge`, `bp-coverage-judge`,
-`bp-consistency-judge`, `bp-decision-judge`), iterates on failures, commits
-on pass when the project repo is a git repo. When the generator hits an
-architectural choice that requires operator judgment, it appends a question
-block to `blueprints/_questions-pending.md` and the loop exits
-`awaiting_clarification` (exit code 2) — operator answers in the file and
-re-runs.
+Reads the approved FRD tree, produces `blueprints/{containers,components,features}/`. Five reviewers check per-blueprint shape, coverage of FRDs, cross-blueprint consistency, undecided architectural choices, and FRD-to-blueprint fidelity.
 
-Same flags as `requirements-loop`: `--skip-first-generator`, `--memoryless`.
-Same retry, session-continuity, and communication-folder semantics.
+**Precondition:** `requirements-loop` has run to a pass.
 
-Precondition: `requirements/features/` must contain at least one FRD —
-run `requirements-loop` to a pass first.
+**Optional input:** a `BLUEPRINT.md` at the project root acts as the operator's high-level architectural scratchpad — the generator treats it as authoritative starting context; the consistency and coverage judges flag drift.
 
-Optional input: a `BLUEPRINT.md` at the project repo root acts as the
-operator's high-level architectural scratchpad. The generator treats it as
-an authoritative starting point (component lists, data-model sketches,
-stack choices); `bp-coverage-judge` and `bp-consistency-judge` flag drift
-between it and the generated blueprints. Absent is fine — the generator
-proceeds without it.
+### 3. work-orders-loop (`blueprints/` + existing code → `work-orders/` tree)
+
+```bash
+python -m orchestrator work-orders-loop --project-root /path/to/project
+```
+
+Reads the blueprints and the existing source code, produces flat slug-named work orders (`work-orders/wo-<slug>.md`) plus a `_sequence.md` drain order. Four reviewers check structural shape, coverage of blueprint surface, no-overlap of produced interfaces, and dependency sequencing.
+
+**Precondition:** `blueprint-loop` has run to a pass.
+
+### 4. coding-loop (drain `work-orders/` → merged PRs)
+
+```bash
+python -m orchestrator coding-loop --project-root /path/to/project [--one]
+```
+
+Walks `work-orders/_sequence.md`, picks the next ready work order, spawns one generator subprocess that writes code on `task/<wo-slug>` and opens a PR via `gh`. The orchestrator reads the work order's `## Gates` block and spawns the required reviewers in parallel — tests, Playwright, code-spec, code-regression, code-security, code-quality. On pass, posts a summary PR comment; status stays `in_progress` until you merge. On merge, the next `coding-loop` run transitions the work order to `done`.
+
+**Precondition:** `work-orders-loop` has run to a pass.
+
+**Flags:**
+- `--one` — run a single work order and exit.
+- `--base-branch <name>` — override the auto-detected default branch.
+- `--memoryless` — disable session continuity within a work order.
+
+---
+
+## Project conventions
+
+The autonomous loops read on-disk markdown, but the **coding loop** also runs *code* — and that part needs the project to conform to a small set of conventions.
+
+### Required for any project the coding loop drives
+
+- The project is a git repo with a default branch (`main` or `master`) and a working `gh` remote.
+- The project's tests can be run via `make test` (the `tests-runner` reviewer invokes this).
+
+### Required only if any work order's `## Gates` block declares `playwright: required`
+
+The kit ships a bundled playwright harness at `playwright-harness/` (see [`BLUEPRINT.md §12`](BLUEPRINT.md)). The harness takes no config; instead, the project must satisfy these pinned conventions:
+
+- **`Makefile` has `dev` and `playwright` targets.** `make dev` boots the app; `make playwright` runs the e2e suite.
+- **App listens on `http://localhost:3000/`** when `make dev` is running. The harness wrapper polls `/` to know when the server is ready.
+- **Playwright specs live in `tests/e2e/*.spec.ts`.** This is where the implementer skill writes new specs and where `code-spec-judge` looks for `via playwright` AC coverage.
+- **`playwright.config.ts` at the project root**, copied from `playwright-harness/templates/` at bootstrap. Required for `npx playwright test` to work standalone (so GitHub Actions can re-run the suite without the kit checkout).
+- **Browser binaries installed** (`npx playwright install`, ~500MB, one-time per machine).
+
+The first work order in a project that needs Playwright should set these up; the `npx playwright install` step is filed as a one-time `operator-action` work order under `_external-blockers.md`.
+
+A project that genuinely can't conform marks `playwright: not_applicable` in the relevant work order's `## Gates` block; the orchestrator skips Playwright for that WO.
+
+---
+
+## Where state lives
+
+Everything under `harness/` in the project repo is committed to git and is the audit trail:
+
+- `harness/state/<loop>.json` — per-loop state (requirements, blueprint, work-orders).
+- `harness/state/<wo-slug>.json` — per-work-order state (coding loop).
+- `harness/state/reviews/<loop>/[<wo-slug>/]attempt-<N>/<reviewer>.md` — frozen per-attempt snapshots of reviewer reviews.
+- `harness/logs/<wo-slug-or-loop>/...` — hook logs.
+
+The bidirectional generator↔reviewer transcripts live in `<loop>_communication/` (and `coding_communication/<wo-slug>/` for the coding loop). These folders are append-only and never wiped — they accumulate the project's full reviewer-generator conversation across attempts and across invocations.
+
+---
+
+## When things break
+
+- **A loop exited with `awaiting_clarification` (exit code 2).** The generator surfaced a question it couldn't resolve. Look at `<artifact-tree>/_questions-pending.md` in the project repo, edit the source artifact named in the question (PRD, a blueprint, etc.), and re-run.
+- **A loop exited `exhausted` (exit code 1).** The attempt cap was hit without a pass. Check the latest snapshot under `harness/state/reviews/<loop>/...` to see what every reviewer was saying. Either edit the source artifact and re-run, or bump `max_attempts` in `config.yaml` if you think one more attempt would have done it.
+- **The coding loop posted an "attempts exhausted" comment on a PR.** Read the reviewers' reviews in the PR-linked `harness/state/reviews/coding-loop/<wo-slug>/...` directory, push manual fixes to the same branch, and (when satisfied) merge yourself. The next `coding-loop` invocation will pick up the next ready work order.
+- **A work order is `blocked_external`.** The generator discovered it needs operator action (missing credentials, missing setup). Look at `work-orders/_external-blockers.md`, do the external thing, and flip the work order's `.wo-<slug>.meta.yaml.status` back to `ready`. Next `coding-loop` run picks it up.
+
+---
+
+## Common flags (every loop except `coding-loop`)
+
+- `--skip-first-generator` — on attempt 1, skip the generator spawn and run reviewers directly against the existing tree. Useful when you've run the generator skill manually in an interactive Claude Code session and want to validate without a re-think.
+- `--memoryless` — disable session continuity. Every attempt spawns a fresh `claude -p` subprocess; agents rely on the communication folder for prior context.
+
+Exit codes for all four loops: `0` pass, `1` exhausted, `2` `awaiting_clarification` (upstream loops only; the coding loop never emits this).
+
+---
+
+## Layout of this repo
+
+```
+coding_harness/
+  README.md                 # this file — operator manual
+  PRD.md                    # design (read this if you want to understand "why")
+  BLUEPRINT.md              # architecture (read this if you want to understand "how")
+  config.yaml               # one config, every project: caps + per-role model selection
+  orchestrator/             # the Python orchestrator
+  skills/                   # generator + reviewer skill markdown
+    requirements/
+    blueprints/
+    work-orders/
+    coding/
+  playwright-harness/       # bundled mechanism for the Playwright gate (see BLUEPRINT.md §12)
+    with_server.py
+    templates/
+      playwright.config.ts
+      smoke.spec.ts
+  research/                 # background notes from the design phase
+```

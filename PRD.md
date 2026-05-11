@@ -234,6 +234,10 @@ The coding loop is execution-only. It reads the work-orders tree produced by the
 
 The PR is the operator-facing review surface (commits + posted summary comment on pass); the communication folder is the agent-to-agent transcript that drives retries.
 
+**Bundled playwright harness.** Running a Playwright suite requires booting the project's dev server, polling for ready, running the suite, and tearing the process group down cleanly. That mechanic is identical across projects but fragile to write correctly inside an LLM-driven subprocess. The kit ships a `playwright-harness/` directory at the harness repo root containing a single wrapper script (`with_server.py`) plus starter templates (`playwright.config.ts`, `tests/e2e/smoke.spec.ts`). The orchestrator exports `PLAYWRIGHT_HARNESS_ROOT` in the env when spawning the `playwright-runner` reviewer; the runner skill invokes `python3 "$PLAYWRIGHT_HARNESS_ROOT/with_server.py" make playwright` and emits its verdict. The wrapper takes no config — it pins conventions instead: project must expose `make dev` (boots the app) and `make playwright` (runs the suite); app must listen on `localhost:3000`; specs live in `tests/e2e/`. A project that genuinely can't conform marks `playwright: not_applicable` in the WO's `## Gates` block. See §7.2 for the on-disk layout (both repos) and `BLUEPRINT.md §12` for the bundled-harness pattern in general.
+
+**Bootstrapping a project for Playwright.** The first work order that requires Playwright is responsible for setting up the project's side of the convention: a `playwright.config.ts` (copied verbatim from `${PLAYWRIGHT_HARNESS_ROOT}/templates/playwright.config.ts`), a `tests/e2e/` directory seeded with `smoke.spec.ts`, `@playwright/test` added to `package.json` devDependencies, and `dev` / `playwright` targets added to the `Makefile`. Browser binaries (`npx playwright install` — ~500MB, one-time per project) are a separate `operator-action` work order surfaced via `_external-blockers.md`.
+
 #### 6.5.1 Gap filing
 
 When the per-work-order generator discovers a missing prerequisite, a latent bug adjacent to changed code, or a useful refactor outside the current work order's scope, it creates a `backlog` work order under `work-orders/_backlog/wo-<slug>.md` (the slug chosen by the agent, descriptive and kebab-case) with a back-reference to the originating work order. The operator triages on their own cadence; gaps never auto-promote to `ready`. After triage, accepted gaps move into the main `work-orders/` tree (typically by re-running the work-orders loop with the gap as seed input).
@@ -323,6 +327,12 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
     wo-overlap-judge.md
     wo-sequencing-judge.md
   artifacts/{folder-slug}/...          # Artifact folder tree
+  Makefile                             # operator-authored; must expose `dev` and `playwright` targets
+                                       # used by the bundled playwright harness (§6.5, `BLUEPRINT.md §12`)
+  playwright.config.ts                 # copied from playwright-harness templates at project bootstrap
+  tests/e2e/                           # Playwright spec convention pinned by the bundled harness
+    smoke.spec.ts                      # seeded from playwright-harness templates at project bootstrap
+    <feature>.spec.ts                  # added by coding-loop generators per WO
   harness/
     state/<wo-slug>.json               # per-work-order state (§7.3)
     state/requirements-loop.json       # loop-level state
@@ -332,12 +342,35 @@ The shape mirrors Software Factory's entity model so that upload to SF (or any s
     logs/<wo-slug>/...                 # hook/session logs
 ```
 
+The kit repo (this repo) carries the harness's own scaffolding alongside the orchestrator and skills:
+
+```
+<coding-harness-repo-root>/
+  PRD.md                               # this file
+  BLUEPRINT.md                         # architecture (§ refs throughout this PRD)
+  README.md                            # operator manual — how to install + run, not design
+  config.yaml                          # one config for every project the orchestrator drives
+  orchestrator/                        # Python orchestrator (the autonomous-loop driver)
+  skills/                              # generator and reviewer skill markdown
+    requirements/                      # one subdir per loop, flat .md inside
+    blueprints/
+    work-orders/
+    coding/
+  playwright-harness/                  # bundled generic mechanism for the Playwright gate (§6.5; BLUEPRINT.md §12)
+    with_server.py                     # wrapper: boot dev server → poll health → run command → tear down
+    templates/
+      playwright.config.ts             # copied into projects at bootstrap
+      smoke.spec.ts                    # seed spec — verifies the project's bootstrap worked
+  research/                            # background notes
+```
+
 **Key shape facts:**
 - **`PRD.md` at root.** The operator-authored monolithic PRD (Stage 1). Input to the requirements loop; never edited by any autonomous loop.
 - **`requirements/` is generated.** Nodes are flat at each level: a `<slug>.md` visible content file plus two dotted-hidden meta files (`.<slug>.<overview|feature>.meta.yaml` and `.<slug>.requirements.meta.yaml`) as siblings. If a node has children, a sibling directory `<slug>_children/` holds them with the same flat shape, recursively. The `_children` suffix is reserved — kebab-case slugs never contain underscores.
 - **Meta files are orchestrator-managed.** Generators write only the visible `<slug>.md` content file. The orchestrator materialises the two dotted-hidden meta files per node after the generator exits, deriving titles from each doc's first H1 and setting IDs to `null` for later mirror sync to populate.
 - **`work-orders/` is flat** (no per-WO directories, no phase groupings). Work orders are slug-named flat files (`wo-<slug>.md` + `.wo-<slug>.meta.yaml`). Drain order lives in `_sequence.md` (a mutable numbered list of work-order slugs); `blocked_by[]` in each meta provides dependency constraints. Together these encode everything SF used phase groupings for, and slugs being stable means re-ordering `_sequence.md` doesn't break any cross-references.
 - **`.sequence.meta.yaml`** at the work-orders dir level records the hash of the blueprint tree at the time the sequence was generated. On each `coding-loop` run, the orchestrator compares the current blueprint hash to this; if changed, it triggers a regeneration before draining.
+- **`Makefile`, `playwright.config.ts`, `tests/e2e/`** are the project's contract with the bundled playwright harness (§6.5, `BLUEPRINT.md §12`). The bootstrap WO copies the config + smoke spec from the kit's `playwright-harness/templates/` and adds the `dev` / `playwright` Makefile targets. After bootstrap, those files live in the project's git history and re-run identically under GitHub Actions or any other CI runner that lacks the kit checkout.
 
 A reference skeleton lives at `project-template/` inside this kit repo. Clone it into a new project repo to start.
 
