@@ -128,6 +128,7 @@ Walks `work-orders/_sequence.md`, picks the next ready work order, spawns one ge
 - `--one` — run a single work order and exit.
 - `--base-branch <name>` — override the auto-detected default branch.
 - `--memoryless` — disable session continuity within a work order.
+- `--with-playwright` — opt in to the Playwright gate. **Default is off** — the orchestrator skips Playwright regardless of what each WO's `## Gates` block declares. Iterations stay fast (no dev-server boot, no e2e suite). Enable when the project is bootstrapped for the bundled playwright harness (Makefile targets exist, browsers installed) and you want UI verification this run.
 
 ---
 

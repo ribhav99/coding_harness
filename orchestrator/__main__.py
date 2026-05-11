@@ -118,6 +118,18 @@ def main(argv: list[str] | None = None) -> int:
             "the WO's invocation; each new orchestrator invocation still starts fresh."
         ),
     )
+    cd.add_argument(
+        "--with-playwright",
+        action="store_true",
+        help=(
+            "Run the Playwright gate when a work order's `## Gates` block declares "
+            "`playwright: required`. Default OFF — the orchestrator skips Playwright "
+            "regardless of what the WO says, so loop iterations don't pay the "
+            "dev-server boot + e2e suite cost. Enable when the project is bootstrapped "
+            "for the bundled playwright harness (see BLUEPRINT.md §12) and you're "
+            "ready to validate UI behavior end-to-end."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -152,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
             one=args.one,
             base_branch_override=args.base_branch,
             memoryless=args.memoryless,
+            with_playwright=args.with_playwright,
         )
 
     parser.error(f"unknown subcommand {args.subcommand!r}")

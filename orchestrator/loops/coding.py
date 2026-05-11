@@ -47,8 +47,17 @@ def run_coding_loop(
     one: bool = False,
     base_branch_override: str | None = None,
     memoryless: bool = False,
+    with_playwright: bool = False,
 ) -> int:
-    """Top-level entrypoint. Returns a process exit code."""
+    """Top-level entrypoint. Returns a process exit code.
+
+    `with_playwright=False` (the default) means the orchestrator skips spawning
+    the `playwright-runner` reviewer regardless of any WO's `## Gates` block
+    declaration. The opt-in is a loop-level toggle so the operator can iterate
+    on a project without paying the dev-server boot + e2e suite cost every
+    cycle. Enable when the project is bootstrapped for the bundled playwright
+    harness and UI verification is the point of this run.
+    """
     work_orders_root = project_root / "work-orders"
     if not work_orders_root.is_dir():
         sys.exit(
@@ -96,6 +105,7 @@ def run_coding_loop(
             base_branch=base_branch,
             config=config,
             memoryless=memoryless,
+            with_playwright=with_playwright,
         )
         drained += 1
         # Regenerate blockers after each WO in case the generator updated meta.
@@ -127,6 +137,7 @@ def _run_one_work_order(
     base_branch: str,
     config: dict,
     memoryless: bool,
+    with_playwright: bool,
 ) -> str:
     """Run the per-WO attempt loop. Returns `"ok"`, `"blocked"`, `"exhausted"`, or `"fatal"`."""
     max_attempts: int = config["max_attempts"]
@@ -165,6 +176,13 @@ def _run_one_work_order(
 
     gates = wo_planner.read_gates(wo)
     reviewer_skills = wo_planner.required_reviewer_skills(gates)
+    if not with_playwright and "playwright-runner" in reviewer_skills:
+        reviewer_skills = [s for s in reviewer_skills if s != "playwright-runner"]
+        print(
+            f"  playwright gate disabled by default (re-run with --with-playwright "
+            f"to enable); WO declared playwright: required but it is being skipped.",
+            flush=True,
+        )
     print(
         f"  gates required: {', '.join(reviewer_skills) if reviewer_skills else '(none)'}",
         flush=True,
