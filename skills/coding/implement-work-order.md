@@ -54,6 +54,17 @@ The orchestrator injects everything you need:
 
 4. **Add tests / playwright specs** for every AC row tagged `via tests` or `via playwright`. The `code-spec-judge` will check that each criterion was actually exercised — passing the suite in aggregate is not enough.
 
+   **What good tests look like.** Tests are part of the deliverable, not an afterthought. Apply these rules without exception — the reviewers (`code-spec-judge`, `code-quality-judge`) flag every one of these failure modes:
+
+   - **Each `via tests` AC maps to at least one named test whose name reflects the AC's expected outcome.** Make the AC↔test mapping mechanically discoverable. Example: `AC-WO-add-signin-endpoint.2 (via tests) — POST /sign-in with an unknown email returns 401 with {error: "invalid_credentials"}` → `test_signin_unknown_email_returns_401_with_invalid_credentials_error()`. Vague test names ("test_signin", "it works") defeat the AC walk and fail review.
+   - **Test the contract, not the implementation.** Call the public interface declared in `## Produces`; do not reach into private functions, internal class state, or framework internals just to coerce a passing assertion. If you find yourself patching an internal to make a test pass, the test is testing the patch, not the contract.
+   - **Negative cases are mandatory wherever the AC describes input validation, an error path, or a permission boundary.** If an AC says "rejects invalid X with status Y", there is a test that submits invalid X and asserts status Y. Do not rely on the happy path plus a code-read for the error path; the suite has to demonstrate it.
+   - **No trivially-passing assertions.** `assert result is not None` after `result = fn()` is not a test — `assert result == <specific expected value or shape>` is. Same with `assert response.status_code < 500` (passes for 200 *and* 404 *and* 403, none of which is what the AC says). Be specific about what the AC promises and assert that specifically.
+   - **Don't test framework guarantees.** Skip `assert isinstance(response, Response)` style assertions that only validate framework boilerplate. Test the behavior your code adds; let the framework's own tests cover the framework.
+   - **A test that still passes when the function body is commented out is not a test.** Mentally apply this check as you write each assertion. If the assertion is about "did the function run at all" rather than "did the function produce the right thing", strengthen it.
+
+   These rules apply equally to `via playwright` ACs — name specs after the AC outcome, assert on real page state (URL, visible text, DOM attributes), not on the existence of a page object.
+
    **Playwright conventions** (pinned by the bundled harness, [`BLUEPRINT.md §12`](../../BLUEPRINT.md)). If this work order has any `via playwright` AC:
    - Specs go in `tests/e2e/*.spec.ts`.
    - The app must be reachable on `http://localhost:3000/` when `make dev` is running.
