@@ -1,0 +1,18 @@
+# Coding-harness Playwright targets (BLUEPRINT.md §12).
+# Append to the project's Makefile at bootstrap. Customise the bodies; the
+# *target names* (`dev`, `playwright`) and the port (3000) are pinned by
+# the bundled harness — do not rename them.
+
+.PHONY: dev playwright
+
+# Boot the app in the foreground on http://localhost:3000.
+# Replace the body with the project's actual boot command (e.g. `npm run dev`,
+# `python manage.py runserver 3000`, `cargo run -- --port 3000`).
+dev:
+	npm run dev
+
+# Run the end-to-end test suite against the running dev server.
+# The bundled `with_server.py` wrapper boots `make dev` for you before
+# calling `make playwright`, so don't add server-boot logic here.
+playwright:
+	npx playwright test

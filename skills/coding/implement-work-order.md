@@ -54,7 +54,23 @@ The orchestrator injects everything you need:
 
 4. **Add tests / playwright specs** for every AC row tagged `via tests` or `via playwright`. The `code-spec-judge` will check that each criterion was actually exercised — passing the suite in aggregate is not enough.
 
-5. **Run the test suite locally** as a sanity check before opening the PR. If `make test` exists, run it; otherwise pick the project's standard runner. Do not push if the suite is red — fix it first.
+   **Playwright conventions** (pinned by the bundled harness, [`BLUEPRINT.md §12`](../../BLUEPRINT.md)). If this work order has any `via playwright` AC:
+   - Specs go in `tests/e2e/*.spec.ts`.
+   - The app must be reachable on `http://localhost:3000/` when `make dev` is running.
+   - Use the existing `playwright.config.ts` at the project root — do **not** add a `webServer:` block to it (the harness wrapper owns server lifecycle; double-boot causes port conflicts).
+   - Use `baseURL`-relative URLs in specs (e.g. `page.goto('/sign-in')`), not hardcoded `http://localhost:3000/...`.
+
+   **Bootstrap detection.** If `playwright.config.ts` or `tests/e2e/` is missing, the project hasn't been bootstrapped for the bundled playwright harness yet. Bootstrap it as part of this work order (only if the WO scope implicitly requires it — e.g. this is the first Playwright-needing WO):
+   1. Copy `${PLAYWRIGHT_HARNESS_ROOT}/templates/playwright.config.ts` to the project root.
+   2. Copy `${PLAYWRIGHT_HARNESS_ROOT}/templates/smoke.spec.ts` to `tests/e2e/smoke.spec.ts`.
+   3. Append the `dev` and `playwright` targets from `${PLAYWRIGHT_HARNESS_ROOT}/templates/Makefile.fragment` to the project's `Makefile` (or create the Makefile if absent), customising the body of `dev` to actually boot this project's app on port 3000.
+   4. Append `${PLAYWRIGHT_HARNESS_ROOT}/templates/gitignore.fragment` to the project's `.gitignore`.
+   5. Add `@playwright/test` to `package.json` devDependencies (if Node-based) or document the equivalent for other stacks.
+   6. If browser binaries aren't installed (`npx playwright install` has never run on this machine), file an operator-action work order to `work-orders/_backlog/wo-install-playwright-browsers.md` rather than trying to run the install yourself — it's a one-time-per-machine step that downloads ~500MB.
+
+5. **Run the test suite locally** as a sanity check before opening the PR.
+   - Unit tests: `make test` (or the project's standard runner). Don't push if red.
+   - Playwright (if this WO has any `via playwright` AC): `python3 "$PLAYWRIGHT_HARNESS_ROOT/with_server.py" make playwright`. Don't push if red. The wrapper boots `make dev`, polls `http://localhost:3000/`, runs the suite, and tears the server group down on every exit path — same invocation the `playwright-runner` reviewer will use, so a local pass here means a pass in the loop.
 
 6. **Commit.** Stage only files in scope; do not pick up unrelated diffs:
 

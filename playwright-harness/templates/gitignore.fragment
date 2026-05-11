@@ -1,0 +1,4 @@
+# Playwright artifacts (coding-harness BLUEPRINT.md §12)
+playwright-report/
+test-results/
+.playwright/

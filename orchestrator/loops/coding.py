@@ -551,6 +551,7 @@ def _coding_env(
         "HARNESS_BRANCH": branch,
         "HARNESS_BASE_BRANCH": base_branch,
         "HARNESS_WO_PATH": str(wo.body_path),
+        "PLAYWRIGHT_HARNESS_ROOT": str(paths.PLAYWRIGHT_HARNESS_DIR),
     }
     if pr_number is not None:
         env["HARNESS_PR_NUMBER"] = str(pr_number)

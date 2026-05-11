@@ -6,6 +6,7 @@ from pathlib import Path
 HARNESS_REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = HARNESS_REPO_ROOT / "skills"
 HOOK_SCRIPTS_DIR = HARNESS_REPO_ROOT / "orchestrator" / "hooks"
+PLAYWRIGHT_HARNESS_DIR = HARNESS_REPO_ROOT / "playwright-harness"
 
 
 def harness_state_dir(project_root: Path) -> Path:
