@@ -44,12 +44,13 @@ cd ~/code/coding_harness
 
 Edit [`config.yaml`](config.yaml) to set caps and the per-role model (Opus 4.7 for generators, Sonnet 4.6 for reviewers by default). One config, every project.
 
-Make the harness skills available globally:
+Make the harness skills available globally (so `/<skill-name>` works in any Claude Code session, anywhere on the machine):
 
 ```bash
-mkdir -p ~/.claude/skills
-ln -s ~/code/coding_harness/skills/* ~/.claude/skills/
+bash scripts/install-skills.sh
 ```
+
+The script symlinks every skill under `skills/<category>/<name>.md` to `~/.claude/skills/<name>/SKILL.md`. Re-run it after any rename or addition — it's idempotent and only touches its own prior entries.
 
 ---
 
