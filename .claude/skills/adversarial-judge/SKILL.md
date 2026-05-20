@@ -1,0 +1,1 @@
+../../../skills/coding/code-adversarial-judge.md
