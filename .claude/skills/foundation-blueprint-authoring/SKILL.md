@@ -1,1 +1,0 @@
-../../../skills/blueprints/foundation-blueprint-authoring.md

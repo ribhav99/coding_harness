@@ -1,1 +1,0 @@
-../../../skills/coding/security-judge.md

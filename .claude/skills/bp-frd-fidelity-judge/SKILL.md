@@ -1,0 +1,1 @@
+../../../skills/blueprints/bp-frd-fidelity-judge.md

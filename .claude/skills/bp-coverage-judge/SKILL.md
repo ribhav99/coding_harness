@@ -1,0 +1,1 @@
+../../../skills/blueprints/bp-coverage-judge.md

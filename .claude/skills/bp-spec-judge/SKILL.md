@@ -1,0 +1,1 @@
+../../../skills/blueprints/bp-spec-judge.md
