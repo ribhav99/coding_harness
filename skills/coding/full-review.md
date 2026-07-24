@@ -41,9 +41,10 @@ While the sub-agents are running, perform your own independent review. This is N
 
 Once all judges return, compile a single report:
 
-**For each judge finding that is actionable (not a nit):**
-- Verify the claim. Read the relevant code yourself. If the judge is wrong, say so. If the judge is right, confirm it.
-- If the fix is cheap (< 5 minutes), just do it rather than listing it as a finding.
+**For each judge finding — nit or not:**
+- Verify the claim. Read the relevant code yourself. If the judge is wrong, say so and drop it; if it's right, confirm it.
+- Re-derive its severity yourself. Judges over- and under-state impact — a "medium" you can't reproduce is a low; a downgraded-but-real gap still gets reported. Own the number.
+- Do NOT modify the working tree and do NOT post anything. Surface the finding; the user decides what to do with it.
 
 **Produce the final report:**
 
@@ -54,7 +55,10 @@ Once all judges return, compile a single report:
 
 ## Findings
 
-<Numbered list. Each finding includes: source (which judge or "own review"), severity, file:line, what's wrong, whether it blocks merge.>
+<Numbered list, most-significant first. Write each for someone very intelligent who has zero context and doesn't read code: give them the full picture in plain words and they'll reason about it fine. Each finding:
+- what's wrong, why, and what actually breaks — for a user, operator, or future dev. Lead with the consequence.
+- source (a judge, or "own review") + a severity you verified yourself, and file:line.
+- **Blocks merge? yes / no** — explicitly, on every finding.>
 
 ## Judge verdicts
 
@@ -79,7 +83,9 @@ Once all judges return, compile a single report:
 ## Rules
 
 - **Verify every judge claim before reporting it.** Judges hallucinate. Read the code yourself.
-- **Default to fixing nits, not listing them.** If a judge flags dead code, an unused import, or a minor inconsistency — and you can fix it in the current branch — fix it and note that you did. Don't create a "residual nits" section.
+- **Own the severity.** A judge's severity is an input, not a verdict — re-derive it from the concrete failure you can (or can't) reproduce, and correct it up or down. If a judge cries data-corruption and the system actually fails safe, say so and downgrade; don't pass the scare through.
+- **Read-only — you surface, the user decides.** Never modify the working tree, never post to the PR, never auto-fix a "cheap" nit or bulk-post comments. Present each finding and let the user choose what to action and where (fix, inline comment, defer, drop).
+- **Explain to someone very intelligent who has no context.** They can reason about anything once they see the full picture — but they don't read code and don't follow the project. So hand them the whole picture in plain words: what's wrong, why, and what actually breaks. Code, file:line, and jargon are footnotes, not the explanation.
 - **Be honest about what you didn't check.** If the PRD repo isn't available, say so. If you couldn't run tests, say so. Don't claim confidence you don't have.
 - **Findings only.** Don't list things the diff got right. The diff speaks for itself.
 - **Think adversarially.** The purpose of this review is to catch problems before merge, not to validate that the code looks reasonable.
