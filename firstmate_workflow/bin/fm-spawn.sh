@@ -208,6 +208,7 @@ for a in "$@"; do
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
+      window) PANE_WINDOW_FLAG=$a ;;   # LOCAL FORK
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -224,6 +225,9 @@ for a in "$@"; do
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
+    # LOCAL FORK: which tab this task's pane lands in (backend=tmux-panes only).
+    --window) want_value=window ;;
+    --window=*) PANE_WINDOW_FLAG=${a#--window=} ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -1016,6 +1020,32 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "git worktree add" "$WT"
 fi
 
+# LOCAL FORK: which tab a tmux-panes task's pane lands in. Precedence:
+#   1. --window <name>            explicit, per task - what firstmate passes at
+#                                 intake after reading config/pane-routes
+#   2. $FM_PANE_WINDOW            environment override
+#   3. config/pane-routes         "<kind>: <window>" lines, or "default: <window>"
+#   4. built-in default           scout -> reviews, everything else -> workers
+#
+# Deliberately mechanical. Routing INTENT ("PR reviews go to tab 3") is a
+# judgment call and belongs to firstmate reading config/pane-routes at intake,
+# exactly as config/crew-dispatch.json works for harness selection. This function
+# only resolves a concrete name and never parses task intent.
+spawn_resolve_pane_window() {
+  local routes="$CONFIG/pane-routes" val
+  if [ -n "${PANE_WINDOW_FLAG:-}" ]; then printf '%s\n' "$PANE_WINDOW_FLAG"; return 0; fi
+  if [ -n "${FM_PANE_WINDOW:-}" ]; then printf '%s\n' "$FM_PANE_WINDOW"; return 0; fi
+  if [ -f "$routes" ]; then
+    val=$(sed -n "s/^[[:space:]]*$KIND[[:space:]]*:[[:space:]]*\([A-Za-z0-9._-][A-Za-z0-9._-]*\).*/\1/p" "$routes" 2>/dev/null | head -1)
+    [ -n "$val" ] || val=$(sed -n 's/^[[:space:]]*default[[:space:]]*:[[:space:]]*\([A-Za-z0-9._-][A-Za-z0-9._-]*\).*/\1/p' "$routes" 2>/dev/null | head -1)
+    if [ -n "$val" ]; then printf '%s\n' "$val"; return 0; fi
+  fi
+  case "$KIND" in
+    scout) printf 'reviews\n' ;;
+    *)     printf 'workers\n' ;;
+  esac
+}
+
 W="fm-$ID"
 case "$BACKEND" in
   tmux)
@@ -1029,6 +1059,18 @@ case "$BACKEND" in
     # handle for later steps rather than a worktree-detection target.
     WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
     WT_TARGET="$WID"
+    ;;
+  tmux-panes)
+    # LOCAL FORK. One tiled PANE inside a routed window instead of one window
+    # per task. The endpoint handle recorded in meta is the pane id (%12), which
+    # is server-unique and immutable - a stronger identity than a window name,
+    # which is why this branch needs none of the rename-pinning above.
+    SES=$(fm_backend_tmux_panes_container_ensure)
+    FM_PANE_WINDOW=$(spawn_resolve_pane_window)
+    export FM_PANE_WINDOW
+    PANE_ID=$(fm_backend_tmux_panes_create_task "$SES" "$W" "$WT") || exit 1
+    T="$PANE_ID"
+    WT_TARGET="$PANE_ID"
     ;;
   herdr)
     # fm_backend_herdr_workspace_label resolves the target workspace from
@@ -1253,6 +1295,7 @@ esac
 spawn_send_text_line() {  # <target> <text>
   case "$BACKEND" in
     tmux) fm_backend_tmux_send_text_line "$1" "$2" ;;
+    tmux-panes) fm_backend_tmux_panes_send_text_line "$1" "$2" ;;
     herdr) fm_backend_herdr_send_text_line "$1" "$2" ;;
     zellij) fm_backend_zellij_send_text_line "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_text_line "$1" "$2" ;;
@@ -1262,6 +1305,7 @@ spawn_send_text_line() {  # <target> <text>
 spawn_current_path() {  # <target>
   case "$BACKEND" in
     tmux) fm_backend_tmux_current_path "$1" ;;
+    tmux-panes) fm_backend_tmux_panes_current_path "$1" ;;
     herdr) fm_backend_herdr_current_path "$1" ;;
     zellij) fm_backend_zellij_current_path "$1" "$W" ;;
     cmux) fm_backend_cmux_current_path "$1" "$W" ;;
@@ -1270,6 +1314,7 @@ spawn_current_path() {  # <target>
 spawn_send_literal() {  # <target> <text>
   case "$BACKEND" in
     tmux) fm_backend_tmux_send_literal "$1" "$2" ;;
+    tmux-panes) fm_backend_tmux_panes_send_literal "$1" "$2" ;;
     herdr) fm_backend_herdr_send_literal "$1" "$2" ;;
     zellij) fm_backend_zellij_send_literal "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_literal "$1" "$2" ;;
@@ -1279,6 +1324,7 @@ spawn_send_literal() {  # <target> <text>
 spawn_send_key() {  # <target> <key>
   case "$BACKEND" in
     tmux) fm_backend_tmux_send_key "$1" "$2" ;;
+    tmux-panes) fm_backend_tmux_panes_send_key "$1" "$2" ;;
     herdr) fm_backend_herdr_send_key "$1" "$2" ;;
     zellij) fm_backend_zellij_send_key "$1" "$2" "$W" ;;
     orca) fm_backend_orca_send_key "$1" "$2" ;;

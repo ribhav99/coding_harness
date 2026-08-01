@@ -66,8 +66,8 @@ FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # cmux is EXPERIMENTAL and spawn-capable, session-provider-only like
 # herdr/zellij - verified against the real 0.64.17 binary (docs/cmux-backend.md).
 # codex-app remains deliberately absent; see docs/codex-app-backend.md.
-FM_BACKEND_KNOWN="tmux herdr zellij orca cmux"
-FM_BACKEND_SPAWN="tmux herdr zellij orca cmux"
+FM_BACKEND_KNOWN="tmux tmux-panes herdr zellij orca cmux"
+FM_BACKEND_SPAWN="tmux tmux-panes herdr zellij orca cmux"
 
 # fm_backend_list_contains: whitespace-delimited membership without relying on
 # shell word splitting. fm-backend.sh is normally sourced by bash scripts, but
@@ -313,6 +313,7 @@ fm_backend_validate_spawn() {  # <name>
 fm_backend_required_tools() {  # <backend>
   case "$1" in
     tmux)   printf '%s' 'tmux' ;;
+    tmux-panes) printf '%s' 'tmux' ;;   # LOCAL FORK
     herdr)  printf '%s' 'herdr jq' ;;
     zellij) printf '%s' 'zellij jq' ;;
     cmux)   printf '%s' 'cmux jq' ;;
@@ -452,6 +453,24 @@ fm_backend_validate_task_endpoint() {  # <meta-file> <task-id>
         echo "REFUSED: tmux endpoint '$window' is malformed or does not belong to task $id; preserving task state." >&2
         return 1
       fi
+      ;;
+    tmux-panes)
+      # LOCAL FORK. A pane task records window=%<pane-id>. Unlike the stock tmux
+      # branch there is no name to check the task id against, because a pane has
+      # no name - so identity binds through endpoint_task_id=, exactly as the
+      # herdr/zellij/cmux branches do. That binding is strictly stronger than the
+      # name check: a window can be renamed, a pane id cannot be reassigned.
+      [ "$binding" = "$id" ] || {
+        echo "REFUSED: tmux-panes endpoint metadata for task $id lacks an exact task binding; preserving task state." >&2
+        return 1
+      }
+      case "$window" in
+        %[0-9]*) ;;
+        *)
+          echo "REFUSED: tmux-panes endpoint '$window' is not a pane id; preserving task state." >&2
+          return 1
+          ;;
+      esac
       ;;
     herdr)
       [ "$binding" = "$id" ] || {
@@ -605,6 +624,15 @@ fm_backend_source() {  # <name>
         _FM_BACKEND_TMUX_SOURCED=1
       fi
       ;;
+    tmux-panes)
+      # LOCAL FORK. The adapter sources backends/tmux.sh itself and delegates
+      # every unchanged function to it, so upstream fixes keep flowing through.
+      if [ -z "${_FM_BACKEND_TMUX_PANES_SOURCED:-}" ]; then
+        # shellcheck source=/dev/null
+        . "$FM_BACKEND_LIB_DIR/backends/tmux-panes.sh" || return 1
+        _FM_BACKEND_TMUX_PANES_SOURCED=1
+      fi
+      ;;
     herdr)
       if [ -z "${_FM_BACKEND_HERDR_SOURCED:-}" ]; then
         # shellcheck source=/dev/null
@@ -700,6 +728,7 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
   fm_backend_source "$backend" || return 1
   case "$backend" in
     tmux) fm_backend_tmux_capture "$@" ;;
+    tmux-panes) fm_backend_tmux_panes_capture "$@" ;;
     herdr) fm_backend_herdr_capture "$@" ;;
     zellij) fm_backend_zellij_capture "$@" ;;
     orca) fm_backend_orca_capture "$@" ;;
@@ -715,6 +744,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
   fm_backend_source "$backend" || return 1
   case "$backend" in
     tmux) fm_backend_tmux_send_key "$@" ;;
+    tmux-panes) fm_backend_tmux_panes_send_key "$@" ;;
     herdr) fm_backend_herdr_send_key "$@" ;;
     zellij) fm_backend_zellij_send_key "$@" ;;
     orca) fm_backend_orca_send_key "$@" ;;
@@ -732,6 +762,7 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
   fm_backend_source "$backend" || return 1
   case "$backend" in
     tmux) fm_backend_tmux_send_text_submit "$@" ;;
+    tmux-panes) fm_backend_tmux_panes_send_text_submit "$@" ;;
     herdr) fm_backend_herdr_send_text_submit "$@" ;;
     zellij) fm_backend_zellij_send_text_submit "$@" ;;
     orca) fm_backend_orca_send_text_submit "$@" ;;
@@ -750,6 +781,7 @@ fm_backend_kill() {  # <backend> <target>
   fm_backend_source "$backend" || return 1
   case "$backend" in
     tmux) fm_backend_tmux_kill "$@" ;;
+    tmux-panes) fm_backend_tmux_panes_kill "$@" ;;
     herdr) fm_backend_herdr_kill "$@" ;;
     zellij) fm_backend_zellij_kill "$@" ;;
     orca) fm_backend_orca_kill "$@" ;;
@@ -813,6 +845,7 @@ fm_backend_composer_state() {  # <backend> <target> -> empty|pending|pending-unp
   fm_backend_source "$backend" || { printf 'unknown'; return 0; }
   case "$backend" in
     tmux) fm_tmux_composer_state "$@" ;;
+    tmux-panes) fm_tmux_composer_state "$@" ;;
     herdr) fm_backend_herdr_composer_state "$@" ;;
     orca) fm_backend_orca_composer_state "$@" ;;
     cmux) fm_backend_cmux_composer_state "$@" ;;
@@ -835,7 +868,7 @@ fm_backend_composer_state() {  # <backend> <target> -> empty|pending|pending-unp
 fm_backend_target_exists() {  # <backend> <target> [expected-label]
   local backend=$1 target=$2 expected_label=${3:-} session pane
   case "$backend" in
-    tmux)
+    tmux|tmux-panes)
       tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1
       ;;
     herdr)
@@ -891,6 +924,7 @@ fm_backend_agent_state() {  # <backend> <target>
   fm_backend_source "$backend" || { printf 'unverified'; return 0; }
   case "$backend" in
     tmux) fm_backend_tmux_agent_state "$target" ;;
+    tmux-panes) fm_backend_tmux_panes_agent_state "$target" ;;
     herdr) fm_backend_herdr_agent_state "$target" ;;
     *) printf 'unverified' ;;
   esac

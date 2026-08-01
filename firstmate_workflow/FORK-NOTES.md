@@ -156,7 +156,10 @@ Not everything degrades gracefully. Known gaps:
 | `bin/fm-public-followup.sh` | **hard-requires** `tasks-axi`; X mode only (off) |
 | `bin/fm-home-seed.sh` | **hard-requires** `no-mistakes` to seed a secondmate home (unused) |
 
-Install `tasks-axi` if durable decision holds or secondmates are ever wanted.
+**Update:** `tasks-axi` 0.2.4 IS now installed. `bin/fm-decision-hold.sh`
+backs durable captain decision holds, and scout teardown verifies them, so it
+is load-bearing for review work. The backlog itself still uses
+`config/backlog-backend=manual`.
 
 ### 5. Delivery-mode fallback → `direct-PR` — `bin/fm-project-mode.sh`
 
@@ -231,6 +234,60 @@ changed.
 **Still treehouse-dependent:** `bin/fm-home-seed.sh` (`treehouse get --lease`)
 for secondmate homes, which this fork does not use. `fm-bootstrap.sh`'s
 `treehouse_supports_lease` gate is inert but left in place.
+
+### 7. `tmux-panes` backend — `bin/backends/tmux-panes.sh` (new) + registrations
+
+A sixth runtime backend that places each task as a tiled **pane inside a routed
+window**, instead of one window per task. Selected via `config/backend`.
+
+**Not a copy of `backends/tmux.sh`.** It sources the stock adapter and delegates
+all eight unchanged functions to it, so upstream fixes to capture, submit,
+composer handling and current-path keep flowing through. Only three functions
+are reimplemented, because only three are window-shaped:
+
+| function | stock tmux | tmux-panes |
+| --- | --- | --- |
+| `create_task` | `new-window` | `split-window` into the routed window, then `select-layout tiled` |
+| `kill` | `kill-window` | `kill-pane`, then re-tile the survivors |
+| `agent_state` | window-**name** membership | pane-**id** membership |
+
+**Identity is stronger, not weaker.** The stock adapter identifies a task by
+window name and carries a workaround for it — names can be renamed out from
+under you, so it pins `automatic-rename`/`allow-rename` off. Pane ids are
+server-unique and immutable for the pane's lifetime. Meta records
+`window=%<pane-id>`, and `fm_backend_validate_task_endpoint` gained a
+`tmux-panes` branch binding identity through `endpoint_task_id=`, exactly as the
+herdr/zellij/cmux branches do.
+
+**Routing** (`spawn_resolve_pane_window` in `fm-spawn.sh`): `--window <name>`,
+then `$FM_PANE_WINDOW`, then `config/pane-routes` (`<kind>: <window>` lines, or
+`default:`), then built-in `scout → reviews`, everything else `→ workers`.
+Deliberately mechanical — routing *intent* is a judgment call belonging to
+firstmate at intake, the same split `config/crew-dispatch.json` uses.
+
+**Registrations:** `FM_BACKEND_KNOWN`, `FM_BACKEND_SPAWN`,
+`fm_backend_required_tools`, `fm_backend_source`, six dispatch arms and
+`fm_backend_target_exists` in `fm-backend.sh`; four dispatch arms, the
+`--window` flag, the routing resolver and a `tmux-panes)` create branch in
+`fm-spawn.sh`.
+
+**A bug found by testing, not by reading.** The placeholder-replacement step —
+which lets the first task replace the idle shell a fresh window starts with —
+originally classified a pane as a placeholder if the window held exactly one
+pane running a shell. A task pane whose agent has not finished launching *also*
+reports a shell, so the second task into a window killed the first task's live
+pane. Fixed by requiring the pane's title to not start with `fm-`: every pane
+this adapter creates is titled `fm-<id>`, so a task pane is unmatchable
+regardless of what it is running at that instant.
+
+**Verified end to end:** 3 ship + 2 scout tasks route to `workers`/`reviews`
+respectively, tile evenly, and carry `fm-<id>` pane titles; tearing down a middle
+pane reflows the survivors and leaves neighbouring worktrees intact; the last
+teardown in a window closes it; no orphan worktrees or stale registrations.
+
+Fail-closed gates all survive the fork. A scout still refuses teardown without
+`data/<id>/report.md`, and then again until
+`bin/fm-decision-hold.sh complete <id> --none` attests its decision inventory.
 
 ---
 
