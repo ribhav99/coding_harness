@@ -135,8 +135,12 @@ FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pw
 [ -f "$FM_ROOT/AGENTS.md" ] || exit 0
 [ -d "$FM_ROOT/bin" ] || exit 0
 command -v git >/dev/null 2>&1 || exit 0
-GIT_DIR=$(git -C "$FM_ROOT" rev-parse --git-dir 2>/dev/null) || exit 0
-GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --git-common-dir 2>/dev/null) || exit 0
+# LOCAL FORK: --path-format=absolute on both calls. See the same note in
+# bin/fm-primary-scope-lib.sh - from a subdirectory checkout git returns an
+# absolute --git-dir and a relative --git-common-dir, so the raw compare failed
+# and this guard silently went inert. Linked task worktrees are still rejected.
+GIT_DIR=$(git -C "$FM_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null) || exit 0
+GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
 [ "$GIT_DIR" = "$GIT_COMMON_DIR" ] || exit 0
 
 POLICY="$FM_ROOT/bin/fm-cd-command-policy.mjs"
