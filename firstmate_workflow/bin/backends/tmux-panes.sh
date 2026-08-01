@@ -232,6 +232,16 @@ fm_backend_tmux_panes_agent_state() {  # <pane-id>
   comm=${comm#-}
   case "$comm" in
     *claude*|*codex*|*opencode*|*grok*|*kimi*|pi|pi-signed|pi-launcher|Pi) printf 'alive' ;;
+    # LOCAL FORK: Claude Code renames its own process to its VERSION STRING, so a
+    # live agent reports e.g. "2.1.220" rather than "claude" and fell through to
+    # `ambiguous` below. Verified live against Claude Code 2.1.220. This affects
+    # upstream's stock tmux adapter identically -- its pattern list is the same --
+    # so it is an upstream bug, not something this backend introduced.
+    #
+    # Erring toward `alive` here is the safe direction: `alive` only ever BLOCKS
+    # recovery, while a wrong `dead` would authorize relaunching an agent that is
+    # still running and produce two agents in one worktree.
+    [0-9]*.[0-9]*.[0-9]*) printf 'alive' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'dead' ;;
     '') printf 'unreadable' ;;
     *) printf 'ambiguous' ;;

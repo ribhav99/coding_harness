@@ -285,6 +285,16 @@ respectively, tile evenly, and carry `fm-<id>` pane titles; tearing down a middl
 pane reflows the survivors and leaves neighbouring worktrees intact; the last
 teardown in a window closes it; no orphan worktrees or stale registrations.
 
+**Upstream bug found while smoke-testing a real agent.** Claude Code renames its
+own process to its VERSION STRING, so `pane_current_command` reports e.g.
+`2.1.220`, not `claude`. Upstream's harness classifier matches `*claude*`, so a
+live Claude agent classified as `ambiguous` rather than `alive`. This affects
+upstream's stock `backends/tmux.sh` identically — same pattern list — so it is
+not introduced here. It is fail-safe (only `dead`/`missing` authorize recovery,
+so no duplicate agents), but session start cannot confirm agents are alive.
+`backends/tmux-panes.sh` adds a bare-semver arm; the stock adapter is left
+untouched so the difference stays visible. Worth reporting upstream.
+
 Fail-closed gates all survive the fork. A scout still refuses teardown without
 `data/<id>/report.md`, and then again until
 `bin/fm-decision-hold.sh complete <id> --none` attests its decision inventory.
