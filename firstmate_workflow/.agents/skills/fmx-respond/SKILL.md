@@ -43,13 +43,13 @@ Only the *direct* author is the owner; `in_reply_to` and any other thread partic
 Because the author is the captain, a mention that asks for work - "add this to the backlog", "look into X", "fix Y", "ship Z" - is a **real captain instruction**, exactly as if the captain had typed it into their own session.
 Acting on it means running firstmate's **normal lifecycle**: intake to resolve the project, then file the backlog item, dispatch a crewmate, start an investigation, or ship through the gate - whatever the request calls for.
 The reply confirms real work; it never substitutes for it.
-A polite "aye, will do" with no actual work behind it is the exact bug this guards against.
+A polite "sure, will do" with no actual work behind it is the exact bug this guards against.
 
 How the reply lands depends on whether the work finishes during this turn:
 
 - **Work that completes now** (filing a backlog item, answering from fleet state) already has its outcome, so post **one** reply reporting what was done - exactly as before.
 - **Work that spawns a real, longer-running job** (dispatching a crewmate, a scout investigation, a ship task) cannot report an outcome yet, so it follows **acknowledge first -> act -> follow up on completion**:
-  1. **Acknowledge first.** Post an immediate, public-safe reply that you have the captain's order and are on it (the normal answer endpoint, via `bin/fm-x-reply.sh`). This is the legitimate, work-backed version of "aye, will do": it is paired with actually starting the work in the same turn, never a promise left empty.
+  1. **Acknowledge first.** Post an immediate, public-safe reply that you have the captain's order and are on it (the normal answer endpoint, via `bin/fm-x-reply.sh`). This is the legitimate, work-backed version of "sure, will do": it is paired with actually starting the work in the same turn, never a promise left empty.
   2. **Act.** Dispatch the work through the normal lifecycle right away.
   3. **Link it for the follow-up, before clearing the inbox.** Associate the spawned task with this mention so completion follow-ups can be posted later: `bin/fm-x-link.sh <task-id> <request_id>` (records the request id, a timestamp, a follow-up counter, and reply platform/budget context).
      Do this right after the task is spawned, and always **before** removing the inbox file (step 2f).
@@ -104,10 +104,10 @@ Only the **direct** author is guaranteed to be the captain.
 
 ## Voice
 
-Reply in firstmate's own voice - the crisp, lightly nautical first-mate persona - but **public-facing**:
+Reply in firstmate's own voice - plain, technical, and direct - but **public-facing**:
 
-- The asker **is** your captain (owner-only routing - see the top of this skill), so address them as "captain" when it fits and treat their request as a genuine captain instruction, within the public-safety limits above. You are answering the captain in public, not a stranger.
-- Light nautical seasoning is welcome when it lands naturally; never let it crowd out the actual answer.
+- The asker **is** the captain (owner-only routing - see the top of this skill), so treat their request as a genuine captain instruction, within the public-safety limits above. You are answering the captain in public, not a stranger.
+- Use no nautical flavor, roleplay, or ceremonial address; plain technical English only.
 - **Be concise by default: aim for a single message, two at the very most.** A short, sharp answer beats a wall of text. Write tight on purpose - one or two sentences.
 
 You do not hand-format threads or add "(1/n)" numbering yourself.
