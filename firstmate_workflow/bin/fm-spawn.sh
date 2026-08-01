@@ -584,6 +584,28 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   fi
 fi
 
+# LOCAL FORK: standing crewmate/scout effort floor from config/crew-effort.
+#
+# Upstream has no crew equivalent of the secondmate effort token above: crew
+# effort is chosen per task by firstmate at intake (AGENTS.md section 4), whose
+# generic fallback explicitly says "never max without explicit captain
+# preference". This captain HAS stated that preference, and stated it as
+# "always" -- so it belongs in a config file the code reads on every spawn,
+# not in a prompt that a future session could forget or reason its way out of.
+#
+# An explicit --effort still wins, so firstmate can go lower for a task where
+# that is genuinely right; it just cannot silently omit the axis. Applies to
+# ship and scout spawns only -- secondmates keep their own contract above.
+if [ "$KIND" != secondmate ] && [ "$EFFORT_SET" -eq 0 ] && [ -f "$CONFIG/crew-effort" ]; then
+  CREW_EFFORT=$(tr -d '[:space:]' < "$CONFIG/crew-effort" 2>/dev/null || true)
+  if [ -n "$CREW_EFFORT" ]; then
+    case "$CREW_EFFORT" in
+      low|medium|high|xhigh|max) EFFORT=$CREW_EFFORT ;;
+      *) echo "warning: config/crew-effort '$CREW_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2 ;;
+    esac
+  fi
+fi
+
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
 }

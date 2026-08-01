@@ -309,6 +309,37 @@ Fail-closed gates all survive the fork. A scout still refuses teardown without
 `data/<id>/report.md`, and then again until
 `bin/fm-decision-hold.sh complete <id> --none` attests its decision inventory.
 
+### 8. Per-project homes + standing crew effort
+
+**One control panel per project.** Each project gets its own tmux session
+`fm-<project>` (tabs: control / workers / reviews) and its own `FM_HOME` under
+`homes/<project>/`. The code — `bin/`, `AGENTS.md`, skills — is shared from
+`FM_ROOT`; only private state (`data/`, `state/`, `config/`, `projects/`) is
+per-project. Sessions are created with `tmux new-session -e FM_HOME=…` plus
+`set-environment`, so crew panes inherit it.
+
+cwd deliberately stays `FM_ROOT` in every session while `FM_HOME` varies: the
+hooks in `.claude/settings.json` resolve through `$CLAUDE_PROJECT_DIR`, which
+must remain the code checkout. Verified: a second home resolves its own registry,
+bootstraps clean off the shared `bin/`, keeps the guards active, and takes its own
+session lock.
+
+The root home is no longer a working home. Its `data/projects.md` says so.
+
+**`config/crew-effort` (new).** Upstream has no crew equivalent of the secondmate
+effort token, because crew effort is a per-task judgment call — and AGENTS.md
+section 4 explicitly says "never max without explicit captain preference". The
+captain has now given that preference, as a standing "always", so it is read from
+a config file on every spawn rather than left to a prompt a future session could
+reason its way out of. An explicit `--effort` still wins. Ship and scout only;
+secondmates keep their own contract.
+
+Both homes also pin `config/crew-harness=claude`.
+`--dangerously-skip-permissions` was already in upstream's claude launch template.
+
+Verified: meta records `effort=max`, and the pane's command is
+`claude --dangerously-skip-permissions --effort 'max'`.
+
 ---
 
 ## Known pre-existing failure (not ours)
