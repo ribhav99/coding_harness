@@ -110,6 +110,9 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
+# LOCAL FORK: the task worktree provider that replaces treehouse.
+# shellcheck source=bin/fm-worktree.sh
+. "$SCRIPT_DIR/fm-worktree.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -673,15 +676,25 @@ cleanup_stale_lock_for_safety_check() {
   return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
 }
 
-# Return a worktree/home via `treehouse return --force`, tolerating a transient or
-# stale git index.lock left by a killed crew process. See the script header.
+# Release a task worktree, tolerating a transient or stale git index.lock left by
+# a killed crew process. See the script header.
+#
+# LOCAL FORK: was `treehouse return --force`, which put the worktree back into
+# treehouse's pool. This fork has no pool, so release means DELETE, via
+# fm_worktree_remove (bin/fm-worktree.sh). The retry machinery below is unchanged
+# and still correct: treehouse_return_is_index_lock_error matches GIT's own
+# "Unable to create '...index.lock': File exists" text, which treehouse merely
+# surfaced, and `git worktree remove` fails with exactly the same message.
+#
+# The name is kept so the three call sites and the tests stay recognisable
+# against upstream.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+  if out=$( fm_worktree_remove "$dir" "$cd_dir" 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
   fi
@@ -706,7 +719,7 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+    if out=$( fm_worktree_remove "$dir" "$cd_dir" 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
       return 0
@@ -733,7 +746,7 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
-      if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+      if out=$( fm_worktree_remove "$dir" "$cd_dir" 2>&1 ); then
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
         return 0

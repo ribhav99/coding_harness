@@ -882,6 +882,10 @@ done
 # The treehouse lease-support upgrade check is only relevant when the resolved
 # backend actually requires treehouse (every backend except orca, which owns its
 # own worktrees); an orca home must not be told to upgrade a provider it never uses.
+# LOCAL FORK: inert. fm_backend_required_tools no longer lists treehouse for any
+# backend (this fork provides worktrees itself via bin/fm-worktree.sh), so the
+# first condition is always false. Kept rather than deleted to keep the subtree
+# diff small; delete freely if treehouse is never coming back.
 if fm_backend_list_contains "$TOOLS" treehouse \
   && command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
   echo "MISSING: treehouse (install: $(install_cmd treehouse))"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
+# Spawn a direct report: a crewmate in a per-task git worktree (LOCAL FORK: was a
+# treehouse pool worktree; see bin/fm-worktree.sh) or an Orca worktree, or a
 # secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
@@ -177,6 +178,9 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# LOCAL FORK: the task worktree provider that replaces treehouse.
+# shellcheck source=bin/fm-worktree.sh
+. "$SCRIPT_DIR/fm-worktree.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -261,6 +265,8 @@ fi
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
+# LOCAL FORK: armed after fm_worktree_create, disarmed after the meta write.
+WORKTREE_ABORT_CLEANUP=0
 HERDR_PROJECTION_ABORT_CLEANUP=0
 HERDR_PROJECTION_ABORT_SESSION=
 HERDR_PROJECTION_ABORT_TASK_PANE=
@@ -291,6 +297,15 @@ parse_orca_worktree_result() {
 
 spawn_abort_cleanup() {
   local status=$?
+  # LOCAL FORK: remove a task worktree created by fm_worktree_create when the
+  # spawn aborts before publishing task metadata. Flag-gated exactly like the
+  # orca/herdr blocks below, so a SUCCESSFUL spawn never reaches this.
+  if [ "${WORKTREE_ABORT_CLEANUP:-0}" = 1 ]; then
+    WORKTREE_ABORT_CLEANUP=0
+    if [ -n "${WT:-}" ] && [ -n "${PROJ_ABS:-}" ]; then
+      fm_worktree_remove "$WT" "$PROJ_ABS" >/dev/null 2>&1 || true
+    fi
+  fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
      && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
     if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
@@ -971,6 +986,36 @@ herdr_projection_existing_meta_allows_flat() {  # <meta>
   esac
 }
 
+# LOCAL FORK: create the task worktree BEFORE the endpoint exists, so the pane
+# can be opened directly inside it.
+#
+# Upstream created the pane in the PROJECT directory, sent the literal text
+# `treehouse get` into it, then polled pane_current_path for up to 60 seconds
+# waiting for treehouse's subshell to cd -- and needed two consecutive agreeing
+# reads, because a brand-new pane can transiently report an unrelated stale path
+# that would otherwise be recorded as the worktree in state/<id>.meta. That whole
+# race exists only because treehouse hands out a worktree by opening a subshell
+# inside it. `git worktree add` simply returns a path, so we create it first and
+# hand it to the backend as the pane's cwd. The pane is never in the project
+# directory at any point, and there is nothing to poll for.
+#
+# validate_spawn_worktree still runs: it is the isolation assertion (a real
+# worktree root, distinct from the primary checkout) and is unchanged.
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  WT=$(fm_worktree_create "$PROJ_ABS" "$ID") || {
+    echo "error: could not create a task worktree for $ID under $PROJ_ABS" >&2
+    exit 1
+  }
+  # Arm abort cleanup, mirroring ORCA_ABORT_CLEANUP: from here until the task
+  # metadata is published, any exit must remove this worktree so a failed launch
+  # leaves no orphan directory or stale git registration. Safe only in that
+  # window, because the agent has not been handed the worktree yet and it
+  # provably holds no work. Disarmed right after the meta write; every later
+  # removal goes through teardown's fail-closed landed-work checks.
+  WORKTREE_ABORT_CLEANUP=1
+  validate_spawn_worktree "git worktree add" "$WT"
+fi
+
 W="fm-$ID"
 case "$BACKEND" in
   tmux)
@@ -978,11 +1023,11 @@ case "$BACKEND" in
     T="$SES:$W"
     # #134 robustness (tmux): fm_backend_tmux_create_task captures a stable window
     # id and pins the window name (automatic-rename/allow-rename off) so a captain's
-    # non-default tmux config cannot rename the window away from fm-<id> once
-    # treehouse cd's into the worktree. WT_TARGET carries that stable id for the
-    # rename-critical worktree-detection steps below; the persisted window= handle
-    # stays $T (the name form), which is safe now that rename is disabled.
-    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$PROJ_ABS") || exit 1
+    # non-default tmux config cannot rename the window away from fm-<id>.
+    # LOCAL FORK: the pane opens directly in $WT, the worktree created above, not
+    # in $PROJ_ABS. Nothing cd's it afterwards, so WT_TARGET is now only a stable
+    # handle for later steps rather than a worktree-detection target.
+    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
     WT_TARGET="$WID"
     ;;
   herdr)
@@ -1292,55 +1337,21 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
-if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
-
-  # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
-  # Target the stable window id, not the name: if the name is ever lost (e.g. an
-  # automatic-rename slips through), display-message -t <bad-name> falls back to the
-  # active client's window, which would misread firstmate's OWN pane path as the
-  # worktree and tangle a hook into the primary checkout. The window id never lies.
-  # Compare against PROJ_ABS_REAL (physical), not PROJ_ABS: a symlinked project
-  # prefix would otherwise make the pane's OS-level cwd read differ from
-  # PROJ_ABS on the very first poll, before the pane has actually moved.
-  #
-  # A single read that already differs from PROJ_ABS_REAL is not proof the pane
-  # settled there: on some tmux/WSL setups a brand-new window's pane_current_path
-  # transiently reports an unrelated stale path (seen live as another real git
-  # checkout entirely) before the shell catches up with treehouse get's cd. That
-  # stale path still passes the PROJ_ABS_REAL comparison and validate_spawn_worktree
-  # below (it resolves to a real, distinct worktree top-level too), so accepting it
-  # on one read alone silently records the wrong worktree= in state/<id>.meta. Require
-  # two consecutive reads to agree on the same non-project path before accepting it;
-  # a mismatch just becomes the new candidate rather than resetting the wait, so a
-  # pane that is already settled by the first real read only costs the one existing
-  # inter-poll sleep as confirmation, not a whole extra cycle on top.
-  candidate=""
-  for _ in $(seq 1 60); do
-    p=$(spawn_current_path "$WT_TARGET" || true)
-    if [ -n "$p" ]; then
-      p_real=$(real_path_or_raw "$p")
-      if [ "$p_real" != "$PROJ_ABS_REAL" ]; then
-        if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
-          WT="$p"
-          break
-        fi
-        candidate="$p_real"
-      else
-        candidate=""
-      fi
-    else
-      candidate=""
-    fi
-    sleep 1
-  done
-  if [ -z "$WT" ]; then
-    echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
-    exit 1
-  fi
-
-  validate_spawn_worktree "treehouse get" "$T"
-fi
+# LOCAL FORK: upstream's worktree acquisition stood here -- send `treehouse get`
+# into the pane, then poll pane_current_path for up to 60 seconds waiting for the
+# subshell's cd, requiring two consecutive agreeing reads to defend against a
+# brand-new pane transiently reporting an unrelated stale path (which would
+# otherwise be recorded as the worktree in state/<id>.meta).
+#
+# All of it is gone. The worktree is created by fm_worktree_create BEFORE the
+# endpoint, and the pane is opened directly inside it, so there is no cd to wait
+# for and no window in which the pane reports the wrong path. validate_spawn_worktree
+# now runs up there too, against the path git returned rather than a polled guess.
+#
+# Deleted along with it: up to 60 seconds of worst-case spawn latency per task.
+# spawn_current_path() and real_path_or_raw() are now unused definitions, left in
+# place to keep the subtree diff small. PROJ_ABS_REAL is still live -- it is what
+# validate_spawn_worktree compares the worktree against.
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
 # create GOTMPDIR, so mkdir before it is used; fm-teardown removes the whole root.
@@ -1644,6 +1655,8 @@ META_WINDOW=$T
   fi
 } > "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
+# LOCAL FORK: the worktree is now recorded in task metadata, so teardown owns it.
+WORKTREE_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")

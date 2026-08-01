@@ -181,6 +181,57 @@ fallback sites changed; the warning on stderr is preserved.
 
 **Upstreamable?** No — this is specific to running without no-mistakes.
 
+### 6. Treehouse removed — `bin/fm-worktree.sh` (new), `fm-spawn.sh`, `fm-teardown.sh`, `fm-backend.sh`, `fm-bootstrap.sh`
+
+Task worktrees are now plain `git worktree` siblings of the project checkout,
+created per task and deleted on teardown. No pool, no leases, no warm state.
+`bin/fm-worktree.sh` is the provider; its header owns the full contract.
+
+**Spawn.** Upstream created the pane in the *project* directory, sent the literal
+text `treehouse get` into it, then polled `pane_current_path` for up to 60
+seconds waiting for treehouse's subshell to `cd` — needing two consecutive
+agreeing reads, because a brand-new pane can transiently report an unrelated
+stale path that would otherwise be recorded as the worktree in
+`state/<id>.meta`. That entire race exists only because treehouse hands out a
+worktree by opening a subshell inside it.
+
+Now the worktree is created *before* the endpoint and the pane opens directly
+inside it. No send, no poll, no race, and up to 60s of worst-case spawn latency
+gone. `validate_spawn_worktree` still runs — it is the isolation assertion.
+
+**Teardown.** `teardown_treehouse_return` keeps its name and all of its
+stale-`index.lock` retry machinery, which is still correct: the matcher greps
+*git's* own `Unable to create '...index.lock': File exists`, which treehouse
+merely surfaced, and `git worktree remove` fails identically. Only the command
+changed.
+
+**Two bugs found while testing this, both mine:**
+
+1. **Trap name collision.** `fm-spawn.sh:354` already had
+   `trap spawn_abort_cleanup EXIT` — a flag-gated handler for herdr/orca abort
+   cleanup. Defining a second function with that name later in the file silently
+   overrode it, so an *unguarded* cleanup ran on every exit including success:
+   the worktree was created, the pane opened in it, and then it was deleted a
+   moment later. It also destroyed herdr/orca abort cleanup. Fixed by following
+   the file's existing pattern instead — a `WORKTREE_ABORT_CLEANUP` flag armed
+   after creation, disarmed after the meta write, handled inside the original
+   trap alongside the orca and herdr blocks.
+2. **`BASH_SOURCE` resolution.** The provider resolved its own directory in a
+   way that broke when sourced from zsh, silently losing `fm_default_branch`.
+   Now guarded, with a `$0` fallback and a loud error.
+
+**Verified end to end** against a scratch repo:
+
+| | |
+| --- | --- |
+| spawn | worktree created as a sibling, git registers it, detached HEAD, pane cwd IS the worktree |
+| teardown | directory removed, registration pruned, endpoint killed |
+| abort | endpoint step forced to fail after creation → no orphan directory, no stale registration |
+
+**Still treehouse-dependent:** `bin/fm-home-seed.sh` (`treehouse get --lease`)
+for secondmate homes, which this fork does not use. `fm-bootstrap.sh`'s
+`treehouse_supports_lease` gate is inert but left in place.
+
 ---
 
 ## Known pre-existing failure (not ours)
