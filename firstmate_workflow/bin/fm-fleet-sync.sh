@@ -301,7 +301,8 @@ sync_project() {
     echo "$label: skipped: not a git repo"
     return 0
   fi
-  mode_line=$("$FM_ROOT/bin/fm-project-mode.sh" "$label" 2>/dev/null || echo "no-mistakes off")
+  # LOCAL FORK: fallback is direct-PR, not no-mistakes (see fm-project-mode.sh).
+  mode_line=$("$FM_ROOT/bin/fm-project-mode.sh" "$label" 2>/dev/null || echo "direct-PR off")
   mode=${mode_line%% *}
   if [ "$mode" = "local-only" ]; then
     echo "$label: skipped: local-only project"

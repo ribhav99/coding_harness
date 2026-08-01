@@ -368,14 +368,22 @@ remove_pr_poll_artifacts() {
   fi
 }
 
-# Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
+# Resolve the PR number for a worktree branch. Echoes the number on a
 # single match and returns 0; returns non-zero on no match or any lookup failure,
 # so the caller treats it as "no PR found" (fail-safe).
+#
+# LOCAL FORK: upstream ran `gh-axi pr list` here and parsed the leading field of
+# a COMMA-delimited TOON row. Plain gh emits a TAB-delimited table, so swapping
+# the binary alone would leave the old sed matching nothing -- and because this
+# function is fail-safe by design, that failure is SILENT: teardown would decide
+# there is no PR and then refuse to tear down work that had in fact landed. So
+# the swap also moves to `--json number --jq`, which gh resolves with its own
+# embedded jq (no external jq dependency) and which emits the bare number.
 pr_number_from_branch() {
   local branch=$1 out n
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
-  out=$( cd "$WT" && gh-axi pr list --state all --head "$branch" --limit 1 2>/dev/null ) || return 1
-  n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p' | head -1)
+  out=$( cd "$WT" && gh pr list --state all --head "$branch" --limit 1 --json number --jq '.[0].number' 2>/dev/null ) || return 1
+  n=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
   [ -n "$n" ] || return 1
   printf '%s' "$n"
 }

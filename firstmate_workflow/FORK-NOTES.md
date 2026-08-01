@@ -117,11 +117,46 @@ enforcing again the moment one is installed. Left untouched deliberately.
 Remaining bootstrap requirements: `tmux` and `treehouse`. Treehouse goes away
 with the planned worktree-provider delta.
 
-### 4. `gh-axi` → `gh` — `bin/fm-pr-merge.sh`
+### 4. `gh-axi` → `gh` — `bin/fm-pr-merge.sh`, `bin/fm-teardown.sh`
 
-Upstream's only hard `gh-axi` call site in the entire repo. Plain `gh pr merge`
-takes identical arguments, so this is a one-line drop-in. Revert this line if
-`gh-axi` is ever installed.
+**Two** call sites, not one.
+
+`fm-pr-merge.sh:84` — `gh pr merge` takes identical arguments. Clean drop-in.
+
+`fm-teardown.sh:377` (`pr_number_from_branch`) — **not** a clean drop-in, and the
+failure would have been silent. Upstream parsed the leading field of a
+comma-delimited TOON row:
+
+```sh
+sed -n 's/^[[:space:]]*\([0-9][0-9]*\),.*/\1/p'
+```
+
+Plain `gh pr list` emits a TAB-delimited table, so that sed matches nothing. The
+function is fail-safe by design — any failure means "no PR found" — so swapping
+the binary alone would have made teardown silently decide landed work had no PR,
+and then refuse to tear it down. Switched to
+`--json number --jq '.[0].number'`, which gh resolves with its own embedded jq
+(no external jq dependency) and which prints the bare number.
+
+**Lesson for future AXI removals:** an AXI tool's *output format* is part of its
+contract, not just its name. Grep for the parse, not only the invocation.
+
+Verified: zero `gh-axi` invocations remain in `bin/`; the `--json` path returns
+empty on no match, preserving fail-safe behavior.
+
+#### Capabilities lost with the AXI suite
+
+Not everything degrades gracefully. Known gaps:
+
+| script | without the tool |
+| --- | --- |
+| `bin/fm-session-start.sh` | degrades cleanly — falls back to title-line backlog rendering |
+| `bin/fm-decision-hold.sh` | **hard-requires** `tasks-axi`; durable captain-held decisions are unavailable |
+| `bin/fm-backlog-handoff.sh` | **hard-requires** `tasks-axi`; secondmate backlog handoff unavailable (unused) |
+| `bin/fm-public-followup.sh` | **hard-requires** `tasks-axi`; X mode only (off) |
+| `bin/fm-home-seed.sh` | **hard-requires** `no-mistakes` to seed a secondmate home (unused) |
+
+Install `tasks-axi` if durable decision holds or secondmates are ever wanted.
 
 ### 5. Delivery-mode fallback → `direct-PR` — `bin/fm-project-mode.sh`
 
