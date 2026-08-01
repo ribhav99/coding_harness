@@ -16,7 +16,15 @@
 #   AGENTS.md section 7 is the single owner of authority exceptions, including
 #   ask-user contract expansion and stronger captain boundaries.
 #
-# An unknown/missing project or unknown mode falls back to "no-mistakes off" and warns
+# LOCAL FORK: every fallback defaults to "direct-PR off", not "no-mistakes off".
+# Upstream's intent is "a typo never silently drops the gate" - fail toward MORE
+# rigor. In this fork no-mistakes is not installed at all, so falling back to it
+# would route work into a pipeline that does not exist. Here the gate IS
+# direct-PR plus the reviewer fleet in ../skills/coding/, which makes direct-PR
+# the correct fail-safe. Applies to the legacy bracket-less registry line, an
+# unregistered project, and an unknown mode. See FORK-NOTES.md.
+#
+# An unknown/missing project or unknown mode falls back to "direct-PR off" and warns
 # to stderr, so a typo never silently drops the gate.
 # Usage: fm-project-mode.sh <project-name>
 set -eu
@@ -37,7 +45,7 @@ fi
 # awk emits "<mode> <yolo>" (one line) or nothing if the project is absent.
 parsed=$(awk -v n="$NAME" '
   $1=="-" && $2==n {
-    mode="no-mistakes"; yolo="off";
+    mode="direct-PR"; yolo="off";   # LOCAL FORK: was no-mistakes
     if ($3 ~ /^\[/) {
       s="";
       for (i=3; i<=NF; i++) { s = s (s==""?"":" ") $i; if ($i ~ /\]$/) break }
@@ -51,8 +59,8 @@ parsed=$(awk -v n="$NAME" '
 ' "$REG")
 
 if [ -z "$parsed" ]; then
-  echo "warn: project \"$NAME\" not in registry; defaulting to no-mistakes off" >&2
-  echo "no-mistakes off"
+  echo "warn: project \"$NAME\" not in registry; defaulting to direct-PR off" >&2
+  echo "direct-PR off"
   exit 0
 fi
 
@@ -60,7 +68,7 @@ mode=${parsed%% *}
 yolo=${parsed##* }
 case "$mode" in
   no-mistakes|direct-PR|local-only) ;;
-  *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to no-mistakes off" >&2; mode=no-mistakes; yolo=off ;;
+  *) echo "warn: unknown mode \"$mode\" for $NAME; defaulting to direct-PR off" >&2; mode=direct-PR; yolo=off ;;
 esac
 case "$yolo" in on|off) ;; *) yolo=off ;; esac
 echo "$mode $yolo"

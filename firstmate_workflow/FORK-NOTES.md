@@ -123,6 +123,29 @@ Upstream's only hard `gh-axi` call site in the entire repo. Plain `gh pr merge`
 takes identical arguments, so this is a one-line drop-in. Revert this line if
 `gh-axi` is ever installed.
 
+### 5. Delivery-mode fallback → `direct-PR` — `bin/fm-project-mode.sh`
+
+Upstream defaults every fallback to `no-mistakes off`: an unregistered project,
+a legacy bracket-less registry line, and an unknown mode. The stated intent is
+that "a typo never silently drops the gate" — fail toward *more* rigor.
+
+That intent is right; its target is wrong here. `no-mistakes` is not installed
+in this home, so the fallback routed work into a pipeline that does not exist.
+In this fork the gate is `direct-PR` plus the reviewer fleet in
+`../skills/coding/`, which makes `direct-PR` the correct fail-safe. All three
+fallback sites changed; the warning on stderr is preserved.
+
+**Verified.**
+
+| registry line | resolves to |
+| --- | --- |
+| `- demo-a [direct-PR] - …` | `direct-PR off` |
+| `- demo-b [local-only +yolo] - …` | `local-only on` |
+| `- demo-c - …` (legacy, no bracket) | `direct-PR off` |
+| *(not in registry at all)* | `direct-PR off` |
+
+**Upstreamable?** No — this is specific to running without no-mistakes.
+
 ---
 
 ## Known pre-existing failure (not ours)
