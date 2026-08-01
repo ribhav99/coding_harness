@@ -81,4 +81,7 @@ if ! caller_has_merge_method "$@"; then
   merge_args=(--squash)
 fi
 
-gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"
+# LOCAL FORK: upstream calls `gh-axi pr merge` here - the only hard gh-axi call
+# site in the whole repo. Plain gh takes identical arguments, so this is a
+# drop-in swap that removes the dependency. See FORK-NOTES.md.
+gh pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"

@@ -64,6 +64,65 @@ through to the same inert result as before, so it is not a new failure mode.
 
 **Upstreamable?** Yes — this is arguably a plain upstream bug. Good first PR.
 
+### 2. Worktree-tangle guard scope — `bin/fm-tangle-lib.sh`
+
+**Why.** Same root cause as delta 1, different guard. `fm_primary_tangle_branch`
+exists to catch a crewmate that branched and committed in firstmate's *own*
+primary checkout instead of its disposable worktree. Its header says it outright:
+"the repo root firstmate operates from".
+
+Nested, the branch it reads belongs to `coding_harness`, not to firstmate. So
+every ordinary feature branch tripped it:
+
+```
+TANGLE: primary checkout on feature branch 'firstmate-workflow' (expected 'master')
+  … restore the primary with: git -C …/firstmate_workflow checkout master
+```
+
+That repair command would have checked out `master` in a repo firstmate does not
+own — actively destructive advice, on a false positive that fires constantly.
+
+**Fix.** Return inert unless `$root` *is* the git top level.
+
+**Verified.** A standalone top-level repo on `fm/feature` still reports the
+tangle (upstream behavior preserved); a nested subdirectory of the same repo is
+inert. Linked worktrees still reach the detached-HEAD exemption unchanged.
+
+**Upstreamable?** Partially — upstream may legitimately want to require a
+top-level home. Worth raising as an issue rather than a PR.
+
+### 3. Required toolchain trimmed — `bin/fm-bootstrap.sh`
+
+`COMMON_TOOLS` went from
+
+```sh
+node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi
+```
+
+to `node git gh`.
+
+| tool | why dropped |
+| --- | --- |
+| `chrome-devtools-axi` | **zero shell call sites.** Agent-facing only; a Playwright harness already exists in this repo |
+| `lavish-axi` | **zero shell call sites.** Kept as an optional dependency of `skills/coding/full-review.md`, unrelated to firstmate |
+| `quota-axi` | only used by dispatch profiles, which are not configured. Deferred |
+| `no-mistakes` | replaced by this repo's own judge fleet under `skills/coding/`. Projects run in `direct-PR` mode |
+| `gh-axi` | see delta 4 |
+| `tasks-axi` | deferred via `config/backlog-backend=manual`; firstmate hand-edits `data/backlog.md` in the identical format. The only hard break is `fm-backlog-handoff.sh` (secondmate handoff), which is unused |
+
+The per-tool version gates further down the file are each guarded by
+`command -v`, so they are correct no-ops while a tool is absent and start
+enforcing again the moment one is installed. Left untouched deliberately.
+
+Remaining bootstrap requirements: `tmux` and `treehouse`. Treehouse goes away
+with the planned worktree-provider delta.
+
+### 4. `gh-axi` → `gh` — `bin/fm-pr-merge.sh`
+
+Upstream's only hard `gh-axi` call site in the entire repo. Plain `gh pr merge`
+takes identical arguments, so this is a one-line drop-in. Revert this line if
+`gh-axi` is ever installed.
+
 ---
 
 ## Known pre-existing failure (not ours)
@@ -84,5 +143,8 @@ is not installed on this machine. Not caused by this fork.
   teardown-identity branch in `bin/fm-backend.sh`.
 - **Treehouse removal** — replace the pooled-worktree provider with plain
   `git worktree add` / `remove`, creating worktrees as siblings of the project
-  checkout. Needs a per-project post-create setup hook to replace the warm-pool
-  behaviour we give up (e.g. venv creation).
+  checkout (`<project>-fm-<id>`, matching the existing hand-rolled convention).
+  Deliberately dumb: no pool, no leases, no warm state, no setup hooks. Worktrees
+  start cold and that is accepted. Upstream's fail-closed teardown rule — a
+  worktree holding uncommitted or unlanded work refuses to be removed — must be
+  preserved; it is the one part of treehouse's contract worth keeping.

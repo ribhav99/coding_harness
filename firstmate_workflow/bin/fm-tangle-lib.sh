@@ -41,9 +41,23 @@ fm_default_branch() {
 # echo nothing and return 1. Detached HEAD is how linked worktrees and secondmate
 # homes legitimately sit, so they never trip this; only a feature branch checked
 # out in a primary checkout does.
+#
+# LOCAL FORK: additionally inert unless <root> IS the repo top level. This whole
+# guard assumes "the repo root firstmate operates from" (see the header above),
+# but this home is a SUBDIRECTORY of the coding_harness repo. Nested, the branch
+# it reads belongs to the host repo, not to firstmate - so every ordinary feature
+# branch in coding_harness looked like a stranded primary checkout, and the
+# printed repair told you to check out master in a repo firstmate does not own.
+# A standalone firstmate clone is unaffected: there root IS the top level, so the
+# check runs exactly as upstream wrote it. Linked worktrees also still reach the
+# detached-HEAD exemption unchanged. See FORK-NOTES.md.
 fm_primary_tangle_branch() {
-  local root=$1 cur default
+  local root=$1 cur default top root_abs
   git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) || return 1
+  top=$(cd "$top" 2>/dev/null && pwd -P) || return 1
+  root_abs=$(cd "$root" 2>/dev/null && pwd -P) || return 1
+  [ "$top" = "$root_abs" ] || return 1
   cur=$(git -C "$root" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   [ -n "$cur" ] || return 1
   default=$(fm_default_branch "$root") || return 1

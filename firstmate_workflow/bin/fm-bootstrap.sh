@@ -49,6 +49,17 @@
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
 #          1.31.2.
+#          LOCAL FORK: COMMON_TOOLS is trimmed to "node git gh". Upstream also
+#          required no-mistakes, gh-axi, chrome-devtools-axi, lavish-axi,
+#          tasks-axi and quota-axi. Of those, chrome-devtools-axi, lavish-axi and
+#          quota-axi have no shell call site at all - they are agent-facing
+#          capabilities, so gating dispatch on them was pure friction. no-mistakes
+#          is replaced by this repo's own judge fleet (skills/coding/), gh-axi is
+#          swapped for plain gh in fm-pr-merge.sh, and tasks-axi is deferred via
+#          config/backlog-backend=manual. The version gates below are all guarded
+#          by `command -v`, so they stay correct no-ops until a tool is installed
+#          and start enforcing again the moment one is. See FORK-NOTES.md.
+#          Upstream's requirement text, still accurate for anything installed:
 #          tasks-axi and quota-axi are required bootstrap tools (same class as
 #          lavish-axi). tasks-axi is also version and feature gated (0.1.1+
 #          with update --archive-body and mv [<id>...]); an installed but
@@ -527,7 +538,10 @@ missing_tool_diagnostic() {
 # fm_backend_required_tools (bin/fm-backend.sh). So a herdr/zellij/cmux home is
 # never told tmux is missing, and only orca drops treehouse. A backend value with
 # no verified dependency set is reported before the universal checks continue.
-COMMON_TOOLS="node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
+# LOCAL FORK: trimmed from upstream's
+#   "node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi"
+# See the rationale in this file's header and FORK-NOTES.md.
+COMMON_TOOLS="node git gh"
 BACKEND=$(fm_backend_name)
 BACKEND_VALID=1
 if ! BACKEND_TOOLS=$(fm_backend_required_tools "$BACKEND"); then
