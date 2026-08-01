@@ -22,6 +22,10 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
+# LOCAL FORK: teardown also REFUSES while a review session started by
+# bin/fm-review-flow.sh is still running in the worktree, since removing it would
+# destroy the tree that review is reading. The recorded review endpoint's own
+# state decides that, so a finished review never blocks cleanup.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -764,10 +768,42 @@ teardown_treehouse_return() {
   return 1
 }
 
+# LOCAL FORK: a review session started by bin/fm-review-flow.sh runs INSIDE the
+# task's own worktree, so removing that worktree would pull the ground out from
+# under a running review. state/<id>.review-flow names the review endpoint, but
+# the ENDPOINT's own state - never the record alone - decides whether a review is
+# still live, so a finished review never blocks cleanup forever.
+# Same fail-closed spirit as the landed-work test below: only an endpoint that is
+# confidently gone (missing) or confidently agent-free (dead) clears the way;
+# alive, ambiguous, and unreadable all refuse. --force stays the one explicit
+# discard path, exactly as it is for unlanded work.
+validate_no_live_review_session() {
+  local record="$STATE/$ID.review-flow" target backend agent_state
+  [ -f "$record" ] || return 0
+  [ "$(meta_value "$record" stage)" = reviewing ] || return 0
+  target=$(meta_value "$record" review_target)
+  backend=$(meta_value "$record" review_backend)
+  if [ -z "$target" ] || [ -z "$backend" ]; then
+    echo "REFUSED: task $ID records a live review session whose endpoint identity is unreadable." >&2
+    echo "Repair or remove $record once the review is finished, or get the captain's explicit OK to discard, then --force." >&2
+    return 1
+  fi
+  agent_state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)
+  case "$agent_state" in
+    dead|missing) return 0 ;;
+  esac
+  echo "REFUSED: worktree $WT has a review session ($target, state ${agent_state:-unreadable}) running in it." >&2
+  echo "Let the review finish and close its pane, or get the captain's explicit OK to discard, then --force." >&2
+  return 1
+}
+
 validate_worktree_teardown_safety() {
   local dirty_raw dirty unpushed_raw unpushed DEFAULT unmerged_raw unmerged branch
   [ -d "$WT" ] || return 0
   [ "$FORCE" != "--force" ] || return 0
+  # Checked before the kind carve-out: a live review is a property of the
+  # DIRECTORY about to be removed, not of the task's deliverable.
+  validate_no_live_review_session || return 1
   case "$KIND" in
     secondmate|scout) return 0 ;;
   esac
@@ -1562,7 +1598,7 @@ remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
-  "$STATE/$ID.kimi-turnend-token"
+  "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.review-flow"
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi

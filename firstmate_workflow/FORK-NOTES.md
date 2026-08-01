@@ -340,6 +340,66 @@ Both homes also pin `config/crew-harness=claude`.
 Verified: meta records `effort=max`, and the pane's command is
 `claude --dangerously-skip-permissions --effort 'max'`.
 
+### 9. Automatic post-PR review flow
+
+`bin/fm-review-flow.sh` (new), plus a refusal and a state-file cleanup in `bin/fm-teardown.sh`, two lines in `AGENTS.md` section 7, and `tests/fm-review-flow.test.sh`.
+
+**Why.**
+Upstream's lifecycle ends a PR-based ship task at "record the PR, tell the captain".
+Whether the PR then got reviewed depended on a session remembering to review it.
+This makes the review a step of the lifecycle, enforced by a script rather than by prose a future session could skip - the same reasoning `config/crew-effort` (delta 8) applies to effort.
+
+**Four stages, one per call.**
+`fm-pr-check.sh` still owns stage 1 unchanged.
+`fm-review-flow.sh <id>` owns the rest and advances **at most one stage per call**, which is what keeps them from overlapping:
+
+| stage | what happens | gate |
+| --- | --- | --- |
+| 1 | `pr=` recorded in meta | `fm-pr-check.sh`, untouched |
+| 2 | the *implementing* agent is sent one self-review line, in its own live session and worktree | endpoint exists |
+| 3 | a review session starts in the routed review window, cwd = the task's own recorded worktree, prompt = the single line `/full-review this pr` | implementer provably not mid-turn |
+| 4 | the implementing agent's endpoint is killed | the review endpoint exists first |
+
+**A separate step, not a tail of `fm-pr-check.sh`.**
+Two reasons, either sufficient.
+`bin/fm-pr-merge.sh` *calls* `fm-pr-check.sh` again at merge time, so a launch wired into it would re-fire the whole flow on every merge.
+And `fm-pr-check.sh` is the load-bearing step - it publishes the watcher's merge poll through a carefully bounded atomic sequence - so a best-effort session launch has no business inside that transaction.
+Keeping it separate is what makes a failed launch inert.
+
+**A plain session, not a tracked task.**
+It has no brief, produces no deliverable, and must run *inside* the finished task's worktree - which `fm-spawn.sh` would refuse to reuse, since it allocates a fresh worktree per task and asserts isolation from the primary checkout.
+A second task record would also put a non-deliverable into the backlog and into supervision's fleet inventory.
+What the flow genuinely needs durably - which stage it reached, and where the review lives - is one private `state/<id>.review-flow` sidecar keyed by the implementing task's own id.
+
+**Stage 3's gate is the interesting one.**
+`bin/fm-busy-lib.sh` is the owner of "is this agent mid-turn", and it reports `unknown` - never `idle` - for missing, stale, or untrusted busy data.
+Only `idle` (turn ended) or `dead` (endpoint already gone) advance; `busy` waits and returns 0, `unknown` refuses and returns non-zero.
+A flow that stalls visibly is strictly better than one that kills an agent mid-commit.
+
+**Routing** reuses `config/pane-routes` rather than hardcoding: `$FM_REVIEW_WINDOW`, then `review:`, then the existing `scout:`, then built-in `reviews`.
+`default:` is deliberately *not* consulted - it maps to `workers`, which is exactly where a review must not land.
+
+**Teardown safety.**
+A review session runs in the task's worktree, so `validate_worktree_teardown_safety` gained `validate_no_live_review_session`, checked before the kind carve-out because a live review is a property of the *directory* being removed.
+The **endpoint's own state** decides, never the record alone: `dead`/`missing` clear the way, everything else refuses, so a finished review can never block cleanup forever and a live one can never be silently destroyed.
+`--force` stays the single explicit discard path, exactly as for unlanded work.
+Teardown also removes `state/<id>.review-flow` with the rest of the volatile state.
+
+**Backends.**
+Wired for `tmux` and `tmux-panes` only - the adapters whose create/send/kill primitives take a plain cwd and a window name, and `tmux-panes` is the hand-verified path.
+`herdr`, `zellij`, `orca`, and `cmux` each bind a session to a workspace or an owned worktree, so they refuse cleanly rather than guess (AGENTS.md section 4: never dispatch on an unverified adapter).
+`kimi` is refused as a review harness because it rejects a positional prompt and needs `fm-spawn.sh`'s readiness gate.
+
+**Deliberate non-sharing with `fm-spawn.sh`'s `launch_template`.**
+That template's payload is a brief file routed through the operational-input carrier, plus per-task turn-end wiring and extensions.
+A review session has none of those - it is a plain session taking one literal prompt - so only each adapter's verified binary, permission flag, and the effort mapping are mirrored.
+Sharing the template would have meant refactoring the spawn hot path, which cannot be end-to-end tested here (see below).
+
+**Verified:** `tests/fm-review-flow.test.sh`, 13 cases, all passing - stage ordering, single-send idempotence, no-second-review, the `unknown`-busy refusal, routing, the kill-only-after-launch rule, the record-before-send rule, and the three teardown interactions.
+The test fakes tmux entirely and carries three independent isolation guards (`TMUX_TMPDIR` redirect, a PATH assertion, and high-range fixture pane ids).
+**Not verified:** a live end-to-end run, because this repo is self-hosting - the changes only take effect after merge and pull, so the running first mate cannot exercise them.
+The launch command this produces is byte-identical in shape to the hand-verified `claude --dangerously-skip-permissions --effort max '/full-review this pr'`.
+
 ---
 
 ## Known pre-existing failure (not ours)
@@ -349,6 +409,16 @@ Verified: meta records `effort=max`, and the pane's command is
 
 Reproduced on pristine upstream `1e24757` with our changes stashed. The Pi harness
 is not installed on this machine. Not caused by this fork.
+
+`tests/fm-teardown.test.sh` →
+`not ok - herdr-orphan-refusal: the successful retry never returned the isolated copy`
+
+`bin/fm-lint.sh` → exit 1, from `SC1087` at `bin/fm-spawn.sh:1061` and `SC2317` at
+`bin/fm-worktree.sh:51`.
+
+Both reproduced on this branch's merge base with our changes stashed, in files
+delta 9 does not touch. Recorded here so a future session does not mistake either
+for a regression.
 
 ---
 
