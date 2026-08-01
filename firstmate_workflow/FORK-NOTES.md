@@ -223,6 +223,16 @@ changed.
    way that broke when sourced from zsh, silently losing `fm_default_branch`.
    Now guarded, with a `$0` fallback and a loud error.
 
+`fm_worktree_path` resolves the project's PHYSICAL path before deriving the
+sibling name. That matters for a project symlinked under `projects/` at a
+checkout living elsewhere: without it the worktree would be derived from the
+symlink's own parent and land inside the firstmate home. With it, worktrees sit
+beside the real checkout. Verified live against the captain's own
+`fitness_agent`: a task worktree appeared as `fitness_agent-fm-<id>` at detached
+HEAD from `origin/master`, the captain's `release/2.2.0` branch and clean tree
+were untouched, their four pre-existing worktrees were untouched, and teardown
+restored the worktree list exactly.
+
 **Verified end to end** against a scratch repo:
 
 | | |

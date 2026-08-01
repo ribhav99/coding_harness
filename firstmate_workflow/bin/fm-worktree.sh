@@ -56,14 +56,25 @@ if ! command -v fm_default_branch >/dev/null 2>&1; then
 fi
 
 # fm_worktree_path <project-abs> <task-id> -> absolute sibling worktree path.
-# Pure string derivation; does not touch the filesystem.
+#
+# Resolves the project's PHYSICAL path first. That matters when a project is a
+# symlink under projects/ pointing at a checkout that lives elsewhere - the case
+# where firstmate drives a repo the captain already had on disk instead of
+# cloning its own copy. Without this the worktree would be derived from the
+# symlink's own parent (projects/) and land inside the firstmate home; with it,
+# worktrees sit next to the REAL checkout, matching the captain's existing
+# <project>-<branch> convention. Falls back to the given path when it cannot be
+# resolved, so a non-existent path still yields a deterministic name for tests.
 fm_worktree_path() {
-  local proj=$1 id=$2 parent base
+  local proj=$1 id=$2 parent base real
   [ -n "$proj" ] && [ -n "$id" ] || return 1
   case "$id" in
     ''|*[!A-Za-z0-9._-]*) echo "error: unsafe task id '$id'" >&2; return 1 ;;
   esac
   proj=${proj%/}
+  if real=$(cd "$proj" 2>/dev/null && pwd -P); then
+    proj=$real
+  fi
   parent=$(dirname "$proj")
   base=$(basename "$proj")
   printf '%s/%s-fm-%s\n' "$parent" "$base" "$id"
