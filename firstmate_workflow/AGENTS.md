@@ -254,7 +254,7 @@ Load `diagnostic-reasoning` before scoping a reported bug and before acting on a
 
 Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
 Serialize only for a true semantic dependency, shared mutable external state, incompatible concurrent migration, or another concrete condition that makes independent progress or reconciliation unsafe; same-file editing alone is insufficient, and genuine blockers remain durable.
-Write the task-specific brief under section 11 before spawning.
+Scaffold the brief under section 11 before spawning.
 
 ### Dispatch and supervision handoff
 
@@ -458,13 +458,16 @@ Preserve durable structured identifiers, dependencies, and completion artifact l
 
 ## 11. Crewmate briefs
 
-`bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, delivery-mode definitions of done, and exact safety mechanics.
-Use its scaffold as the contract, then replace every `{TASK}` placeholder with a clear task description, acceptance criteria, constraints, and necessary context before dispatch or seeding.
-Keep additions task-specific rather than repeating lifecycle instructions, and alter generated sections only when the task genuinely differs from the standard shape.
+`bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, and exact safety mechanics.
 
-Every ship brief must retain the worktree-isolation assertion and stop if launched in the primary checkout.
+A ship brief carries one instruction: the work item to read and implement.
+Resolve which tracker the project uses and pass it at scaffold time, `--issue <number>` for GitHub or `--work-order <slug>` for Software Factory; the worker reads that item itself, so never restate the task, paraphrase acceptance criteria, or add context the item already carries.
+The scaffold refuses a project that is not on the direct-PR delivery mode rather than emitting push and PR steps that mode forbids.
+Worktree isolation is enforced by `bin/fm-spawn.sh` before an agent exists, so the brief does not restate it.
 If a ship task touches firstmate's shared tracked material, explicitly require `firstmate-coding-guidelines` before editing.
-If a task will drive Herdr lifecycle behavior, scaffold with `--herdr-lab`; if that need appears after an unguarded scaffold, stop and regenerate rather than adding commands by hand.
+
+Scout briefs keep the full investigation contract and its `{TASK}` placeholder; replace that placeholder with the question, constraints, and necessary context before dispatch.
+If a scout will drive Herdr lifecycle behavior, scaffold with `--herdr-lab`; if that need appears after an unguarded scaffold, stop and regenerate rather than adding commands by hand.
 The generated Herdr contract must use a named non-`default` isolated lab and its guarded helper for every lifecycle action.
 
 Load `secondmate-provisioning` before creating or using a charter brief and preserve its idle-by-default and marked-return-channel contracts.

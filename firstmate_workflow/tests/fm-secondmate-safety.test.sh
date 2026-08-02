@@ -26,14 +26,17 @@ test_fm_home_parameterization() {
   home_one="$TMP_ROOT/home one"
   home_two="$TMP_ROOT/home-two"
   mkdir -p "$home_one/data" "$home_one/state" "$home_two/data" "$home_two/state"
-  printf '%s\n' '- app [local-only +yolo] - test app (added 2026-06-22)' > "$home_one/data/projects.md"
+  # shipapp carries the direct-PR mode a ship brief requires; app stays local-only
+  # so the mode-isolation assertions below still exercise a non-default mode.
+  printf '%s\n' '- app [local-only +yolo] - test app (added 2026-06-22)' \
+    '- shipapp [direct-PR] - ship-brief fixture (added 2026-08-01)' > "$home_one/data/projects.md"
 
   out=$(FM_HOME="$home_one" "$ROOT/bin/fm-project-mode.sh" app)
   [ "$out" = "local-only on" ] || fail "fm-project-mode did not read projects.md from FM_HOME"
   out=$(FM_HOME="$home_two" "$ROOT/bin/fm-project-mode.sh" app 2>/dev/null)
   [ "$out" = "no-mistakes off" ] || fail "fm-project-mode did not isolate missing registry by home"
 
-  FM_HOME="$home_one" "$ROOT/bin/fm-brief.sh" task-a app >/dev/null || fail "brief scaffold failed under FM_HOME"
+  FM_HOME="$home_one" "$ROOT/bin/fm-brief.sh" task-a shipapp --issue 1 >/dev/null || fail "brief scaffold failed under FM_HOME"
   brief="$home_one/data/task-a/brief.md"
   [ -f "$brief" ] || fail "brief was not written under FM_HOME/data"
   grep -F ">> '$home_one/state/task-a.status'" "$brief" >/dev/null || fail "brief did not shell-quote FM_HOME state path"

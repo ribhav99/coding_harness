@@ -1563,6 +1563,15 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token"
+# LOCAL FORK: a ship brief is a short pointer at the issue or work order it
+# implements, so it holds nothing once the PR has landed and is reconstructible
+# from that work item. Drop it rather than accumulate one directory per task
+# forever. Scout and secondmate records are deliverables and are kept:
+# data/<id>/report.md is the entire point of a scout task. This line is reached
+# only after every landed-work and endpoint check above has passed.
+if [ "$KIND" = ship ] && [ -n "$DATA" ] && [ -n "$ID" ] && [ -d "$DATA/$ID" ]; then
+  rm -rf -- "${DATA:?}/${ID:?}"
+fi
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi

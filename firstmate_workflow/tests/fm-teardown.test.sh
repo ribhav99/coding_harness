@@ -72,7 +72,7 @@ make_case() {
   local name=$1 case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$case_dir/config" "$fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
 
   # Mocks for the post-check teardown steps. Refuse logic exits before these
   # run; the ALLOW cases need them so the script can complete cleanly.
@@ -491,9 +491,13 @@ SH
 # Run teardown with PATH mocking. Args: case_dir [extra args...]
 run_teardown() {
   local case_dir=$1; shift
+  # FM_DATA_OVERRIDE keeps DATA inside the case dir. Without it DATA falls back
+  # to the live repo's own data/, so a case that reads a scout report or removes
+  # a finished ship task's records would reach outside the fixture.
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
   PATH="$case_dir/fakebin:$PATH" \
     "$TEARDOWN" task-x1 "$@"
 }
@@ -801,6 +805,45 @@ test_pr_check_records_remote_head_when_local_lags() {
   ! grep -qxF "pr_head=$local_head" "$case_dir/state/task-x1.meta" \
     || fail "pr-check-local-lags: recorded local HEAD instead of remote PR head"
   pass "fm-pr-check records the remote PR head when the local worktree lags"
+}
+
+# A landed ship task's brief is a short pointer at the issue or work order it
+# implemented, so teardown drops it instead of accumulating one directory per
+# task forever. A scout's data/<id>/report.md is the deliverable and must survive
+# the same code path.
+test_landed_ship_records_are_removed_but_scout_reports_survive() {
+  local case_dir rc
+  case_dir=$(make_case ship-records)
+  write_meta "$case_dir" no-mistakes ship
+  mkdir -p "$case_dir/data/task-x1"
+  printf 'Implement GitHub issue #42.\n' > "$case_dir/data/task-x1/brief.md"
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  land_on_origin_main "$case_dir" feature.txt hello
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "ship-records: teardown should succeed on landed work"
+  if [ -d "$case_dir/data/task-x1" ]; then
+    fail "ship-records: a landed ship task's records should not survive teardown"
+  fi
+
+  # Same path, scout kind: the report is the work product and is retained.
+  case_dir=$(make_case scout-records)
+  write_meta "$case_dir" no-mistakes scout
+  mkdir -p "$case_dir/data/task-x1"
+  printf 'findings\n' > "$case_dir/data/task-x1/report.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  assert_present "$case_dir/data/task-x1/report.md" \
+    "scout-records: the scout report must survive teardown"
+  pass "teardown removes a landed ship task's records and keeps scout reports"
 }
 
 test_content_in_default_fallback_allows() {
@@ -1849,6 +1892,7 @@ test_squash_merged_pr_allows_replayed_unpushed_patch
 test_merged_pr_with_later_local_commit_refuses
 test_pr_check_does_not_refresh_stale_pr_head
 test_pr_check_records_remote_head_when_local_lags
+test_landed_ship_records_are_removed_but_scout_reports_survive
 test_content_in_default_fallback_allows
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses

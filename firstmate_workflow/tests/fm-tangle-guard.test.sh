@@ -119,32 +119,27 @@ test_bootstrap_line() {
   pass "fm-bootstrap: TANGLE problem line fires only for a feature branch and suppresses repair commands in detect-only mode"
 }
 
-# --- GUARD 1a: brief isolation assertion ------------------------------------
+# --- GUARD 1a: the brief does not second-guess the spawn gate ---------------
 
-# The generated ship brief must carry the isolation assertion AHEAD of the
-# `git checkout -b` step, so the crewmate verifies its worktree before branching.
-test_brief_assertion_precedes_branch() {
-  local home brief iso br
+# Isolation has exactly one owner: fm-spawn.sh's validate_spawn_worktree, which
+# refuses to launch before an agent exists (GUARD 1b below). A prose copy in the
+# brief could only ever reach an agent the gate already let through, and a second
+# copy of a safety contract drifts the moment one side is edited. The ship brief
+# must therefore stay silent about isolation rather than restate it.
+test_brief_defers_isolation_to_the_spawn_gate() {
+  local home brief
   home="$TMP_ROOT/brief-home"
   mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --issue 1 >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep "blocked: launched in primary checkout, not an isolated worktree" "$brief" \
-    "brief is missing the isolation blocked-status contract"
-  assert_grep "The path check is authoritative" "$brief" \
-    "brief must make the path check authoritative"
-  assert_no_grep "A reliable test that you are in a linked worktree" "$brief" \
-    "brief must not present git-dir/common-dir as decisive"
-  assert_no_grep "they are identical in the primary checkout" "$brief" \
-    "brief must not claim the primary checkout has identical git dirs"
-  iso=$(grep -n 'launched in primary checkout, not an isolated worktree' "$brief" | head -1 | cut -d: -f1)
-  br=$(grep -n 'git checkout -b fm/' "$brief" | head -1 | cut -d: -f1)
-  if [ -z "$iso" ] || [ -z "$br" ]; then
-    fail "brief missing assertion ($iso) or branch step ($br)"
-  fi
-  [ "$iso" -lt "$br" ] || fail "isolation assertion (line $iso) must precede the branch step (line $br)"
-  pass "fm-brief: ship brief asserts worktree isolation before the branch step"
+  assert_no_grep "Verify isolation before anything else" "$brief" \
+    "ship brief restated the isolation assertion that fm-spawn.sh owns"
+  assert_no_grep "blocked: launched in primary checkout" "$brief" \
+    "ship brief kept a second copy of the isolation blocked-status contract"
+  assert_no_grep "rev-parse --show-toplevel" "$brief" \
+    "ship brief kept its own worktree check instead of deferring to the spawn gate"
+  pass "fm-brief: ship brief defers worktree isolation to the fm-spawn gate"
 }
 
 # --- GUARD 1b: fm-spawn isolation abort -------------------------------------
@@ -304,6 +299,6 @@ test_spawn_tmux_window_construction() {
 test_lib_classification
 test_guard_banner
 test_bootstrap_line
-test_brief_assertion_precedes_branch
+test_brief_defers_isolation_to_the_spawn_gate
 test_spawn_isolation_abort
 test_spawn_tmux_window_construction
