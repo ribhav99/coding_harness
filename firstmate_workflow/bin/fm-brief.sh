@@ -11,7 +11,7 @@
 # Exactly one source flag is required, and the flag is how firstmate tells the
 # worker which tracker this project uses:
 #   --issue <number>     GitHub: read it with `gh issue view <number>`
-#   --work-order <slug>  Software Factory: read work-orders/<slug>.md in the repo
+#   --work-order <slug>  Software Factory: read that work order on Software Factory
 # Ship briefs are single-shaped - implement, commit, push, open a PR - so the
 # scaffold refuses any project whose registry delivery mode is not direct-PR
 # rather than emitting push/PR steps a local-only project must not follow.
@@ -348,7 +348,7 @@ case "$SOURCE_KIND" in
     ;;
   *)
     WORK_ITEM="Software Factory work order $SOURCE_REF"
-    READ_STEP="Read it first: \`work-orders/$SOURCE_REF.md\` in this repo."
+    READ_STEP="Read this work order on Software Factory."
     ;;
 esac
 

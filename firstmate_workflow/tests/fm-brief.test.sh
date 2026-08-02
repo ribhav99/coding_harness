@@ -213,9 +213,10 @@ test_ship_brief_carries_one_instruction() {
   assert_present "$brief" "work-order ship brief was not scaffolded"
   assert_grep "Implement Software Factory work order wo-add-signin in direct-proj." "$brief" \
     "work-order brief did not name the work item"
-  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-  assert_grep '`work-orders/wo-add-signin.md`' "$brief" \
-    "work-order brief did not point at the work-order body"
+  assert_grep "Read this work order on Software Factory." "$brief" \
+    "work-order brief did not send the worker to Software Factory"
+  assert_no_grep "work-orders/" "$brief" \
+    "work-order brief re-added a path the worker does not need"
 
   for brief in "$home/data/ship-issue-a1/brief.md" "$home/data/ship-wo-a2/brief.md"; do
     assert_grep "commit, push that branch, and open a PR" "$brief" \
