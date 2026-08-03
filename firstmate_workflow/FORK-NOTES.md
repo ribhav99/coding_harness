@@ -324,6 +324,44 @@ must remain the code checkout. Verified: a second home resolves its own registry
 bootstraps clean off the shared `bin/`, keeps the guards active, and takes its own
 session lock.
 
+**`homes/` added to `.gitignore`.** A per-project home is machine-local
+operational state by definition, so no part of it is ever committed. Every child
+directory a home actually contains (`data/`, `state/`, `config/`, `projects/`)
+was already covered, because those patterns are unanchored and so match at any
+depth — but only by coincidence of naming. Without `homes/` itself ignored, any
+future file placed *directly* under `homes/<project>/`, or in a subdirectory not
+named after one of those four, would become trackable, and a `git pull` on
+another machine could then clobber the local registry it belongs to. Ignoring the
+whole tree makes that structural instead of incidental.
+
+**`fmp` is deliberately NOT in this repo.** The launcher that builds the session
+described above hardcodes an absolute `FM_ROOT`, so it is per-machine and lives
+at `~/.local/bin/fmp` rather than in `bin/`. It creates the session with
+`-e FM_HOME=…` plus `set-environment`, pins `automatic-rename`/`allow-rename` off
+on all three windows (window names are how `fm-spawn.sh` routes: `scout` →
+`reviews`, everything else → `workers`), splits `control` with the first mate on
+the left at `FM_ROOT` and a project shell on the right at the checkout's
+*physical* path, and re-attaches instead of rebuilding when the session already
+exists — a rebuild would strand live task panes and their worktrees.
+
+**The standing `--dangerously-skip-permissions --effort max` preference now covers
+the primary too, not just the crew.** `bin/fm-spawn.sh:484` already hardcodes
+skip-permissions for a claude crewmate and fills `__EFFORTFLAG__` from
+`config/crew-effort`, so crew panes were already compliant. The gap was the first
+mate itself, which `fmp` originally launched as bare `claude`; it now launches
+`claude --dangerously-skip-permissions --effort max`, overridable per-invocation
+with `FMP_CLAUDE_CMD`. Recorded in each home's `data/captain.md`, because it is
+exactly the explicit captain preference that AGENTS.md section 4's "never max
+without explicit captain preference" rule defers to.
+
+**Window numbering starts at 1.** `~/.tmux.conf` sets `base-index 1`,
+`pane-base-index 1`, and `renumber-windows on`, so a project session reads
+control=1 / workers=2 / reviews=3. `fmp` re-applies the base-index before creating
+the session if the effective value is still 0, so a machine with no tmux config
+gets the same layout. Safe for this fork specifically: delta 7 targets windows by
+NAME and panes by immutable pane id, never by index, and `fm-spawn.sh` appends
+with a trailing colon precisely so a non-default base-index cannot collide.
+
 The root home is no longer a working home. Its `data/projects.md` says so.
 
 **`config/crew-effort` (new).** Upstream has no crew equivalent of the secondmate
