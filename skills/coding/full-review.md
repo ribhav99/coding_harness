@@ -113,7 +113,6 @@ Before writing any HTML, run these and follow them:
 
 ```
 lavish-axi playbook input      # collecting structured decisions — required for this skill
-lavish-axi playbook code       # rendering diffs, patches, and source
 lavish-axi design              # CDN snippet and component reference
 ```
 
@@ -121,18 +120,39 @@ Write the artifact to `.lavish/review-<branch>.html`.
 
 Pin the **Lavish-recommended Tailwind v4 + DaisyUI v5 CDN** default. Do NOT match the reviewed project's design system — a review surface should look identical no matter which repo is under review, so the user builds muscle memory instead of re-learning the page every time.
 
-Structure:
+#### The one rule that governs this page: no code
 
-- **Summary** — 2-3 sentences: what this branch does, overall assessment. In reviewer mode, name the author.
+**The surface contains no code.** No diff hunks, no source excerpts, no patches, no function signatures, no stack traces. Not collapsed, not in an appendix, not "for reference."
+
+Write for a reader who is extremely intelligent and has no context on this project or codebase — and who does not want any. They can follow an argument of arbitrary complexity and decide anything, *provided you give them the situation instead of the artifact*. Showing them a diff is asking them to do the reading you were supposed to do for them.
+
+This means you must do the translation work yourself. It is harder than pasting a hunk, and it is the entire value of the page:
+
+- **A condition becomes a situation.** Not "the guard checks `len(items) > 0`" — "if the cart is empty, the total never gets calculated."
+- **A type or signature becomes a behavior.** Not "returns `Optional[User]`" — "this can come back with nothing, and the screen after it assumes it never does."
+- **A location becomes a place in the product.** Not `checkout/service.py:214` — "in the step that runs after payment is taken."
+- **A mechanism becomes a consequence.** Not "the migration lacks a down path" — "if this goes out and has to be rolled back, it can't be, and someone restores from a backup."
+
+Name concrete things — a screen, an action, a record, a person doing something. Vague abstraction is the failure mode this rule exists to prevent, not the goal. Keep it tight: a reader who has to wade does not decide well either.
+
+The precise location is still needed to *post* the comment. Keep it as data behind the card, not as something rendered on the page.
+
+The one permitted exception is in reviewer mode: if the comment you are about to post contains a concrete suggested change, the user must see the words going out under their name. Show that draft in full, below the plain-English explanation, clearly marked as *the message being sent* rather than an explanation to read.
+
+#### Structure
+
+- **Summary** — 2-3 sentences: what this branch changes, in terms of what will be different for someone using the product. Overall assessment. In reviewer mode, name the author.
 - **Findings** — one card per JUDGMENT finding, most significant first. Each card carries:
-  - What's wrong, why, and what actually breaks — for a user, operator, or future dev. Lead with the consequence.
-  - Source (which judge, or "own review"), the severity you verified yourself, and `file:line`.
-  - The relevant diff hunk, rendered per the `code` playbook.
+  - **What breaks** — the consequence, first and in plain words. Lead with it.
+  - **When** — the concrete situation that triggers it. Who is doing what when this bites.
+  - **Why** — the underlying cause, explained conceptually. This is where the translation work above lands.
+  - **Where in the product** — named the way the user would name it, not by file.
+  - The severity you verified yourself, and where it came from (which judge, or your own review).
   - **Blocks merge? yes / no** — explicitly, on every finding.
   - Native controls for the decision, per mode:
-    - **Author mode:** **Fix / Comment / Defer / Drop**, plus a free-text box for "the real problem is actually X."
-    - **Reviewer mode:** **Comment inline / Raise in summary / Drop**, plus a free-text box for what to actually say. Default each card to your own recommendation so the user is confirming a judgment rather than composing from scratch — and show the comment you would post, in full, as editable text. They are approving words that go out under their name.
-- **Mechanical fixes / nits** — a single collapsed section. In author mode: *"N mechanical fixes queued"*, no decision controls, present so nothing is applied invisibly. In reviewer mode: *"N nits — mention or skip?"* with one control for the whole set, since these are never applied and rarely worth an author's time individually.
+    - **Author mode:** **Fix / Comment / Defer / Drop**, plus a free-text box for "the real problem is actually X." Say in one line what fixing it would involve — in scope and risk, not implementation.
+    - **Reviewer mode:** **Comment inline / Raise in summary / Drop**, plus a free-text box for what to actually say. Default each card to your own recommendation so the user is confirming a judgment rather than composing from scratch, and show the comment you would post, in full, as editable text. They are approving words that go out under their name.
+- **Mechanical fixes / nits** — a single collapsed section. In author mode: *"N mechanical fixes queued"*, no decision controls, present so nothing is applied invisibly. In reviewer mode: *"N nits — mention or skip?"* with one control for the whole set, since these are never applied and rarely worth an author's time individually. A one-line plain description each; no code here either.
 - **Judge verdicts** — table of judge → verdict → key finding.
 - **Tests** — did they pass, how many, any new ones added.
 - **PRD alignment** — does scope match ground truth, any mismatches.
@@ -197,7 +217,7 @@ Two separate commits, in this order:
 - **Mechanical fixes are the only thing you apply without asking.** Everything else waits for the user's decision. When in doubt about which bucket a finding is in, it is judgment — always.
 - **The user decides; you execute.** You now act on their decisions, but you never invent one. Never fix a judgment finding they didn't approve, never post to the PR unless they chose to, never approve or request changes on someone else's PR off your own judgment, never merge.
 - **The HTML is the deliverable.** Do not also dump the findings as markdown in chat — that's what the surface is for, and duplicating it means they read the worse version. In chat, say only: what was found at a glance, the verdict, and that the surface is open. After decisions are applied, report what you actually did.
-- **Explain to someone very intelligent who has no context.** They can reason about anything once they see the full picture — but they don't read code and don't follow the project. So hand them the whole picture in plain words: what's wrong, why, and what actually breaks. Code, `file:line`, and jargon are footnotes, not the explanation.
+- **Explain to someone very intelligent who has no context, and show them no code.** They can reason about anything and decide anything once they see the full picture — but they do not read code and do not follow this project. Hand them the situation in plain words: what breaks, when, why, and where in the product. Code is not a footnote on this page; it is absent. If you cannot explain a finding without showing the code, you do not yet understand it well enough to ask anyone to decide on it.
 - **Be honest about what you didn't check.** If the PRD repo isn't available, say so. If you couldn't run tests, say so. If a judge failed to return, say so. Don't claim confidence you don't have.
 - **Findings only.** Don't list things the diff got right. The diff speaks for itself.
 - **Think adversarially.** The purpose of this review is to catch problems before merge, not to validate that the code looks reasonable.
