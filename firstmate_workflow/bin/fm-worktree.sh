@@ -14,6 +14,9 @@
 #     /path/to/fitness_agent-fm-a3k9    <- task a3k9's worktree
 #
 # matching the hand-rolled convention already in use (fitness_agent-marketing).
+# A project that states its OWN worktree convention in its committed agent memory
+# gets that instead - `<repo>-<task-id>`, no fm infix - through
+# bin/fm-naming-lib.sh, which owns the detection.
 #
 # What this deliberately gives up, and why that is fine here:
 #   - No pool, so every worktree starts COLD. No venv, no node_modules, no build
@@ -28,7 +31,8 @@
 # What it keeps, because these are load-bearing:
 #   - DETACHED HEAD. Git refuses to check out a branch that is already checked
 #     out in another worktree, so a shared branch would make parallel tasks fail
-#     at random. The crewmate creates its own fm/<id> branch once inside.
+#     at random. The crewmate creates its own branch once inside; the brief names
+#     it, following the project's stated convention (bin/fm-naming-lib.sh).
 #   - Isolation from the primary checkout. fm-spawn.sh's validate_spawn_worktree
 #     still asserts the resolved path is a real worktree root distinct from the
 #     project, and still refuses to launch otherwise.
@@ -48,10 +52,20 @@ if ! command -v fm_default_branch >/dev/null 2>&1; then
   if [ -z "$_fm_wt_dir" ] || [ ! -f "$_fm_wt_dir/fm-tangle-lib.sh" ]; then
     echo "error: fm-worktree.sh cannot locate fm-tangle-lib.sh (looked in '${_fm_wt_dir:-?}')" >&2
     echo "       source bin/fm-tangle-lib.sh before this file." >&2
+    # shellcheck disable=SC2317  # reached when this file is executed, not sourced
     return 1 2>/dev/null || exit 1
   fi
   # shellcheck source=bin/fm-tangle-lib.sh
   . "$_fm_wt_dir/fm-tangle-lib.sh"
+  # shellcheck source=bin/fm-naming-lib.sh
+  . "$_fm_wt_dir/fm-naming-lib.sh"
+  unset _fm_wt_self _fm_wt_dir
+fi
+if ! command -v fm_naming_worktree_is_prefixed >/dev/null 2>&1; then
+  _fm_wt_self=${BASH_SOURCE[0]:-$0}
+  _fm_wt_dir=$(cd "$(dirname "$_fm_wt_self")" 2>/dev/null && pwd) || _fm_wt_dir=""
+  # shellcheck source=bin/fm-naming-lib.sh
+  . "$_fm_wt_dir/fm-naming-lib.sh"
   unset _fm_wt_self _fm_wt_dir
 fi
 
@@ -65,6 +79,10 @@ fi
 # worktrees sit next to the REAL checkout, matching the captain's existing
 # <project>-<branch> convention. Falls back to the given path when it cannot be
 # resolved, so a non-existent path still yields a deterministic name for tests.
+#
+# The name follows the PROJECT's stated worktree convention when it has one
+# (<repo>-<task-id>), and firstmate's own <repo>-fm-<task-id> when it does not.
+# bin/fm-naming-lib.sh owns that decision.
 fm_worktree_path() {
   local proj=$1 id=$2 parent base real
   [ -n "$proj" ] && [ -n "$id" ] || return 1
@@ -77,7 +95,11 @@ fm_worktree_path() {
   fi
   parent=$(dirname "$proj")
   base=$(basename "$proj")
-  printf '%s/%s-fm-%s\n' "$parent" "$base" "$id"
+  if fm_naming_worktree_is_prefixed "$proj"; then
+    printf '%s/%s-%s\n' "$parent" "$base" "$id"
+  else
+    printf '%s/%s-fm-%s\n' "$parent" "$base" "$id"
+  fi
 }
 
 # fm_worktree_base_ref <project-abs> -> the ref a fresh task worktree starts at.
@@ -85,8 +107,16 @@ fm_worktree_path() {
 # the local default branch when there is no remote-tracking ref. Deliberately
 # does NOT fetch: fm-fleet-sync.sh owns clone freshness at session start, and a
 # fetch here would put network latency in the spawn path.
+# FM_WORKTREE_BASE_REF overrides the whole resolution for one spawn, for a task
+# that must start somewhere other than the default branch - a review session
+# reading a PR at its own head (bin/fm-review-handoff.sh). The caller owns
+# fetching that ref before it spawns.
 fm_worktree_base_ref() {
   local proj=$1 default
+  if [ -n "${FM_WORKTREE_BASE_REF:-}" ]; then
+    printf '%s\n' "$FM_WORKTREE_BASE_REF"
+    return 0
+  fi
   default=$(fm_default_branch "$proj") || return 1
   if git -C "$proj" rev-parse --verify --quiet "refs/remotes/origin/$default" >/dev/null 2>&1; then
     printf 'origin/%s\n' "$default"

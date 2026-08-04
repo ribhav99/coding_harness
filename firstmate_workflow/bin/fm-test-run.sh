@@ -142,7 +142,7 @@ family_for_basename() {
     fm-claude-stop-autoarm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
-    fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|fm-backend-autodetect-smoke.test.sh|\
+    fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-send-strict.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-worktree-settle.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-claude-stop-autoarm.test.sh|\

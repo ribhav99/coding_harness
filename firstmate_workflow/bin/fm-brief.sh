@@ -32,6 +32,8 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-naming-lib.sh
+. "$SCRIPT_DIR/fm-naming-lib.sh"
 
 usage() {
   awk '
@@ -189,6 +191,11 @@ if [ "$MODE" != direct-PR ]; then
   exit 1
 fi
 
+# The branch follows the project's own stated convention where it states one,
+# and firstmate's fm/<id> namespace where it does not (bin/fm-naming-lib.sh).
+# An unclonable or unregistered repo simply yields the fm/ fallback.
+TASK_BRANCH=$(fm_naming_branch "${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/$REPO" "$ID")
+
 case "$SOURCE_KIND" in
   issue)
     WORK_ITEM="GitHub issue #$SOURCE_REF"
@@ -206,7 +213,7 @@ You are an autonomous worker managed by firstmate. Work on your own; do not wait
 Implement $WORK_ITEM in $REPO.
 $READ_STEP
 
-You are in an isolated git worktree at a detached HEAD; work on branch \`fm/$ID\`.
+You are in an isolated git worktree at a detached HEAD; work on branch \`$TASK_BRANCH\`.
 When it is implemented, commit, push that branch, and open a PR with \`gh\`.
 
 Report by appending one line to $STATUS_FILE:

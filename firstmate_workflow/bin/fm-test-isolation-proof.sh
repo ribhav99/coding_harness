@@ -118,9 +118,6 @@ exclusion_reason() {
     fm-claude-stop-autoarm-live-e2e.test.sh)
       printf '%s\n' 'live harness opt-in; never default parallel CI'
       ;;
-    fm-backend-autodetect-smoke.test.sh)
-      printf '%s\n' 'runtime auto-detection probe; keep serial with backend peers'
-      ;;
     *)
       return 1
       ;;
@@ -170,7 +167,6 @@ fm-teardown.test.sh
 fm-watcher-lock.test.sh
 fm-wake-queue.test.sh
 fm-afk-inject-e2e.test.sh
-fm-backend-autodetect-smoke.test.sh
 fm-claude-stop-autoarm-live-e2e.test.sh
 EOF
 }
