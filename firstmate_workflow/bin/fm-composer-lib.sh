@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bin/fm-composer-lib.sh - the ONE fleet-wide owner of composer-content
 # classification, shared by every session-provider adapter: the tmux path
-# through bin/fm-tmux-lib.sh, and bin/backends/{herdr,orca,cmux}.sh directly.
+# through bin/fm-tmux-lib.sh.
 #
 # WHY THIS EXISTS (task fm-composer-shellglyph-safety): the four adapters each
 # carried their own copy of the "is this composer row empty / pending / not an
@@ -19,33 +19,33 @@
 # container - a bordered composer box, where the harness draws its own prompt
 # glyph (e.g. claude's older `| > ... |`). On a bare, unstructured row it is a
 # dead-shell prompt and is NEVER "empty"; it classifies as `unknown` (not a safe
-# injection target). The AGENT prompt glyphs `❯` (claude) and `›` (codex) are a
+# injection target). The AGENT prompt glyph `❯` (claude) is a
 # genuine empty agent composer either way, bordered or bare.
 #
 # GHOST/PLACEHOLDER TEXT is the other half of this owner (task
-# afk-herdr-false-pending): a harness fills an otherwise-empty composer with
-# de-emphasized ghost text - claude's rotating prompt suggestion, codex's idle
-# suggestion, grok's placeholder - which a plain capture cannot tell apart from
+# afk-false-pending): a harness fills an otherwise-empty composer with
+# de-emphasized ghost text - claude's rotating prompt suggestion - which a
+# plain capture cannot tell apart from
 # text a human typed, so the away-mode injector reads the idle pane as "pending
 # input" and defers every escalation (the overnight wedge that motivated this
 # consolidation). fm_composer_strip_ghost is the ONE ANSI-aware extractor of
 # "real typed content": it drops every de-emphasized run - dim/faint (SGR 2, how
-# claude and codex render ghost text) AND a dark/muted TRUECOLOR foreground (how
-# grok renders placeholder/hint text) - and keeps only normal-intensity,
+# claude renders ghost text) AND a dark/muted TRUECOLOR foreground (how other
+# harnesses render placeholder/hint text) - and keeps only normal-intensity,
 # normally-coloured text. Consolidating it here means the two ANSI-capable
-# adapters (tmux via bin/fm-tmux-lib.sh, herdr via bin/backends/herdr.sh) cannot
-# drift into per-harness one-off strips again; the previous herdr-only faint
+# adapters (tmux via bin/fm-tmux-lib.sh) cannot
+# drift into per-harness one-off strips again; the previous faint
 # byte-pattern check missed claude's own dim ghost (its prompt glyph is not
-# bold-wrapped) and no adapter covered grok's truecolor placeholder at all.
+# bold-wrapped) and no adapter covered a truecolor placeholder at all.
 #
 # Each adapter still owns its own CAPTURE and structural row-finding, because
 # those use genuinely different primitives (tmux's visible-pane box scan,
-# herdr's ANSI tail scan, orca/cmux's plain read-screen). Once an adapter has a
+# an ANSI tail scan, a plain read-screen). Once an adapter has a
 # candidate composer row it hands the RAW styled row to
 # fm_composer_strip_ghost for the real-typed-content extraction, strips the box
 # borders, trims, and hands the result plus a <bordered> flag to
 # fm_composer_classify_content for the shared
-# empty|pending|unknown verdict. orca/cmux read a plain (unstyled) screen so
+# empty|pending|unknown verdict. An adapter reading a plain (unstyled) screen
 # they have no ghost styling to strip and rely on the idle-placeholder match
 # below. Re-sourcing is a cheap idempotent redefinition, so this file needs no
 # include guard (matching bin/fm-tmux-lib.sh).
@@ -64,13 +64,13 @@ fm_composer_strip_ansi() {
 
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed
 # content" from a captured, styled composer row. Reads the styled line on stdin
-# (from `tmux capture-pane -e` or `herdr pane read --format ansi`) and prints the
+# (from `tmux capture-pane -e`) and prints the
 # plain, non-ghost text on stdout, dropping:
-#   - dim/faint runs (SGR 2): how claude and codex render ghost/suggestion text.
+#   - dim/faint runs (SGR 2): how claude renders ghost/suggestion text.
 #     A reset (SGR 0) or normal-intensity (SGR 22) ends a dim run.
 #   - dark/muted TRUECOLOR foreground runs (SGR 38;2;r;g;b or the colon form
 #     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is below
-#     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
+#     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how a harness renders a placeholder
 #     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
 #     dark-foreground run. This assumes a DARK terminal theme, the firstmate
@@ -167,7 +167,7 @@ fm_composer_strip_ghost() {
 #              cursor line that carried no box border).
 #   <content>  the candidate composer content, already border-stripped and
 #              whitespace-trimmed by the caller.
-#   [idle_re]  optional per-harness idle-placeholder regex (e.g. grok's
+#   [idle_re]  optional per-harness idle-placeholder regex (e.g. a
 #              "Type a message...") that reads as empty; matched both before and
 #              after a leading prompt glyph is stripped, so a pattern written
 #              with or without the glyph both land.

@@ -150,7 +150,6 @@ exclusion_reason() {
 list_parallel_candidates() {
   cat <<'EOF'
 tests/fm-arm-pretool-check.test.sh
-tests/fm-backend-herdr.test.sh
 tests/fm-brief.test.sh
 tests/fm-cd-pretool-check.test.sh
 tests/fm-composer-ghost.test.sh
@@ -158,10 +157,7 @@ tests/fm-composer-lib.test.sh
 tests/fm-crew-state.test.sh
 tests/fm-decision-hold-lifecycle.test.sh
 tests/fm-ensure-agents-md.test.sh
-tests/fm-grok-harness.test.sh
-tests/fm-herdr-lab.test.sh
 tests/fm-lint.test.sh
-tests/fm-pi-primary-types.test.sh
 tests/fm-pr-merge.test.sh
 tests/fm-review-diff.test.sh
 tests/fm-send-popup-settle.test.sh
@@ -171,8 +167,6 @@ tests/fm-spawn-batch.test.sh
 tests/fm-supervision-instructions.test.sh
 tests/fm-test-run.test.sh
 tests/fm-tmux-submit-busy.test.sh
-tests/fm-transition-lib.test.sh
-tests/fm-x-mode.test.sh
 EOF
 }
 

@@ -7,19 +7,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$REPO_ROOT}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 DOC_DIR="$REPO_ROOT/docs/supervision-protocols"
 
 HARNESS=
 READ_ONLY=0
 AFK=0
-X_MODE=0
 REPAIR_LINE=0
 QUEUE_PENDING=0
 
 usage() {
   cat <<'EOF'
-Usage: fm-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--x-mode 0|1] [--repair-line] [--queue-pending 0|1]
+Usage: fm-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--repair-line] [--queue-pending 0|1]
 
 Print the current primary harness's supervision operating instructions.
 With --repair-line, print one concise repair instruction for guard and hook messages.
@@ -50,16 +48,6 @@ while [ "$#" -gt 0 ]; do
       AFK=$(bool_value "$2")
       shift 2
       ;;
-    --x-mode)
-      [ "$#" -gt 1 ] || { echo "error: --x-mode requires 0 or 1" >&2; exit 2; }
-      X_MODE=$(bool_value "$2")
-      shift 2
-      ;;
-    --queue-pending)
-      [ "$#" -gt 1 ] || { echo "error: --queue-pending requires 0 or 1" >&2; exit 2; }
-      QUEUE_PENDING=$(bool_value "$2")
-      shift 2
-      ;;
     --repair-line)
       REPAIR_LINE=1
       shift
@@ -81,38 +69,13 @@ if [ -z "$HARNESS" ]; then
 fi
 
 case "$HARNESS" in
-  claude|codex|opencode|pi|grok) SNIPPET="$DOC_DIR/$HARNESS.md" ;;
-  pi-signed) SNIPPET="$DOC_DIR/pi.md" ;;
+  claude) SNIPPET="$DOC_DIR/claude.md" ;;
   *) HARNESS=unknown; SNIPPET="$DOC_DIR/unknown.md" ;;
 esac
 [ -f "$SNIPPET" ] || SNIPPET="$DOC_DIR/unknown.md"
 
-checkpoint_seconds=${FM_CODEX_WATCH_CHECKPOINT:-180}
-pi_ext="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
-pi_turnend_ext="$FM_ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
-x_mode_env="$CONFIG/x-mode.env"
-
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
-x_mode_env_sh=$(shell_quote "$x_mode_env")
-
-if [ "$X_MODE" -eq 0 ] && [ -f "$x_mode_env" ]; then
-  X_MODE=1
-fi
-
 render_snippet() {
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line//__FM_PI_EXT__/$pi_ext}
-    line=${line//__FM_PI_TURNEND_EXT__/$pi_turnend_ext}
-    line=${line//__FM_X_MODE_ENV_SH__/$x_mode_env_sh}
-    line=${line//__FM_X_MODE_ENV__/$x_mode_env}
-    printf '%s\n' "$line"
-  done < "$SNIPPET"
+  cat "$SNIPPET"
 }
 
 repair_line() {
@@ -129,25 +92,10 @@ repair_line() {
   if [ "$QUEUE_PENDING" -eq 1 ]; then
     prefix='After draining queued wakes, '
   fi
-  if [ "$X_MODE" -eq 1 ]; then
-    prefix="${prefix}source ${x_mode_env_sh} first, then "
-  fi
 
   case "$HARNESS" in
     claude)
       printf '%s%s\n' "$prefix" 'repair missing watcher supervision with bin/fm-watch-arm.sh as its own Claude Code background task, never shell &.'
-      ;;
-    codex)
-      printf '%s%s%s%s\n' "$prefix" 'repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds ' "$checkpoint_seconds" '.'
-      ;;
-    pi|pi-signed)
-      printf '%s%s%s%s%s%s\n' "$prefix" 'repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e ' "$pi_turnend_ext" ' -e ' "$pi_ext" ' if the extensions are not loaded.'
-      ;;
-    opencode)
-      printf '%s%s\n' "$prefix" 'repair missing watcher supervision by letting the OpenCode TUI plugin arm after idle; use bin/fm-watch-arm.sh only as a manual recovery probe if the plugin reports failure.'
-      ;;
-    grok)
-      printf '%s%s\n' "$prefix" 'repair missing watcher supervision with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &.'
       ;;
     *)
       printf '%s%s\n' "$prefix" 'repair missing watcher supervision according to the session-start block for this harness; do not use shell &.'
@@ -159,18 +107,6 @@ ordinary_wake_line() {
   case "$HARNESS" in
     claude)
       printf '%s\n' '- Ordinary wake: the Stop-owned auto-arm (bin/fm-claude-stop-autoarm.sh) already owns watcher continuity; drain and handle the wake, and do not arm another cycle yourself.'
-      ;;
-    codex)
-      printf '%s\n' '- Ordinary wake: take the next foreground bin/fm-watch-checkpoint.sh checkpoint as directed below.'
-      ;;
-    pi|pi-signed)
-      printf '%s\n' '- Ordinary wake: the Pi extension already owns watcher continuity; do not arm another cycle.'
-      ;;
-    opencode)
-      printf '%s\n' '- Ordinary wake: the OpenCode TUI plugin already owns watcher continuity; do not arm manually.'
-      ;;
-    grok)
-      printf '%s\n' '- Ordinary wake: re-arm exactly one bin/fm-watch-arm.sh Grok tracked background task as directed below.'
       ;;
     *)
       printf '%s\n' '- Ordinary wake: follow the continuation in the harness protocol below; do not use shell &.'
@@ -197,11 +133,6 @@ if [ "$AFK" -eq 1 ]; then
   printf '%s\n' '- Away mode: active; load /afk and keep normal harness supervision paused while the daemon owns the watcher.'
 else
   printf '%s\n' '- Away mode: inactive.'
-fi
-if [ "$X_MODE" -eq 1 ]; then
-  printf '%s%s%s\n' '- X mode: active; source ' "$x_mode_env" ' before launching any watcher process so the 30s cadence is inherited.'
-else
-  printf '%s\n' '- X mode: inactive; use the default watcher cadence.'
 fi
 ordinary_wake_line
 printf '\n'

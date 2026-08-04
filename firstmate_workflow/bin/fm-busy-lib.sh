@@ -28,107 +28,29 @@
 # per-harness trust table; a record whose source is not trusted for the
 # task's recorded harness classifies unknown, so one adapter's writer can
 # never classify another adapter):
-#   pi-ext           Pi/pi-signed per-task extension (agent_start/agent_settled)
-#   opencode-plugin  OpenCode per-task plugin (session.status)
 #   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd)
-#   codex-hook, codex-appserver  reserved: Codex, gated by
-#                    fm_busy_codex_semantic_source
-#   kimi-wire, kimi-hook  reserved: standalone Kimi, gated by fm_busy_kimi_verified
 # Firstmate-owned sources accepted for every converted adapter:
 #   fm-spawn         the launch-brief turn seeded at spawn
 #   fm-interrupt     a firstmate-controlled interruption of the worker
 #   fm-recovery      a documented recovery reset after relaunch
 # Classifier-only sources (never written into a record):
-#   endpoint-gone, herdr-native, grok-regex, missing, malformed,
-#   gen-mismatch, source-mismatch, kimi-unverified, codex-unverified,
-#   capture-failed, no-target
+#   endpoint-gone, missing, malformed, gen-mismatch, source-mismatch,
+#   no-target
 #
 # Classification (fm_busy_classify): busy | idle | unknown | dead, always
 # with the producing source as the second token. Precedence:
 #   1. dead endpoint (fm_busy_classify_live only) -> dead endpoint-gone
-#   2. standalone Kimi before verification       -> unknown kimi-unverified
-#   3. a valid, gen-matching, source-trusted record -> its state and source
-#   4. no record at all: herdr's native busy verdict is trusted as busy
-#      (generation state is sufficient for busy, not for idle), then the
-#      Grok-only temporary regex fallback classifies a grok task from its
-#      rendered tail, then unknown missing
-#   5. malformed, stale, or untrusted records -> unknown, never a fallback
-# The Grok arm is the ONLY rendered-text classification that survives the
-# redesign, because Grok's structured lifecycle was not credited-live-verified
-# in the approved audit; it is scoped to harness=grok and can never classify
-# another adapter. The delivery guards in bin/fm-tmux-lib.sh match rendered
-# footers for submit acknowledgement and away-mode supervisor injection only;
-# neither is a recorded worker state source.
-#
-# Codex negotiation (fm_busy_codex_appserver_observable,
-# fm_busy_codex_hooks_verified): the approved contract prefers Codex's
-# app-server turn lifecycle with capability negotiation, and sanctions its
-# stable lifecycle hooks as the intermediate. Neither is usable on the
-# installed binary, so Codex classifies unknown codex-unverified rather than
-# falling back to idle, and fm-spawn installs no Codex busy wiring.
-# docs/verification/supervision.md owns the evidence for both probes.
+#   2. a valid, gen-matching, source-trusted record -> its state and source
+#   3. no record at all -> unknown missing
+#   4. malformed, stale, or untrusted records -> unknown, never a fallback
+# No rendered-text classification survives the redesign. The delivery guards in
+# bin/fm-tmux-lib.sh match rendered footers for submit acknowledgement and
+# away-mode supervisor injection only; neither is a recorded worker state source.
+# docs/verification/supervision.md owns the evidence.
 #
 # Sourcing: set -u and set -e safe; no subshell-unfriendly globals.
 
 FM_BUSY_LIB_VERSION=v1
-
-# Standalone-Kimi verification gate. Empty means no installed Kimi version
-# has passed live verification, so every standalone Kimi task classifies
-# unknown kimi-unverified and fm-spawn wires no Kimi busy events. Kimi's
-# rendered moon-phase spinner is deliberately NOT a state source here: the
-# approved redesign forbids inventing a Kimi UI signature, and that spinner
-# is locale- and emoji-font-sensitive.
-#
-# Preferred source, in order: Wire mode's JSON-RPC `prompt` request lifetime,
-# whose outstanding request exactly brackets a turn and returns finished,
-# cancelled, or max_steps_reached (so it covers interruption, which `Stop`
-# does not); then the documented lifecycle hooks, which must include
-# `Interrupt` because Kimi documents that `Stop` does not fire on interrupts.
-#
-# To open the gate: install Kimi, live-verify the chosen source brackets a
-# real turn on a firstmate-launched worker including the interrupt path,
-# record the version, exact commands, and observed output in
-# docs/verification/supervision.md, add the verified version string(s) here,
-# and land the wiring in fm-spawn behind this same gate in the same change.
-FM_BUSY_KIMI_VERIFIED_VERSIONS=""
-
-fm_busy_kimi_verified() {
-  [ -n "$FM_BUSY_KIMI_VERIFIED_VERSIONS" ]
-}
-
-# fm_busy_codex_appserver_observable: capability/version negotiation for the
-# Codex app-server turn lifecycle. Returns 0 only when a pane worker's turns
-# are observable through the app-server protocol on the installed binary.
-# codex-cli 0.145.0 verdict (live, 2026-07-28): NOT observable. The v2
-# protocol does define the needed turn lifecycle (turn/started plus a
-# turn/completed status of completed, interrupted, failed, or inProgress),
-# but an interactive TUI worker neither starts nor attaches to the
-# app-server daemon, and `codex app-server daemon start` refuses outside the
-# managed standalone install, so no client can observe a pane worker's turns.
-fm_busy_codex_appserver_observable() {
-  return 1
-}
-
-# fm_busy_codex_hooks_verified: the sanctioned intermediate - Codex's stable
-# hooks engine (UserPromptSubmit to open a turn, Stop and SessionEnd to close
-# it). Returns 0 only once those hooks are live-verified to fire for a
-# firstmate-launched worker. codex-cli 0.145.0 verdict (live, 2026-07-28):
-# NOT verified. Firstmate-written project hooks under <worktree>/.codex/
-# never fired in an interactive pane whose directory trust was granted, nor
-# under `codex exec`, in either case with --dangerously-bypass-hook-trust,
-# while global hooks fired in the same runs. Codex additionally exposes no
-# StopFailure hook, so an API-error turn end would need separate coverage
-# even after the discovery problem is solved.
-fm_busy_codex_hooks_verified() {
-  return 1
-}
-
-# fm_busy_codex_semantic_source: 0 when ANY verified Codex semantic source
-# exists. fm-spawn arms and wires Codex only behind this gate, and the
-# classifier reports unknown codex-unverified until it opens.
-fm_busy_codex_semantic_source() {
-  fm_busy_codex_appserver_observable || fm_busy_codex_hooks_verified
-}
 
 fm_busy_record_path() {  # <state-dir> <id>
   printf '%s/%s.busy-state' "$1" "$2"
@@ -161,22 +83,10 @@ fm_busy_current_gen() {  # <state-dir> <id>
 # fm_busy_sources_for_harness: the semantic sources trusted to classify a
 # task recorded with <harness>. One line, space-separated, possibly empty.
 # The firstmate-owned sources are appended for every converted adapter.
-# Grok deliberately trusts nothing: it has no semantic writer yet, and its
-# temporary rendered-tail fallback lives in the classifier, not in records.
 fm_busy_sources_for_harness() {  # <harness>
   local adapter=
   case "${1:-}" in
     claude*) adapter=claude-hook ;;
-    codex*)
-      fm_busy_codex_semantic_source || { printf ''; return 0; }
-      adapter='codex-hook codex-appserver'
-      ;;
-    opencode*) adapter=opencode-plugin ;;
-    pi|pi-signed) adapter=pi-ext ;;
-    kimi*)
-      fm_busy_kimi_verified || { printf ''; return 0; }
-      adapter='kimi-wire kimi-hook'
-      ;;
     *) printf ''; return 0 ;;
   esac
   printf '%s fm-spawn fm-interrupt fm-recovery' "$adapter"
@@ -246,38 +156,14 @@ fm_busy_record_read() {  # <state-dir> <id>
   printf '%s %s %s %s' "$r_state" "$r_source" "$r_event" "$r_seq"
 }
 
-# fm_busy_grok_tail_busy: the Grok-only temporary rendered-tail fallback.
-# Consumes the tail on stdin; 0 when Grok's verified busy signature matches.
-# FM_BUSY_REGEX still globally overrides the signature, mirroring the
-# historical operator escape hatch.
-fm_busy_grok_tail_busy() {
-  grep -v '^[[:space:]]*$' | tail -12 \
-    | grep -qiE "${FM_BUSY_REGEX:-${FM_TMUX_GROK_BUSY_REGEX_DEFAULT:-Ctrl\\+c:cancel}}"
-}
-
 # fm_busy_classify: semantic classification for a task whose endpoint the
 # caller has already established as present. Prints "<verdict> <source>":
 # busy|idle|unknown plus the producing source (see header). Never probes
-# process state. <tail40> is optional pre-captured plain output used only by
-# the Grok arm; when absent the Grok arm captures through fm_backend_capture
-# if available, else reports unknown capture-failed.
+# process state. <tail40> is accepted and ignored: no surviving adapter
+# classifies from rendered output.
 fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
-  local backend=$1 target=$2 harness=$3 id=$4 state=$5 tail40=${6-}
-  local out rc r_state r_source native
-  case "$harness" in
-    kimi*)
-      if ! fm_busy_kimi_verified; then
-        printf 'unknown kimi-unverified'
-        return 0
-      fi
-      ;;
-    codex*)
-      if ! fm_busy_codex_semantic_source; then
-        printf 'unknown codex-unverified'
-        return 0
-      fi
-      ;;
-  esac
+  local harness=$3 id=$4 state=$5
+  local out rc r_state r_source
   out=$(fm_busy_record_read "$state" "$id") && rc=0 || rc=$?
   if [ "$rc" = 0 ]; then
     r_state=${out%% *}
@@ -296,38 +182,7 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
       return 0
       ;;
   esac
-  # No record at all. A native herdr busy verdict is semantic enough to trust
-  # for BUSY (streaming means a turn is running); native idle is narrower
-  # than turn state (a long foreground tool call reads idle) and stays
-  # unknown here.
-  if [ "$backend" = herdr ] && command -v fm_backend_busy_state >/dev/null 2>&1; then
-    native=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null || true)
-    if [ "$native" = busy ]; then
-      printf 'busy herdr-native'
-      return 0
-    fi
-  fi
-  case "$harness" in
-    grok*)
-      if [ -z "$tail40" ]; then
-        if command -v fm_backend_capture >/dev/null 2>&1; then
-          tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || {
-            printf 'unknown capture-failed'
-            return 0
-          }
-        else
-          printf 'unknown capture-failed'
-          return 0
-        fi
-      fi
-      if printf '%s' "$tail40" | fm_busy_grok_tail_busy; then
-        printf 'busy grok-regex'
-      else
-        printf 'idle grok-regex'
-      fi
-      return 0
-      ;;
-  esac
+  # No record at all.
   printf 'unknown missing'
 }
 

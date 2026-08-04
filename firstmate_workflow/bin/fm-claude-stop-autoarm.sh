@@ -5,10 +5,10 @@
 # "asyncRewake": true and an explicit multi-hour timeout. Claude Code fires it
 # in the background on EVERY Stop of a Claude primary session, with no
 # deduplication across firings. It owns routine tokenless watcher continuity
-# for Claude primaries (main home and marked secondmate homes):
+# for Claude primaries:
 #
 #   - Scope: only a genuine primary checkout (plain checkout or validly marked
-#     secondmate home) with AGENTS.md, bin/, and the effective state dir - the
+#     home) with AGENTS.md, bin/, and the effective state dir - the
 #     exact fm-turnend-guard.sh scope. Child crew/scout worktrees stay inert.
 #   - Identity: only when THIS session's harness ancestor holds state/.lock.
 #     When an existing numeric owner fails the shared harness-liveness predicate,
@@ -18,7 +18,7 @@
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
-#   - Need: arms only while work is in flight (state/*.meta) or X mode has a
+#   - Need: arms only while work is in flight (state/*.meta) or a
 #     relay poll to run (state/x-watch.check.sh); an idle home exits 0.
 #   - Single-flight: Claude does not dedupe async hooks, so a home-scoped owner
 #     lock (state/.claude-autoarm.lock) admits exactly one owner; every other
@@ -49,7 +49,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 OWNER_LOCK="$STATE/.claude-autoarm.lock"
 EPOCH="$STATE/.claude-autoarm-epoch"
@@ -127,10 +126,6 @@ write_epoch() {  # <outcome>
 
 write_epoch arming
 
-# X mode cadence: source the generated config so an X instance polls at its
-# 30s cadence (fm-bootstrap.sh x_mode_setup contract).
-# shellcheck source=/dev/null
-[ -f "$CONFIG/x-mode.env" ] && . "$CONFIG/x-mode.env"
 
 # --- foreground the real arm wrapper ------------------------------------------
 # NO shell &: this hook process tree is the harness-owned lifecycle. The arm

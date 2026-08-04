@@ -23,7 +23,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 queue_pending=false
 READ_ONLY=${FM_GUARD_READ_ONLY:-0}
@@ -118,7 +117,7 @@ fm_guard_clear_stale_banner() {
 # crewmate's branch/commits landed here instead of in its own isolated worktree,
 # the primary is stranded on a feature branch - surface it loudly on the very next
 # fleet action, the same way the watcher-down banner does. Scoped to the primary
-# only: detached HEAD (linked worktrees, secondmate homes) never trips this.
+# only: a detached-HEAD linked worktree never trips this.
 tangle_branch=$(fm_primary_tangle_branch "$FM_ROOT" || true)
 if [ -n "$tangle_branch" ]; then
   tangle_default=$(fm_default_branch "$FM_ROOT" 2>/dev/null || echo main)
@@ -175,12 +174,9 @@ if [ "$watcher_fresh" = false ]; then
     [ -e "$STATE/.afk" ] && afk=1
     queue_arg=0
     "$queue_pending" && queue_arg=1
-    x_mode=0
-    [ -f "$CONFIG/x-mode.env" ] && x_mode=1
     fix=$("$SCRIPT_DIR/fm-supervision-instructions.sh" \
       --read-only "$READ_ONLY" \
       --afk "$afk" \
-      --x-mode "$x_mode" \
       --queue-pending "$queue_arg" \
       --repair-line 2>/dev/null || printf '%s\n' 'Repair missing watcher supervision according to the session-start operating block.')
     rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'

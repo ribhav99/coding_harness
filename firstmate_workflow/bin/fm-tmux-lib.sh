@@ -28,22 +28,18 @@
 # consumed internally and parsed into a boolean here; it is NEVER surfaced
 # (fm-peek and every human/LLM-facing path stay plain). This is harness-generic:
 # any harness that de-emphasises placeholder/ghost text
-# benefits, and the herdr adapter routes through the same owner (task
-# afk-herdr-false-pending), so the two backends cannot drift.
+# benefits.
 #
-# Busy-queued Enter (opencode 1.18.4, on the tmux backend only for now): when
-# the agent is mid-turn, opencode accepts Enter as a "send when the turn ends"
+# Busy-queued Enter (observed on opencode 1.18.4): when
+# the agent is mid-turn, a harness may accept Enter as a "send when the turn ends"
 # keystroke but does NOT clear the composer until then, so the composer keeps
 # showing the typed text the whole time. The plain "empty iff composer cleared"
 # acknowledgement above false-positives on a swallowed Enter for every steer
-# sent to a busy opencode pane, and `fm-send` exits non-zero on a normal
+# sent to a busy pane, and `fm-send` exits non-zero on a normal
 # captain instruction. The submit core now falls back to `fm_pane_is_busy` once
 # the Enter-retry budget is spent: a busy pane means the harness accepted and
 # queued the Enter (report `empty` so the caller does not re-send), while an
-# idle pane keeps the `pending` verdict (a genuine swallow). The herdr backend
-# observes the same opencode behavior but needs a separate fix; it is recorded
-# as a known gap in `docs/herdr-backend.md` rather than patched here, so the
-# tmux adapter does not paper over a herdr-specific shape.
+# idle pane keeps the `pending` verdict (a genuine swallow).
 #
 # Overrides: FM_COMPOSER_IDLE_RE matches an empty composer after ghost and
 # structural border stripping. FM_BUSY_REGEX overrides the rendered busy-footer
@@ -66,8 +62,7 @@
 # shellcheck source=bin/fm-composer-lib.sh
 . "$(dirname -- "${BASH_SOURCE[0]}")/fm-composer-lib.sh"
 
-# Delivery-only rendered busy footers per harness. claude/codex: "esc to
-# interrupt"; opencode: "esc interrupt"; pi: "Working..."; grok: "Ctrl+c:cancel".
+# Delivery-only rendered busy footer: claude renders "esc to interrupt".
 # Claude's current spinner has a rotating glyph and word, but every active-turn
 # line has an ellipsis followed by a parenthesized elapsed duration. Keep this
 # signature separate from the shared default because that shape is not generic
@@ -84,11 +79,6 @@
 # exposes no stable ASCII busy token.
 FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'
 FM_TMUX_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[smh]'
-FM_TMUX_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
-FM_TMUX_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
-FM_TMUX_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
-FM_TMUX_GROK_BUSY_REGEX_DEFAULT='Ctrl\+c:cancel'
-FM_TMUX_KIMI_BUSY_REGEX_DEFAULT='^[[:space:]]*(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘)[[:space:]]+·[[:space:]]+'
 
 fm_busy_lines_match() {  # [harness]
   local harness=${1:-} lines regex
@@ -98,11 +88,6 @@ fm_busy_lines_match() {  # [harness]
   else
     case "$harness" in
       claude) regex=$FM_TMUX_CLAUDE_BUSY_REGEX_DEFAULT ;;
-      codex) regex=$FM_TMUX_CODEX_BUSY_REGEX_DEFAULT ;;
-      opencode) regex=$FM_TMUX_OPENCODE_BUSY_REGEX_DEFAULT ;;
-      pi|pi-signed) regex=$FM_TMUX_PI_BUSY_REGEX_DEFAULT ;;
-      grok) regex=$FM_TMUX_GROK_BUSY_REGEX_DEFAULT ;;
-      kimi) regex=$FM_TMUX_KIMI_BUSY_REGEX_DEFAULT ;;
       '') regex=$FM_TMUX_BUSY_REGEX_DEFAULT ;;
       *)
         # A supplied harness must never borrow another harness's signature.
@@ -116,11 +101,11 @@ fm_busy_lines_match() {  # [harness]
 
 # fm_tmux_strip_ghost: thin adapter over the shared, fleet-wide ghost extractor
 # fm_composer_strip_ghost (bin/fm-composer-lib.sh). It drops de-emphasised
-# ghost/placeholder runs - dim/faint (SGR 2, claude's/codex's ghost) AND a
-# dark/muted truecolor foreground (grok's placeholder) - from one captured,
+# ghost/placeholder runs - dim/faint (SGR 2, claude's ghost) AND a
+# dark/muted truecolor foreground - from one captured,
 # styled composer line and prints the plain, real-typed text. Kept as a named
 # tmux entry point (and for existing callers/tests) but owns no logic of its own,
-# so the tmux and herdr adapters cannot drift apart on what counts as ghost text.
+# so every adapter agrees on what counts as ghost text.
 fm_tmux_strip_ghost() { fm_composer_strip_ghost; }
 
 # fm_tmux_composer_row_state: classify one raw styled candidate row.
@@ -384,7 +369,7 @@ fm_pane_is_busy() {  # <target> [harness]
 # swallowed Enter leaves our text in the composer and retyping would duplicate
 # it. Echoes the final proof-carrying verdict on stdout so callers can require
 # exact `empty` before treating submission as confirmed.
-# Busy-queued Enter (opencode 1.18.4): the harness accepts Enter while mid-turn
+# Busy-queued Enter: a harness may accept Enter while mid-turn
 # and queues it for after the current turn, but keeps the typed text visible in
 # the composer. Once the Enter-retry budget is spent and a structurally proven
 # composer still reads "pending", the submit core falls back to
