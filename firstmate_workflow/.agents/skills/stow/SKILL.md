@@ -25,7 +25,6 @@ Every `/stow` invocation performs this complete pass, even when the session cont
 2. Read every current memory file completely: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`.
    Treat an absent local file as absent, not as an invitation to manufacture content.
    In a primary home, all three are curation inputs under their existing ownership rules.
-   In a secondmate home, `data/captain-shared.md` is a read-only primary-owned input: count it, never edit it, and curate only the editable local files.
 3. Build one whole-file retention plan before editing.
    Retain, in order: current captain preferences, authority and safety boundaries, and recurring working style; stable home-local operating facts that repeatedly affect future work and are expensive to rediscover; then concise pointers to an existing authoritative report, project document, configuration, or backlog item.
    Retain lower-priority material only while budget remains.
@@ -35,7 +34,6 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    Do not remove a unique current fact unless it is preserved directly elsewhere through a stronger existing owner.
 5. Run `bin/fm-startup-memory-budget.sh report` again after the complete pass.
    Finish at or below the effective budget unless a concrete inability remains.
-   A secondmate must explicitly report `primary-owned-shared-file-alone-exceeds-budget` when the inherited shared file alone exceeds its allowance, because local curation cannot resolve it.
    Any other unresolved excess must identify the fact that cannot safely be removed or routed and why.
 
 A net increase is allowed only for a genuinely new current fact with no stronger owner.
@@ -53,7 +51,6 @@ Never describe the session as reset-safe while the memory total is over budget o
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
      Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
    - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
-     In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
    - Project-intrinsic knowledge never goes directly into a project's `AGENTS.md`.
      Route it through a normal ship task so a crewmate records it with `bin/fm-ensure-agents-md.sh` and the project's delivery path.
    - Knowledge general to every Firstmate user belongs in this repo's shared tracked material through the normal branch, no-mistakes, PR, and captain-merge path.
@@ -73,7 +70,7 @@ Report the outcome in plain captain-facing language with all of these facts:
 - effective startup-memory budget and total estimated tokens before and after;
 - one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`: `unchanged`, `added`, `rewritten`, `pruned`, or `routed`;
 - each durable finding filed outside memory and its authoritative owner;
-- every unresolved exception, including a primary-owned shared-file constraint in a secondmate home;
+- every unresolved exception;
 - whether the session is safe to reset, only when all durable findings are captured and the post-pass result is within budget with no exception.
 
 Do not hide an over-budget result behind a reset-safe claim.
