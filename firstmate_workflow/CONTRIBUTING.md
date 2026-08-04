@@ -39,8 +39,6 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   `.agents/skills/` holds agent-loaded skills that assume a live firstmate home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no firstmate dependency (see the README's "Two-tier skill layout").
   Everything personal to one captain's fleet (`.env`, `data/`, `state/`, `config/`, `projects/`, `.no-mistakes/`) is gitignored; never commit it.
   The root `.tasks.toml` is tracked `tasks-axi` config for `data/backlog.md`; compatible `tasks-axi` is the default backend for routine backlog mutations, with the compatibility definition owned by [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
-  A local `config/backlog-backend=manual` opt-out forces firstmate's routine backlog updates to hand-editing and stays gitignored; validated secondmate handoffs still delegate through `tasks-axi mv`.
-  A local `config/backend` file explicitly overrides runtime auto-detection for new task endpoints and stays gitignored; spawn-supported values are `tmux` plus experimental `herdr`, `zellij`, `orca`, and `cmux`, while `codex-app` is documented only in `docs/codex-app-backend.md`.
   It does not make `data/` tracked.
 - Helper scripts in `bin/` are plain bash.
   Each starts with a usage header comment; keep it accurate when you change behavior.
@@ -78,7 +76,6 @@ bin/fm-test-run.sh --family pure-contract-unit   # ordinary family-scoped local 
 bin/fm-test-run.sh --changed   # conservative changed-file-informed set (never silent full suite)
 bin/fm-test-run.sh --proven-isolated --jobs 4   # explicit local parallel of the proven set only (default is serial)
 bin/fm-test-run.sh --lane portable-serial   # portable serial remainder (watcher/AFK/tmux/stateful)
-bin/fm-test-run.sh --check-coverage   # prove portable shards + serial + Herdr equal the full inventory
 bin/fm-test-run.sh --all   # deliberate complete regression (optional local full walk; not no-mistakes Test)
 bin/fm-test-isolation-proof.sh --list   # proven parallel candidate set (Phase 2 owner)
 bin/fm-test-isolation-proof.sh --jobs 4 --json /tmp/fm-isolation-proof.json   # re-run concurrent isolation proof only
@@ -93,10 +90,8 @@ Its header and `--help` own the flags, family labels, lanes, and changed-file ma
 Portable shard balance evidence lives in `docs/fm-test-portable-shards.md`.
 Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
-CI owns broad regression across required portable parallel shards, the portable serial lane, the Herdr lane, lint, invariants, the coverage guard, and stock macOS Bash compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Use `bin/fm-test-run.sh --help` for lane names, `--jobs` rules, and required gate-skip flags when reproducing a lane locally.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/fm-test-run.sh` to focus on a subject with canonical timing output.
-Tests that need a real optional backend or an explicit opt-in (real herdr/zellij/cmux smoke tests, the live Pi regression) skip themselves and print the tool or environment gate needed to enable them, so the portable suite remains safe on machines without those tools.
 
 ## Questions
 

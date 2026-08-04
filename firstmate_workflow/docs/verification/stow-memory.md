@@ -9,8 +9,6 @@ Task chronology, fixture paths, and delivery evidence remain outside this record
 
 ## Synthetic real-agent pass
 
-The development-only real-agent pass ran on 2026-07-30 with Pi 0.82.0 on `openai-codex/gpt-5.6-terra` at medium thinking.
-It used disposable primary and secondmate-shaped `FM_HOME` directories under the repository worktree only.
 No live Firstmate memory, project data, credential content, or external system was placed in either fixture or prompt.
 The following exact Bash shell body created the sanitized fixtures, invoked the model-qualified skill twice per home, and captured reports, hashes, and file modes:
 
@@ -19,13 +17,8 @@ set -eu
 VERIFY_ROOT=$(mktemp -d "$PWD/.stow-verification.XXXXXX")
 RUNTIME_ROOT="$VERIFY_ROOT/runtime-root"
 PRIMARY="$VERIFY_ROOT/primary"
-SECONDMATE="$VERIFY_ROOT/secondmate"
-SECONDMATE_ID=stow-verification
 mkdir -p "$RUNTIME_ROOT" "$PRIMARY/config" "$PRIMARY/data" \
-  "$SECONDMATE/bin" "$SECONDMATE/config" "$SECONDMATE/data"
 printf '%s\n' 350 >"$PRIMARY/config/startup-memory-budget"
-printf '%s\n' "$SECONDMATE_ID" >"$SECONDMATE/.fm-secondmate-home"
-printf '%s\n' '# Synthetic Firstmate home' >"$SECONDMATE/AGENTS.md"
 
 file_mode() {
   if [ "$(uname)" = Darwin ]; then
@@ -68,12 +61,10 @@ cat >"$PRIMARY/data/captain-shared.md" <<'EOF'
 # Shared captain preferences
 
 This file is main-authoritative in the main firstmate home.
-In secondmate homes it is read-only in secondmate homes and must not be edited there.
 Route new captain-preference discoveries to the main firstmate through marked status or a document pointer.
 
 - Never expose secrets or weaken an accepted safety boundary.
 - Prefer the simplest direct end-to-end operational path.
-- Superseded policy: secondmates may rewrite shared memory when convenient.
 - Duplicate safety note: do not expose secrets.
 EOF
 
@@ -98,7 +89,6 @@ for file in captain.md captain-shared.md learnings.md; do
 done >"$VERIFY_ROOT/primary.before.sha256"
 
 FM_HOME="$PRIMARY" pi -p --no-session --no-extensions --no-context-files \
-  --model openai-codex/gpt-5.6-terra --thinking medium \
   --skill .agents/skills/stow/SKILL.md \
   'Invoke /stow now against only the disposable synthetic Firstmate home in $FM_HOME. There are no new session facts to file. Follow every requirement in the loaded stow skill. Run the repository-owned bin/fm-startup-memory-budget.sh report command, with the existing FM_HOME environment, before and after curation; that executable is the only permitted path outside $FM_HOME. Retain the exact before total, preserve the complete main-authoritative routing header in data/captain-shared.md, and make the completion receipt state the effective budget, exact before and after totals, an action for each of the three files, every exception, and reset safety. Inspect all three startup-memory files completely, preserve every unique current preference, authority or safety boundary, stable fact, and authoritative pointer, and consolidate the supplied duplicate, superseded, stale, chronological, metric, and report-sized material. Do not access or modify any other home, credential, project data, or external system.' \
   >"$VERIFY_ROOT/primary.pass1.out"
@@ -109,7 +99,6 @@ for file in captain.md captain-shared.md learnings.md; do
 done >"$VERIFY_ROOT/primary.after.sha256"
 
 FM_HOME="$PRIMARY" pi -p --no-session --no-extensions --no-context-files \
-  --model openai-codex/gpt-5.6-terra --thinking medium \
   --skill .agents/skills/stow/SKILL.md \
   'Invoke /stow now against only the disposable synthetic Firstmate home in $FM_HOME. There are no new session facts to file. Follow every requirement in the loaded stow skill. Run the repository-owned bin/fm-startup-memory-budget.sh report command, with the existing FM_HOME environment, before and after curation; that executable is the only permitted path outside $FM_HOME. Retain the exact before total, preserve the complete main-authoritative routing header in data/captain-shared.md, and make the completion receipt state the effective budget, exact before and after totals, an action for each of the three files, every exception, and reset safety. Inspect all three startup-memory files completely, preserve every unique current preference, authority or safety boundary, stable fact, and authoritative pointer, and consolidate the supplied duplicate, superseded, stale, chronological, metric, and report-sized material. Do not access or modify any other home, credential, project data, or external system.' \
   >"$VERIFY_ROOT/primary.pass2.out"
@@ -118,100 +107,3 @@ FM_HOME="$PRIMARY" bin/fm-startup-memory-budget.sh report \
 for file in captain.md captain-shared.md learnings.md; do
   shasum -a 256 "$PRIMARY/data/$file"
 done >"$VERIFY_ROOT/primary.repeat.sha256"
-
-cat >"$SECONDMATE/data/captain.md" <<'EOF'
-# Secondmate captain memory
-
-- Current preference: report concrete blockers instead of guessing.
-- Current preference copy: never guess when a concrete blocker can be reported.
-- Shared overlap: never expose secrets.
-- Superseded preference: silently infer missing configuration.
-- Stale version: the fleet uses 0.41.0.
-- Completed task: inspected the synthetic queue yesterday.
-- Completed task detail: closed the synthetic queue inspection after 19 checks.
-EOF
-
-cat >"$SECONDMATE/data/learnings.md" <<'EOF'
-# Secondmate learnings
-
-- Unique current learning: inherited shared memory counts against the local total.
-- Authoritative pointer: startup-memory behavior is documented in `docs/configuration.md`.
-- Duplicate learning: include inherited shared memory in the local total.
-- Stale path: `/tmp/secondmate-memory-v1`.
-- Superseded alternative: copy shared facts into every local file.
-- Completed chronology: opened the sample, measured it, discussed it, revised it, remeasured it, and closed it.
-- Old metric: the sample once measured 604 estimated tokens.
-- Report-sized procedure: take a snapshot, copy it to a ledger, annotate every old measurement, preserve every discarded alternative, append a timestamp, and repeat after each completed task.
-EOF
-
-FM_ROOT="$RUNTIME_ROOT"
-FM_HOME="$PRIMARY"
-. bin/fm-ff-lib.sh
-. bin/fm-config-inherit-lib.sh
-validate_secondmate_home "$SECONDMATE_ID" "$SECONDMATE"
-printf 'secondmate_validation=accepted id=%s home=%s\n' \
-  "$SECONDMATE_ID" "$VALIDATED_HOME" >"$VERIFY_ROOT/inheritance.out"
-FM_CONFIG_INHERIT_REPORT="$VERIFY_ROOT/inheritance.report" \
-  propagate_secondmate_inheritance \
-    "$PRIMARY" "$VALIDATED_HOME" "$PRIMARY/config" "$PRIMARY/data"
-cat "$VERIFY_ROOT/inheritance.report" >>"$VERIFY_ROOT/inheritance.out"
-cmp -s "$PRIMARY/data/captain-shared.md" \
-  "$SECONDMATE/data/captain-shared.md"
-record_shared_state inherited "$SECONDMATE/data/captain-shared.md" \
-  >>"$VERIFY_ROOT/inheritance.out"
-
-FM_HOME="$SECONDMATE" bin/fm-startup-memory-budget.sh report \
-  >"$VERIFY_ROOT/secondmate.before.report"
-for file in captain.md captain-shared.md learnings.md; do
-  shasum -a 256 "$SECONDMATE/data/$file"
-done >"$VERIFY_ROOT/secondmate.before.sha256"
-record_shared_state before "$SECONDMATE/data/captain-shared.md" \
-  >"$VERIFY_ROOT/secondmate.shared-state"
-
-FM_HOME="$SECONDMATE" pi -p --no-session --no-extensions --no-context-files \
-  --model openai-codex/gpt-5.6-terra --thinking medium \
-  --skill .agents/skills/stow/SKILL.md \
-  'Invoke /stow now against only the validated disposable synthetic secondmate home in $FM_HOME. There are no new session facts to file. Follow every requirement in the loaded stow skill. Run the repository-owned bin/fm-startup-memory-budget.sh report command, with the existing FM_HOME environment, before and after curation; that executable is the only permitted path outside $FM_HOME. Retain the exact before total, and make the completion receipt state the effective budget, exact before and after totals, an action for each of the three files, every exception, and reset safety. Inspect all three startup-memory files completely, keep data/captain-shared.md byte-identical and filesystem read-only because it was installed through primary-authoritative inheritance, preserve every unique current preference, stable learning, and authoritative pointer, and consolidate the supplied duplicate, superseded, stale, chronological, metric, overlap, and report-sized material in editable local memory. Do not access or modify any other home, credential, project data, or external system.' \
-  >"$VERIFY_ROOT/secondmate.pass1.out"
-FM_HOME="$SECONDMATE" bin/fm-startup-memory-budget.sh report \
-  >"$VERIFY_ROOT/secondmate.after.report"
-for file in captain.md captain-shared.md learnings.md; do
-  shasum -a 256 "$SECONDMATE/data/$file"
-done >"$VERIFY_ROOT/secondmate.after.sha256"
-record_shared_state after "$SECONDMATE/data/captain-shared.md" \
-  >>"$VERIFY_ROOT/secondmate.shared-state"
-
-FM_HOME="$SECONDMATE" pi -p --no-session --no-extensions --no-context-files \
-  --model openai-codex/gpt-5.6-terra --thinking medium \
-  --skill .agents/skills/stow/SKILL.md \
-  'Invoke /stow now against only the validated disposable synthetic secondmate home in $FM_HOME. There are no new session facts to file. Follow every requirement in the loaded stow skill. Run the repository-owned bin/fm-startup-memory-budget.sh report command, with the existing FM_HOME environment, before and after curation; that executable is the only permitted path outside $FM_HOME. Retain the exact before total, and make the completion receipt state the effective budget, exact before and after totals, an action for each of the three files, every exception, and reset safety. Inspect all three startup-memory files completely, keep data/captain-shared.md byte-identical and filesystem read-only because it was installed through primary-authoritative inheritance, preserve every unique current preference, stable learning, and authoritative pointer, and consolidate the supplied duplicate, superseded, stale, chronological, metric, overlap, and report-sized material in editable local memory. Do not access or modify any other home, credential, project data, or external system.' \
-  >"$VERIFY_ROOT/secondmate.pass2.out"
-FM_HOME="$SECONDMATE" bin/fm-startup-memory-budget.sh report \
-  >"$VERIFY_ROOT/secondmate.repeat.report"
-for file in captain.md captain-shared.md learnings.md; do
-  shasum -a 256 "$SECONDMATE/data/$file"
-done >"$VERIFY_ROOT/secondmate.repeat.sha256"
-record_shared_state repeat "$SECONDMATE/data/captain-shared.md" \
-  >>"$VERIFY_ROOT/secondmate.shared-state"
-```
-
-Bounded observed output:
-
-```text
-secondmate_validation=accepted id=stow-verification
-startup-memory-budget pushed
-data/captain-shared.md pushed
-inherited sha256=d08ce8e35b17c8342773d551b5c1551a5a6ded5f45ab0f7ed5b6ef91ea1d408c mode=444
-primary: 699 -> 219 estimated tokens against a 350-token budget
-primary repeat: 219 -> 219; all three files byte-identical
-secondmate: 518 -> 192 estimated tokens against a 350-token budget
-secondmate repeat: 192 -> 192; all three files byte-identical
-before sha256=d08ce8e35b17c8342773d551b5c1551a5a6ded5f45ab0f7ed5b6ef91ea1d408c mode=444
-after sha256=d08ce8e35b17c8342773d551b5c1551a5a6ded5f45ab0f7ed5b6ef91ea1d408c mode=444
-repeat sha256=d08ce8e35b17c8342773d551b5c1551a5a6ded5f45ab0f7ed5b6ef91ea1d408c mode=444
-```
-
-The first pass preserved current preferences, shared-memory and safety authority, a stable operating fact, and authoritative configuration and incident-report pointers while removing duplicate, superseded, stale, and chronological material.
-The secondmate fixture passed the production home validator before the existing inheritance owner installed the main-authoritative file read-only.
-Both secondmate passes preserved its unique local preference and learning while leaving those inherited bytes and mode untouched.
-This verifies the real instruction path consolidates to budget, reports truthful deltas, preserves the primary-owned shared boundary, and does not grow on an identical second pass.

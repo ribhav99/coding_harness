@@ -4,7 +4,7 @@
 # Pending validated merged-poll retirements finish first. Canonical polls are
 # then rebuilt from validated metadata, remaining provenance-bound polls and
 # registered custom checks remain armed, and every other task poll is
-# quarantined for private review. A current X-mode shim is preserved by exact
+# quarantined for private review. A registered custom check is preserved by exact
 # content, while the recognized older byte-static shim is refreshed in place.
 # Usage: fm-pr-check-migrate.sh [--checks-safe]
 set -u

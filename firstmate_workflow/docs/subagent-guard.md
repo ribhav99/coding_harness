@@ -136,9 +136,6 @@ It costs one line and removes the failure mode where a rename or a rollback sile
 The shipped hook fires only in a genuine firstmate primary home, using the shared predicate `fm_primary_scope_matches` from `bin/fm-primary-scope-lib.sh`.
 This is the same predicate `bin/fm-sessionstart-nudge.sh` and `bin/fm-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
-A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.fm-secondmate-home` marker.
-A marked secondmate home is in scope on purpose: it operates its own fleet and must dispatch through it for the same durability reasons.
-
 A crewmate's disposable task worktree is a linked git worktree, which is the shape `bin/fm-spawn.sh` always hands out, so it is out of scope.
 A crewmate using delegation tools inside its own task worktree is legitimate and stays allowed.
 A non-firstmate repo is out of scope.
@@ -164,7 +161,6 @@ A tool removed from the schema stays removed, so a genuinely intended use of a l
 
 - Allow returns exit 0 with both streams empty.
 - Deny returns exit 2 and writes `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[subagent-dispatch] ..."}` to stderr.
-- Default deny mode also writes `{"decision":"deny","reason":"[subagent-dispatch] ..."}` to stdout for Grok.
 - `--claude` suppresses stdout completely, because Claude Code ignores a PreToolUse deny when stdout is nonempty.
   This is the same verified quirk recorded in [`arm-pretool-check.md`](arm-pretool-check.md), and the tracked Claude hook therefore passes `--claude`.
 - Malformed or empty stdin, invalid JSON, a payload with no tool name, and missing `jq` for stdin transport all fail open with exit 0 and no output.
@@ -181,65 +177,7 @@ Applicability turns on one question: does the harness expose built-in delegation
 | Harness | Delegation surface | Status |
 | --- | --- | --- |
 | Claude | 16 known tools, listed above | Scoped guard wired and live-verified; untracked local deny list verified and recommended. |
-| Codex | none | Not applicable, verified empirically below. Codex 0.144.1 exposes no subagent, sub-task, or delegated-agent tool, so there is nothing to remove or intercept. `.codex/hooks.json` is unchanged. |
-| Grok | present, exact tokens unconfirmed | Not wired pending live verification. See below. |
-| OpenCode | present, exact tokens unconfirmed | Not wired pending live verification. See below. |
 | Pi | none reported | Not wired pending live verification. See below. |
-
-### Codex, verified not applicable
-
-Codex 0.144.1 was asked to enumerate its own tools in a scratch git repo on 2026-07-22.
-
-```sh
-codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
-  "List the exact names of every tool available to you in this session, one per line, nothing else. Then state on a final line whether you have any tool that spawns a subagent, sub-task, or delegated agent: answer SUBAGENT_TOOL=yes or SUBAGENT_TOOL=no."
-```
-
-Exact reported tool set and verdict:
-
-```text
-web.run
-functions.exec_command
-functions.write_stdin
-functions.list_mcp_resources
-functions.list_mcp_resource_templates
-functions.read_mcp_resource
-functions.update_plan
-functions.request_user_input
-functions.request_plugin_install
-functions.view_image
-functions.get_goal
-functions.create_goal
-functions.update_goal
-functions.apply_patch
-image_gen.imagegen
-tool_search.tool_search_tool
-multi_tool_use.parallel
-SUBAGENT_TOOL=no
-```
-
-`multi_tool_use.parallel` batches calls to the tools above; it does not spawn an agent.
-Codex is therefore not applicable today, and this table row is the tripwire: if a future Codex release adds a delegated-agent tool, wire `.codex/hooks.json` the same way its `Bash` PreToolUse entries already forward stdin to a checker.
-
-### Grok, OpenCode, and Pi, inspected but not wired
-
-The integration surface of each was inspected and each is structurally wireable for the shipped guard.
-
-- Grok's tracked hooks (`.grok/hooks/fm-primary-pretool-check.json`, `.grok/hooks/fm-primary-cd-check.json`) use a `PreToolUse` matcher, currently `Bash`, and pipe stdin to a checker.
-  The checker already reads Grok's `.toolName` field, so only the matcher token is missing.
-  Grok does expose a delegation surface: `docs/supervision-protocols/grok.md` documents `get_command_or_subagent_output(<task_id>)`, which implies a corresponding dispatch tool.
-- OpenCode's tracked plugins gate on `input?.tool !== "bash"` inside `tool.execute.before`, and block by throwing.
-  Swapping that comparison for a call into this checker with `--tool` is the whole change.
-- Pi's tracked extension gates on `event.toolName !== "bash"` inside `pi.on("tool_call", ...)` and blocks by returning `{block: true}`.
-  The same change applies. A parallel evaluation reports that Pi exposes no delegation tool at all, which would make it not applicable, but that was not verified here.
-
-None of the three is wired in this change because none of the three binaries is installed on the host where this work was done, so the exact tool-name tokens could not be confirmed and the wiring could not be validated against the real harness.
-This repo's rule in the `firstmate-coding-guidelines` skill is that a harness hook must be validated in a scratch project before it is trusted, and `arm-pretool-check.md` records the concrete cost of guessing: a Grok hook whose `command` string is even slightly wrong fails to launch the hook at all.
-Wiring an unvalidated matcher would trade a known gap for an unknown breakage.
-
-The bounded follow-up for each is identical to the Codex procedure above.
-On a host with the binary installed, ask the harness to enumerate its tools, then wire the matcher and re-run the live matrix below.
-`bin/fm-subagent-pretool-check.sh` needs no change for any of them: it already accepts Grok's stdin shape and the `--tool` CLI form OpenCode and Pi use, and it already emits the Grok stdout decision object by default.
 
 ## Live validation record, 2026-07-22
 
@@ -347,13 +285,11 @@ Result: the Workflow tool call was NOT blocked by a hook. It launched and ran to
 ### Empty-stdout requirement
 
 A Claude deny is honored only when the hook's stdout is empty.
-`tests/fm-subagent-pretool-check.test.sh` asserts stdout is empty on every `--claude` deny and that default mode still emits the Grok object on stdout.
 The live consequence is confirmed by the shipped-guard result above: Claude honored the deny and reported the reason text.
 
 ## Automated validation
 
 `tests/fm-subagent-pretool-check.test.sh` owns the acceptance matrix and is registered in the `pure-contract-unit` family in `bin/fm-test-run.sh`.
-It covers the tracked Claude settings boundary that forbids a `permissions` key; the match-all Claude hook registration; denial of every work-creating delegation tool by shape; denial of twelve hypothetical future tool names that appear on no list; the observe-or-stop, plan-only, and MCP exclusions; the exactness of the plan-only exclusion against six near-miss names a substring or shorter-stem widening would release; the scout-present and scout-absent message variants; the escape hatch including its fail-closed values; inertness in a linked task worktree and in a non-firstmate repo; in-scope enforcement for a marked secondmate home; both stdin transports; the empty-stdout requirement; fail-open transport behavior; and the preserved `Bash` seatbelts and `Stop` guard.
 
 Run:
 
@@ -367,8 +303,6 @@ tests/fm-subagent-pretool-check.test.sh
 
 This change does not close the deeper harness-agnostic defect.
 Every firstmate guard's in-flight-work branch keys off `state/<id>.meta`, and only `bin/fm-spawn.sh` writes that record.
-`bin/fm-supervision-lib.sh` also recognizes an X-mode relay poll as supervision need, but unaccounted primary work still contributes nothing to that predicate.
-Without an independent X-mode need, unaccounted primary work therefore reads as idle rather than suspicious.
 
 The durable fix for that class is to make the guards treat "the primary is doing project-shaped work with zero `state/*.meta` files" as a suspicious state rather than an idle one.
 That would catch this class on any harness, including work created through `Bash`.

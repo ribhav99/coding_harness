@@ -6,7 +6,6 @@ This document records the deterministic mechanism, structured surfaces, and priv
 ## Mechanism
 
 `bin/fm-decision-hold.sh` is the only lifecycle command for an investigation or visual review's unresolved captain decisions.
-The command runs tasks-axi in the active `FM_HOME`, so the existing backlog remains the only durable work database and a secondmate-owned decision stays in the secondmate home.
 It never reads report bodies, review artifacts, terminal output, or chat.
 
 The `hold` subcommand maps an originating work id and stable decision key to `<origin-id>-decision-<decision-key>`.
@@ -32,7 +31,6 @@ A failed intermediate step leaves the hold open.
 
 `bin/fm-fleet-snapshot.sh` parses canonical tasks-axi `(hold: ...)` and `(hold-kind: captain)` metadata alongside existing backlog fields.
 It resolves every repeated `blocked-by:` edge against structured Done records, keeps missing blockers unresolved, and classifies only an unblocked captain hold as actionable.
-Its secondmate-home summary classifies an actionable captain hold as `captain_decision` and preserves blocked captain holds as queued work in the owning home.
 
 `bin/fm-bearings-snapshot.sh` projects actionable captain holds into `decisions_open` and leaves blocked captain holds in ordinary queued gates.
 It excludes completed kind `captain` records from Recently Landed.
@@ -60,7 +58,6 @@ ok - completion and verification validate origins before constructing paths
 ok - ended visual review follows the same decision-hold completion owner
 ok - resolved findings and decision-like prose do not create false holds
 ok - terminal single-owner stale status decisions do not block empty inventory
-ok - main-home and secondmate-home captain holds remain correctly routed
 ok - resolve matches first/middle/last in quoted blocked_by and rejects a genuinely absent id
 
 $ bash tests/fm-fleet-snapshot-view.test.sh
@@ -71,8 +68,6 @@ ok - snapshot parses tasks-axi rows and respects operational overrides
 $ bash tests/fm-bearings-snapshot.test.sh
 ok - a completed scout with decision-like report prose is a pointer, not pending
 ok - action-free items (working/done/queued/landed) do not leak into Captain's Call
-ok - mixed secondmate roles, partial state, and captain readiness project independently
-ok - main and secondmate captain actionability use the same blocker readiness
 
 $ bash tests/fm-brief.test.sh
 ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy

@@ -96,7 +96,6 @@ top-level home. Worth raising as an issue rather than a PR.
 `COMMON_TOOLS` went from
 
 ```sh
-node git gh no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi
 ```
 
 to `node git gh`.
@@ -105,16 +104,13 @@ to `node git gh`.
 | --- | --- |
 | `chrome-devtools-axi` | **zero shell call sites.** Agent-facing only; a Playwright harness already exists in this repo |
 | `lavish-axi` | **zero shell call sites.** Kept as an optional dependency of `skills/coding/full-review.md`, unrelated to firstmate |
-| `quota-axi` | only used by dispatch profiles, which are not configured. Deferred |
 | `no-mistakes` | replaced by this repo's own judge fleet under `skills/coding/`. Projects run in `direct-PR` mode |
 | `gh-axi` | see delta 4 |
-| `tasks-axi` | deferred via `config/backlog-backend=manual`; firstmate hand-edits `data/backlog.md` in the identical format. The only hard break is `fm-backlog-handoff.sh` (secondmate handoff), which is unused |
 
 The per-tool version gates further down the file are each guarded by
 `command -v`, so they are correct no-ops while a tool is absent and start
 enforcing again the moment one is installed. Left untouched deliberately.
 
-Remaining bootstrap requirements: `tmux` and `treehouse`. Treehouse goes away
 with the planned worktree-provider delta.
 
 ### 4. `gh-axi` → `gh` — `bin/fm-pr-merge.sh`, `bin/fm-teardown.sh`
@@ -152,9 +148,6 @@ Not everything degrades gracefully. Known gaps:
 | --- | --- |
 | `bin/fm-session-start.sh` | degrades cleanly — falls back to title-line backlog rendering |
 | `bin/fm-decision-hold.sh` | **hard-requires** `tasks-axi`; durable captain-held decisions are unavailable |
-| `bin/fm-backlog-handoff.sh` | **hard-requires** `tasks-axi`; secondmate backlog handoff unavailable (unused) |
-| `bin/fm-public-followup.sh` | **hard-requires** `tasks-axi`; X mode only (off) |
-| `bin/fm-home-seed.sh` | **hard-requires** `no-mistakes` to seed a secondmate home (unused) |
 
 **Update:** `tasks-axi` 0.2.4 IS now installed. `bin/fm-decision-hold.sh`
 backs durable captain decision holds, and scout teardown verifies them, so it
@@ -184,67 +177,6 @@ fallback sites changed; the warning on stderr is preserved.
 
 **Upstreamable?** No — this is specific to running without no-mistakes.
 
-### 6. Treehouse removed — `bin/fm-worktree.sh` (new), `fm-spawn.sh`, `fm-teardown.sh`, `fm-backend.sh`, `fm-bootstrap.sh`
-
-Task worktrees are now plain `git worktree` siblings of the project checkout,
-created per task and deleted on teardown. No pool, no leases, no warm state.
-`bin/fm-worktree.sh` is the provider; its header owns the full contract.
-
-**Spawn.** Upstream created the pane in the *project* directory, sent the literal
-text `treehouse get` into it, then polled `pane_current_path` for up to 60
-seconds waiting for treehouse's subshell to `cd` — needing two consecutive
-agreeing reads, because a brand-new pane can transiently report an unrelated
-stale path that would otherwise be recorded as the worktree in
-`state/<id>.meta`. That entire race exists only because treehouse hands out a
-worktree by opening a subshell inside it.
-
-Now the worktree is created *before* the endpoint and the pane opens directly
-inside it. No send, no poll, no race, and up to 60s of worst-case spawn latency
-gone. `validate_spawn_worktree` still runs — it is the isolation assertion.
-
-**Teardown.** `teardown_treehouse_return` keeps its name and all of its
-stale-`index.lock` retry machinery, which is still correct: the matcher greps
-*git's* own `Unable to create '...index.lock': File exists`, which treehouse
-merely surfaced, and `git worktree remove` fails identically. Only the command
-changed.
-
-**Two bugs found while testing this, both mine:**
-
-1. **Trap name collision.** `fm-spawn.sh:354` already had
-   `trap spawn_abort_cleanup EXIT` — a flag-gated handler for herdr/orca abort
-   cleanup. Defining a second function with that name later in the file silently
-   overrode it, so an *unguarded* cleanup ran on every exit including success:
-   the worktree was created, the pane opened in it, and then it was deleted a
-   moment later. It also destroyed herdr/orca abort cleanup. Fixed by following
-   the file's existing pattern instead — a `WORKTREE_ABORT_CLEANUP` flag armed
-   after creation, disarmed after the meta write, handled inside the original
-   trap alongside the orca and herdr blocks.
-2. **`BASH_SOURCE` resolution.** The provider resolved its own directory in a
-   way that broke when sourced from zsh, silently losing `fm_default_branch`.
-   Now guarded, with a `$0` fallback and a loud error.
-
-`fm_worktree_path` resolves the project's PHYSICAL path before deriving the
-sibling name. That matters for a project symlinked under `projects/` at a
-checkout living elsewhere: without it the worktree would be derived from the
-symlink's own parent and land inside the firstmate home. With it, worktrees sit
-beside the real checkout. Verified live against the captain's own
-`fitness_agent`: a task worktree appeared as `fitness_agent-fm-<id>` at detached
-HEAD from `origin/master`, the captain's `release/2.2.0` branch and clean tree
-were untouched, their four pre-existing worktrees were untouched, and teardown
-restored the worktree list exactly.
-
-**Verified end to end** against a scratch repo:
-
-| | |
-| --- | --- |
-| spawn | worktree created as a sibling, git registers it, detached HEAD, pane cwd IS the worktree |
-| teardown | directory removed, registration pruned, endpoint killed |
-| abort | endpoint step forced to fail after creation → no orphan directory, no stale registration |
-
-**Still treehouse-dependent:** `bin/fm-home-seed.sh` (`treehouse get --lease`)
-for secondmate homes, which this fork does not use. `fm-bootstrap.sh`'s
-`treehouse_supports_lease` gate is inert but left in place.
-
 ### 7. `tmux-panes` backend — `bin/backends/tmux-panes.sh` (new) + registrations
 
 A sixth runtime backend that places each task as a tiled **pane inside a routed
@@ -267,13 +199,11 @@ under you, so it pins `automatic-rename`/`allow-rename` off. Pane ids are
 server-unique and immutable for the pane's lifetime. Meta records
 `window=%<pane-id>`, and `fm_backend_validate_task_endpoint` gained a
 `tmux-panes` branch binding identity through `endpoint_task_id=`, exactly as the
-herdr/zellij/cmux branches do.
 
 **Routing** (`spawn_resolve_pane_window` in `fm-spawn.sh`): `--window <name>`,
 then `$FM_PANE_WINDOW`, then `config/pane-routes` (`<kind>: <window>` lines, or
 `default:`), then built-in `scout → reviews`, everything else `→ workers`.
 Deliberately mechanical — routing *intent* is a judgment call belonging to
-firstmate at intake, the same split `config/crew-dispatch.json` uses.
 
 **Registrations:** `FM_BACKEND_KNOWN`, `FM_BACKEND_SPAWN`,
 `fm_backend_required_tools`, `fm_backend_source`, six dispatch arms and
@@ -326,13 +256,11 @@ session lock.
 
 The root home is no longer a working home. Its `data/projects.md` says so.
 
-**`config/crew-effort` (new).** Upstream has no crew equivalent of the secondmate
 effort token, because crew effort is a per-task judgment call — and AGENTS.md
 section 4 explicitly says "never max without explicit captain preference". The
 captain has now given that preference, as a standing "always", so it is read from
 a config file on every spawn rather than left to a prompt a future session could
 reason its way out of. An explicit `--effort` still wins. Ship and scout only;
-secondmates keep their own contract.
 
 Both homes also pin `config/crew-harness=claude`.
 `--dangerously-skip-permissions` was already in upstream's claude launch template.
@@ -358,10 +286,8 @@ is not installed on this machine. Not caused by this fork.
   upstream's one *window* per task. Rewrites `create_task`, `kill`, and
   `agent_state` in a new `bin/backends/tmux-panes.sh`, plus registration and a
   teardown-identity branch in `bin/fm-backend.sh`.
-- **Treehouse removal** — replace the pooled-worktree provider with plain
   `git worktree add` / `remove`, creating worktrees as siblings of the project
   checkout (`<project>-fm-<id>`, matching the existing hand-rolled convention).
   Deliberately dumb: no pool, no leases, no warm state, no setup hooks. Worktrees
   start cold and that is accepted. Upstream's fail-closed teardown rule — a
   worktree holding uncommitted or unlanded work refuses to be removed — must be
-  preserved; it is the one part of treehouse's contract worth keeping.
