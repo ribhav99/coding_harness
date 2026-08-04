@@ -112,19 +112,17 @@ EOF
     "mode=scout" \
     "yolo=off"
   printf 'done: report ready\n' > "$home/state/scout-task.status"
-  fm_write_meta "$home/state/secondmate-task.meta" \
-    "window=firstmate:fm-secondmate-task" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha, beta, gamma, "
-  printf 'working: watching delegated scope\n' > "$home/state/secondmate-task.status"
-  fm_write_meta "$home/state/cmux-task.meta" \
-    "backend=cmux" \
-    "window=workspace:surface" \
+  fm_write_meta "$home/state/second-task.meta" \
+    "window=firstmate:fm-second-task" \
+    "worktree=$home/second-worktree" \
+    "project=$home/second-worktree" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=ship"
+  printf 'working: implementing the second change\n' > "$home/state/second-task.status"
+  fm_write_meta "$home/state/panes-task.meta" \
+    "backend=tmux-panes" \
+    "window=%12" \
     "worktree=$home/projects/missing-cmux" \
     "project=alpha" \
     "harness=codex" \
@@ -159,7 +157,7 @@ test_fixture_snapshot_json() {
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e . >/dev/null || fail "snapshot must be valid JSON"
   ids=$(printf '%s' "$out" | jq -r '.tasks | map(.id) | join(",")')
-  [ "$ids" = "cmux-task,scout-task,secondmate-task,ship-task" ] \
+  [ "$ids" = "panes-task,scout-task,second-task,ship-task" ] \
     || fail "task ordering must be stable by id, got $ids"
   printf '%s' "$out" | jq -e '
     .tasks[] | select(.id == "ship-task")
@@ -176,17 +174,16 @@ test_fixture_snapshot_json() {
       and .hints.scout_report_present == true
   ' >/dev/null || fail "scout report pointer missing"
   printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "secondmate-task")
-    | .secondmate_projects == ["alpha","beta","gamma"]
-      and .endpoint.agent_alive == "alive"
-      and (.actions.watch | contains("do not routinely fm-peek"))
-  ' >/dev/null || fail "secondmate return-channel guidance missing"
+    .tasks[] | select(.id == "second-task")
+    | (.actions.steer | contains("--why"))
+      and (.actions.watch | contains("fm-peek.sh fm-second-task"))
+  ' >/dev/null || fail "steer action must name the required justification flag"
   printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "cmux-task")
-    | .backend == "cmux"
+    .tasks[] | select(.id == "panes-task")
+    | .backend == "tmux-panes"
       and .paths.worktree.present == false
       and .current_state.state == "unknown"
-  ' >/dev/null || fail "cmux missing-file row missing"
+  ' >/dev/null || fail "tmux-panes missing-file row missing"
   printf '%s' "$out" | jq -e '
     [.backlog.records[] | select(.state == "queued")] | length == 2
   ' >/dev/null || fail "queued canonical and unstructured backlog records missing"
@@ -574,13 +571,9 @@ test_view_renders_snapshot() {
     "view should render queued backlog row"
   assert_contains "$view" "| done-task | Done Task | alpha | ship | - | https://github.com/kunchenguid/firstmate/pull/7 |" \
     "view should render done backlog row"
-  assert_contains "$view" "bin/fm-send.sh fm-secondmate-task" \
-    "view should show secondmate send guidance"
-  assert_contains "$view" "| secondmate-task | working / status-log | secondmate | $home/secondmate-home | tmux | present / alive |" \
-    "view should show secondmate endpoint agent liveness"
-  assert_not_contains "$view" "fm-peek.sh fm-secondmate-task" \
-    "view must not tell firstmate to routinely peek secondmates"
-  pass "fleet view renders the snapshot without secondmate peek guidance"
+  assert_contains "$view" "bin/fm-peek.sh fm-second-task" \
+    "view should show the watch action for a second live task"
+  pass "fleet view renders the snapshot"
 }
 
 
@@ -591,20 +584,21 @@ test_view_renders_snapshot() {
 test_open_decision_survives_later_unrelated_event() {
   local home fakebin out
   home=$(make_home masking)
-  mkdir -p "$home/secondmate-home"
+  mkdir -p "$home/masked-worktree"
   fm_write_meta "$home/state/masked-decision.meta" \
     "window=firstmate:fm-masked-decision" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  # needs-decision opened, then two LATER unrelated events (no resolution).
+    "worktree=$home/masked-worktree" \
+    "project=$home/masked-worktree" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=ship"
+  # needs-decision opened, then LATER unrelated events with no resolution. The
+  # trailing event stays NON-terminal on purpose: a terminal done/failed ends the
+  # task, and clearing its stale decisions then is the deliberate lifecycle rule.
+  # What must never happen is a later ordinary event masking a live decision.
   printf 'needs-decision [key=race]: fix the reconcile-before-subscribe race\n' > "$home/state/masked-decision.status"
   printf 'working: implementing an unrelated subsystem\n' >> "$home/state/masked-decision.status"
-  printf 'done: an unrelated subtask finished\n' >> "$home/state/masked-decision.status"
+  printf 'working: an unrelated subtask finished\n' >> "$home/state/masked-decision.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e '
@@ -613,7 +607,7 @@ test_open_decision_survives_later_unrelated_event() {
       and (.hints.open_decisions | length) == 1
       and .hints.open_decisions[0].key == "race"
       and .hints.open_decisions[0].verb == "needs-decision"
-  ' >/dev/null || fail "later unrelated done must not mask an open needs-decision: $out"
+  ' >/dev/null || fail "a later unrelated event must not mask an open needs-decision: $out"
   pass "durable fold keeps an open decision past a later unrelated event"
 }
 
