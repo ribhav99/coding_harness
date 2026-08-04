@@ -62,11 +62,11 @@ test_apply_current_gen_reset() {
   "$EV" arm "$state" t1 >/dev/null
   "$EV" apply "$state" t1 idle --current-gen --source fm-interrupt --event interrupt \
     || fail "apply --current-gen failed"
-  out=$(fm_busy_classify tmux w1 pi t1 "$state")
+  out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "idle fm-interrupt" ] || fail "expected 'idle fm-interrupt', got '$out'"
   "$EV" apply "$state" t1 unknown --current-gen --source fm-recovery --event relaunch \
     || fail "apply unknown failed"
-  out=$(fm_busy_classify tmux w1 pi t1 "$state")
+  out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "unknown fm-recovery" ] || fail "expected 'unknown fm-recovery', got '$out'"
   pass "firstmate-owned interrupt and recovery events bind to the current gen"
 }
@@ -160,12 +160,10 @@ test_stale_gen_record_unknown() {
 test_missing_record_unknown_not_idle() {
   local state out h
   state=$(new_state_dir missing)
-  for h in claude opencode pi pi-signed; do
+  for h in claude some-unverified-harness; do
     out=$(fm_busy_classify tmux w1 "$h" t1 "$state")
     [ "$out" = "unknown missing" ] || fail "$h with no record must be 'unknown missing', got '$out'"
   done
-  out=$(fm_busy_classify tmux w1 codex t1 "$state")
-  [ "$out" = "unknown codex-unverified" ] || fail "codex with no verified source must be 'unknown codex-unverified', got '$out'"
   pass "a converted adapter with no record classifies unknown, never idle"
 }
 
@@ -205,13 +203,13 @@ test_source_mismatch_cross_adapter() {
   local state gen out
   state=$(new_state_dir cross-adapter)
   gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
+  # A source no surviving adapter owns must never be trusted, whatever harness
+  # the task records - the trust table, not the record, decides.
+  "$EV" apply "$state" t1 busy --gen "$gen" --source fm-recovery --event relaunch
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
-  [ "$out" = "unknown source-mismatch" ] || fail "pi-ext record on a claude task must be untrusted, got '$out'"
-  out=$(fm_busy_classify tmux w1 pi t1 "$state")
-  [ "$out" = "busy pi-ext" ] || fail "pi-ext record on a pi task must classify, got '$out'"
-  out=$(fm_busy_classify tmux w1 grok t1 "$state")
-  [ "$out" = "unknown source-mismatch" ] || fail "grok trusts no semantic source, got '$out'"
+  [ "$out" = "busy fm-recovery" ] || fail "a firstmate-owned source must classify on claude, got '$out'"
+  out=$(fm_busy_classify tmux w1 some-unverified-harness t1 "$state")
+  [ "$out" = "unknown source-mismatch" ] || fail "an unverified harness trusts no semantic source, got '$out'"
   pass "a record is trusted only by the adapter whose source wrote it"
 }
 
@@ -222,12 +220,10 @@ test_converted_adapters_ignore_footer_text() {
    ■■■■⬝⬝⬝⬝  esc interrupt
 Working...
 Ctrl+c:cancel'
-  for h in claude opencode pi pi-signed; do
+  for h in claude some-unverified-harness; do
     out=$(fm_busy_classify tmux w1 "$h" t1 "$state" "$tail")
     [ "$out" = "unknown missing" ] || fail "$h must never classify from footer text, got '$out'"
   done
-  out=$(fm_busy_classify tmux w1 codex t1 "$state" "$tail")
-  [ "$out" = "unknown codex-unverified" ] || fail "codex must never classify from footer text, got '$out'"
   pass "converted adapters never classify busy from rendered footer text"
 }
 
