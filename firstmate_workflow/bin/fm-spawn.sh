@@ -413,7 +413,7 @@ validate_spawn_worktree "git worktree add" "$WT"
 #
 # Deliberately mechanical. Routing INTENT ("PR reviews go to tab 3") is a
 # judgment call and belongs to firstmate reading config/pane-routes at intake,
-# exactly as config/crew-dispatch.json works for harness selection. This function
+# This function
 # only resolves a concrete name and never parses task intent.
 spawn_resolve_pane_window() {
   local routes="$CONFIG/pane-routes" val

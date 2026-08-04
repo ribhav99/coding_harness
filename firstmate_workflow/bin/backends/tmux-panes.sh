@@ -33,7 +33,7 @@
 # Task metadata therefore records window=%<pane-id> rather than
 # window=<session>:fm-<id>. fm_backend_validate_task_endpoint has a matching
 # tmux-panes branch that binds identity through endpoint_task_id=, the same way
-# the herdr, zellij and cmux adapters do.
+# other session-provider adapters do.
 #
 # Routing
 # -------
@@ -231,7 +231,7 @@ fm_backend_tmux_panes_agent_state() {  # <pane-id>
   comm=$(fm_backend_tmux_current_command "$target") || { printf 'unreadable'; return 0; }
   comm=${comm#-}
   case "$comm" in
-    *claude*|*codex*|*opencode*|*grok*|*kimi*|pi|pi-signed|pi-launcher|Pi) printf 'alive' ;;
+    *claude*) printf 'alive' ;;
     # LOCAL FORK: Claude Code renames its own process to its VERSION STRING, so a
     # live agent reports e.g. "2.1.220" rather than "claude" and fell through to
     # `ambiguous` below. Verified live against Claude Code 2.1.220. This affects

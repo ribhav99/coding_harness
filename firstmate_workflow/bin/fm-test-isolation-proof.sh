@@ -105,39 +105,21 @@ exclusion_reason() {
     fm-teardown.test.sh)
       printf '%s\n' 'landed-work + lock-race teardown matrix; keep serial with forge/git stress peers'
       ;;
-    fm-herdr-session-cleanup.test.sh)
-      printf '%s\n' 'session-start task/presentation lock matrix; keep serial until dedicated concurrent proof'
-      ;;
-    fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
-    fm-supervision-events.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|\
-    fm-wake-queue.test.sh|fm-watch-checkpoint.test.sh|fm-watch-triage.test.sh|\
+    fm-daemon.test.sh|fm-guard-stale-banner.test.sh|\
+    fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|\
+    fm-wake-queue.test.sh|fm-watch-triage.test.sh|\
     fm-watcher-lock.test.sh)
       printf '%s\n' 'watcher/wake/lock family; intentional process locks and daemon races'
       ;;
-    fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh|fm-afk-inject-herdr-e2e.test.sh|\
+    fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh|\
     fm-afk-launch.test.sh)
       printf '%s\n' 'AFK lifecycle / inject path; exclusive daemon and pane control'
       ;;
-    fm-afk-pi-herdr-return-e2e.test.sh|\
-    fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|\
-    fm-opencode-primary-live-e2e.test.sh|fm-pi-primary-live-e2e.test.sh|\
-    fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh)
+    fm-claude-stop-autoarm-live-e2e.test.sh)
       printf '%s\n' 'live harness opt-in; never default parallel CI'
       ;;
-    fm-backend-autodetect-smoke.test.sh|fm-backend-herdr-eventwait-smoke.test.sh|\
-    fm-backend-herdr-presentation-e2e.test.sh|fm-backend-herdr-prune-safety-e2e.test.sh|\
-    fm-backend-herdr-respawn-idem-e2e.test.sh|fm-backend-herdr-smoke.test.sh|\
-    fm-backend-herdr-workspace-per-home-e2e.test.sh|fm-herdr-session-cleanup-e2e.test.sh)
-      printf '%s\n' 'real Herdr-gated; Herdr lane is a later phase'
-      ;;
-    fm-backend-cmux.test.sh|fm-backend-cmux-smoke.test.sh)
-      printf '%s\n' 'cmux GUI backend; never parallel with another cmux mutator'
-      ;;
-    fm-backend-zellij.test.sh|fm-backend-zellij-smoke.test.sh)
-      printf '%s\n' 'zellij optional backend; keep out of pure parallel pool'
-      ;;
-    fm-backend-orca.test.sh)
-      printf '%s\n' 'orca backend surface; keep serial until dedicated isolation proof'
+    fm-backend-autodetect-smoke.test.sh)
+      printf '%s\n' 'runtime auto-detection probe; keep serial with backend peers'
       ;;
     *)
       return 1
@@ -182,17 +164,14 @@ list_exclusions_for_report() {
 fm-test-isolation-proof.test.sh
 fm-backend-tmux-smoke.test.sh
 fm-backend.test.sh
-fm-spawn-dispatch-profile.test.sh
 fm-spawn-worktree-settle.test.sh
 fm-pr-check-security.test.sh
 fm-teardown.test.sh
 fm-watcher-lock.test.sh
 fm-wake-queue.test.sh
 fm-afk-inject-e2e.test.sh
-fm-backend-herdr-smoke.test.sh
-fm-backend-cmux-smoke.test.sh
-fm-pi-primary-live-e2e.test.sh
-fm-quota-array-dispatch-live-e2e.test.sh
+fm-backend-autodetect-smoke.test.sh
+fm-claude-stop-autoarm-live-e2e.test.sh
 EOF
 }
 

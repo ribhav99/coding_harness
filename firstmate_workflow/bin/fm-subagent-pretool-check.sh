@@ -177,7 +177,7 @@ STATE=${FM_STATE_OVERRIDE:-$FM_HOME/state}
 
 # Scope to a genuine primary home, exactly as the session-start nudge and the
 # turn-end guard do. fm_primary_scope_matches accepts a plain checkout or a
-# marked secondmate home - both operate a fleet and must dispatch through it -
+# home - it operates a fleet and must dispatch through it -
 # and rejects a linked task worktree, which is the shape bin/fm-spawn.sh always
 # hands a crewmate. A crewmate using delegation tools inside its own task
 # worktree is legitimate and stays allowed. Any failure to confirm the home is

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Turn-end guard for any firstmate PRIMARY session: the main home OR a
-# secondmate's own home. A secondmate runs its own primary firstmate session and
+# own home.
 # is guarded exactly like the main primary; only child crew/scout worktrees are
 # exempt (see the scoping block below and docs/turnend-guard.md).
 #
@@ -10,7 +10,7 @@
 # fleet-touching command itself, can sit blind for hours.
 # This script is push-based: verified harness turn-end hooks invoke it every time
 # the primary is about to end a turn.
-# Claude and codex can block directly by preserving exit status 2 and stderr.
+# Claude can block directly by preserving exit status 2 and stderr.
 # OpenCode and pi adapters use the same predicate and force one bounded
 # follow-up because their turn-end events are passive. Grok delegates native
 # blocking when its running Stop payload advertises that capability, with one
@@ -20,15 +20,15 @@
 #
 # Ships with TRACKED harness hook files at the repo root, so this file is
 # checked out into every worktree of this repo: the primary checkout, every
-# secondmate home (treehouse-leased or git-cloned), and any crewmate/scout task
+# home, and any crewmate/scout task
 # worktree spawned to work on firstmate itself (the recursive "firstmate
-# improving itself" case). A secondmate home runs its OWN primary firstmate
+# improving itself" case). The
 # session, so it must be guarded like the main primary; only child crew/scout
 # worktrees are exempt. It must therefore scope itself at runtime to a real
-# primary checkout - the main home or a genuinely marked secondmate home - and
+# primary checkout and
 # stay a silent, fast no-op inside child task worktrees.
 #
-# Loop-guard, codex/Grok (default) mode: never block twice in the same turn.
+# Loop-guard (default) mode: never block twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case
 # takes precedence when both spellings are present. A true value means the
 # current stop attempt already follows a block, so this guard always allows it.
@@ -63,7 +63,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
@@ -91,7 +90,7 @@ done
 PAYLOAD=$(cat 2>/dev/null || true)
 [ -n "$PAYLOAD" ] || exit 0
 
-# jq is the repo's established JSON dependency (bin/fm-x-poll.sh uses the same
+# jq is the repo's established JSON dependency (other bin scripts use the same
 # "missing jq -> silent no-op" degrade). Without it we cannot safely read the
 # loop-guard field, so we must never block - fail open, not noisy.
 command -v jq >/dev/null 2>&1 || exit 0
@@ -110,17 +109,17 @@ if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then
 fi
 
 # --- scope precisely to a PRIMARY checkout ----------------------------------
-# A genuinely-marked secondmate home runs its OWN primary firstmate session, so
-# force-INCLUDE it as a guarded primary whether treehouse leased it as a linked
+# The primary checkout runs the primary firstmate session, so
+# force-INCLUDE it as a guarded primary whether it is a linked
 # worktree (git-dir != git-common-dir) or it is a git-cloned plain checkout. This
-# mirrors the cd-guard's intent that a secondmate's own session is a guarded
+# mirrors the cd-guard's intent that the primary session is a guarded
 # primary. Only an UNMARKED checkout (or one with an invalid marker) falls
 # through to the linked-worktree exemption: firstmate hands out crewmate/scout
 # task worktrees as genuine linked `git worktree`s (bin/fm-spawn.sh aborts
 # otherwise), whose git-dir lives under the parent repo's .git/worktrees/<name>
 # and differs from the common (shared) git-dir, while a main, non-worktree
 # checkout has the two equal. Child worktrees never carry the gitignored marker,
-# so this exempts them while guarding every real secondmate home.
+# so this exempts them.
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
 # --- the actual predicate ----------------------------------------------------
@@ -151,12 +150,10 @@ if fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME"; then
 fi
 
 block_stop() {
-  local afk x_mode reason rule
+  local afk reason rule
   afk=0
   [ -e "$STATE/.afk" ] && afk=1
-  x_mode=0
-  [ -f "$CONFIG/x-mode.env" ] && x_mode=1
-  reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+  reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --repair-line 2>/dev/null \
     || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {

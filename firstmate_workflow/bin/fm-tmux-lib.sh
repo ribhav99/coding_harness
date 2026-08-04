@@ -30,7 +30,7 @@
 # any harness that de-emphasises placeholder/ghost text
 # benefits.
 #
-# Busy-queued Enter (observed on opencode 1.18.4): when
+# Busy-queued Enter (observed on some harnesses): when
 # the agent is mid-turn, a harness may accept Enter as a "send when the turn ends"
 # keystroke but does NOT clear the composer until then, so the composer keeps
 # showing the typed text the whole time. The plain "empty iff composer cleared"

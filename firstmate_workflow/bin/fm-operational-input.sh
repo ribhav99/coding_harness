@@ -12,7 +12,7 @@
 # The version and kind header make current inputs structurally typed without
 # deriving provenance from body prose. The established from-firstmate routing
 # marker remains a current compatibility carrier because already-running
-# secondmates have its leading label in their charter context.
+# charters have its leading label in their context.
 #
 # CLI:
 #   fm-operational-input.sh encode <kind>  # body on stdin, encoded input stdout
@@ -34,7 +34,7 @@ FM_OPERATIONAL_KINDS='session-start watcher turn-end-guard away-supervisor launc
 # shellcheck disable=SC2034 # Public source-library variable used by callers.
 FM_INJECT_MARK=$FM_OPERATIONAL_MARK
 
-# The from-firstmate carrier stays byte-compatible with live secondmate charter
+# The from-firstmate carrier stays byte-compatible with live charter
 # context while this owner supplies its construction and structural kind.
 FM_FROMFIRST_LABEL='[fm-from-firstmate]'
 FM_FROMFIRST_SEPARATOR=$FM_OPERATIONAL_MARK

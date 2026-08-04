@@ -2,12 +2,12 @@
 # shellcheck shell=bash
 # bin/fm-worktree.sh - the task worktree provider.
 #
-# LOCAL FORK. Upstream firstmate delegates task worktrees to treehouse, which
-# maintains a POOL of reusable worktrees: `treehouse get` leases an idle one,
+# LOCAL FORK. Upstream firstmate delegates task worktrees to a pool provider,
+# which maintains a POOL of reusable worktrees: a get leases an idle one,
 # resets it to the default branch, and hands it back warm with dependencies and
-# build caches intact; `treehouse return` puts it back in the pool.
+# build caches intact; a return puts it back in the pool.
 #
-# This fork does not use treehouse. Worktrees here are created and destroyed per
+# This fork uses no pool. Worktrees here are created and destroyed per
 # task with plain git, as siblings of the project checkout:
 #
 #     /path/to/fitness_agent            <- the project
@@ -20,7 +20,7 @@
 #     cache. Accepted: the projects driven from this home have few tracked files,
 #     and the captain does not want environment management in the loop.
 #   - No leases, so nothing survives with no process holding it. Nothing in this
-#     fork needs a durable reservation (that was for secondmate homes).
+#     fork needs a durable reservation.
 #   - No conflict detection beyond git's own. Two tasks cannot collide because
 #     the path is keyed by task id, and `git worktree add` refuses a path that
 #     already exists.

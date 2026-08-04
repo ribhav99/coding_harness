@@ -9,23 +9,11 @@
 # This file is sourced by scripts and has no side effects on source.
 
 # Known harness command names; extend when a new adapter is verified.
-FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$'
+FM_HARNESS_RE='claude'
 
 # Walk the current process ancestry (up to 16 hops) and print a harness pid.
 # For every harness except Claude, the first match wins (innermost pid), which
 # is where e.g. Pi's shared signed-wrapper ancestry actually holds the session:
-# a "pi-signed" launcher can be the direct parent of the inner "pi" engine
-# pid that owns the lock, and the wrapper pid above it is not that owner.
-# Claude Code's bg-spare hook worker chain is the opposite shape: it nests
-# several claude-named processes directly parent-child with no non-harness
-# process between them, and the lock is held by the outermost pid of that
-# run. So once a claude-named match is found, this keeps walking past it
-# looking for a still-more-ancestral claude-named match, and stops the
-# instant a non-match follows - never walking past that gap to an unrelated
-# claude-named process further up the real process tree (e.g. the live
-# session that launched a test as its own subprocess). The harness pid lives
-# as long as the session, unlike the transient subshell pid of any one tool
-# call.
 fm_harness_ancestry_pid() {
   local pid=$$ comm args best='' bc extending=0 hit=0 is_claude=0
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do

@@ -2,8 +2,8 @@
 # Shared worktree-tangle guard for the firstmate-on-itself case.
 # Usage: . bin/fm-tangle-lib.sh
 #
-# Firstmate is a treehouse-pooled git repo of itself: crewmate worktrees and
-# secondmate homes are all linked `git worktree`s of the same repo, while the
+# Firstmate manages linked `git worktree`s of itself: crewmate worktrees are
+# linked worktrees of the same repo, while the
 # PRIMARY checkout (the repo root firstmate operates from) is a normal checkout
 # on a real branch - normally the default branch, main. The "worktree tangle"
 # failure mode is a crewmate spawned to work on firstmate ITSELF branching and
@@ -13,7 +13,7 @@
 # fm_primary_tangle_branch detects exactly that and nothing else: a NAMED,
 # non-default branch checked out in the given root. It is deliberately silent for
 # every legitimate state - the primary on its default branch, and detached HEAD,
-# which is how every linked worktree and secondmate home legitimately sits on the
+# which is how every linked worktree legitimately sits on the
 # default branch. Detached HEAD on the default is fine; a feature branch in a
 # primary checkout is the alarm.
 
@@ -38,7 +38,7 @@ fm_default_branch() {
 # If the git checkout at <root> is tangled - on a NAMED branch that is not its
 # default branch - echo the offending branch name and return 0. For every healthy
 # state (not a git work tree, detached HEAD, or already on the default branch)
-# echo nothing and return 1. Detached HEAD is how linked worktrees and secondmate
+# echo nothing and return 1. Detached HEAD is how linked worktrees
 # homes legitimately sit, so they never trip this; only a feature branch checked
 # out in a primary checkout does.
 #
