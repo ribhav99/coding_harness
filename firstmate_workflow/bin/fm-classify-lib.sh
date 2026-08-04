@@ -44,6 +44,31 @@ FM_CREW_STATE_BIN="${FM_CREW_STATE_BIN:-$_FM_CLASSIFY_LIB_DIR/fm-crew-state.sh}"
 # "working: rebased onto merged #76").
 FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
 
+# The RESTING verb. A crew appends
+#   done: <note>
+# when its work is finished. Unlike `failed:` and `blocked:`, which are faults
+# that must keep escalating until firstmate acts, a finished worker is healthy
+# and has nothing left to do: a ship task's PR can sit waiting for review for
+# days while its pane is legitimately, permanently idle. `done:` therefore stays
+# captain-relevant - firstmate must learn the work finished - but consumers that
+# repeat on a timer (the watcher's stale path) surface it ONCE and then go quiet,
+# because re-reporting a resting worker as "stopped responding" every few minutes
+# is noise that pressures firstmate into silencing the alarm instead of acting on
+# it. Movement resumes through the PR merge poll (bin/fm-pr-check.sh) or a
+# captain action, not through re-escalation. FM_CLASSIFY_RESTING_VERB overrides
+# the verb; this constant is its one definition.
+FM_CLASSIFY_RESTING_VERB_DEFAULT='done'
+
+# 0 if a status line's leading verb is the resting verb. A pure read of the line,
+# matching only the verb before the first colon, so a note mentioning "done"
+# elsewhere does not false-match.
+status_is_resting() {  # <status-line>
+  local line=$1 verb
+  [ -n "$line" ] || return 1
+  verb=$(status_line_verb "$line")
+  [ "$verb" = "${FM_CLASSIFY_RESTING_VERB:-$FM_CLASSIFY_RESTING_VERB_DEFAULT}" ]
+}
+
 # The deliberate-external-wait verb. A crew (or firstmate steering it) appends
 #   paused: <reason>
 # to declare it is intentionally idling on a KNOWN external dependency - an

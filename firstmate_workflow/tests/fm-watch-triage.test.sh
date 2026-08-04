@@ -456,6 +456,76 @@ test_terminal_stale_surfaced() {
   pass "a stale pane sitting on a terminal status is surfaced (queue + exit)"
 }
 
+# --- a finished worker is a RESTING state, not a fault -----------------------
+# A ship task's PR can wait days for review. During that wait the worker is
+# finished, healthy, and has nothing to do, so its idle pane must not be
+# re-reported as "stopped responding" every few minutes. `done:` surfaces once
+# and then goes quiet; `failed:`/`blocked:` are faults and keep escalating.
+test_done_rests_after_one_surface_while_blocked_keeps_escalating() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid
+  dir=$(make_case resting-done); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-rest"
+  printf 'PR opened, awaiting review' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/rest.meta"
+  printf 'done: PR https://example.test/pr/9\n' > "$state/rest.status"
+  sig=$(seen_sig "$state/rest.status"); printf '%s' "$sig" > "$state/.seen-rest_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "PR opened, awaiting review")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: done · source: status-log · PR opened'
+
+  # Phase A: first sighting surfaces exactly once, and records the line surfaced.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not surface a finished worker's first stale sighting"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the first done: stale did not print a wake reason"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the first done: stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the first done: stale was not queued"
+  [ -s "$state/.hb-surfaced-rest" ] || fail "the surfaced done: line was not recorded"
+
+  # Phase B: the pane keeps ticking, so the hash changes - the old per-hash
+  # suppressor would surface again here. A resting worker must stay quiet.
+  printf 'PR opened, awaiting review (2m)' > "$capture_file"
+  pane_hash=$(hash_text "PR opened, awaiting review (2m)")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "watcher surfaced a finished worker a second time (should rest): $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || fail "a resting finished worker printed a wake reason"
+  [ ! -s "$state/.wake-queue" ] || fail "a resting finished worker enqueued a second wake"
+  reap "$pid"
+
+  # Phase C: the same session, but the last status is a FAULT. blocked: must
+  # keep escalating on a new hash even though the line was already surfaced.
+  printf 'blocked: cannot reach the staging database\n' >> "$state/rest.status"
+  sig=$(seen_sig "$state/rest.status"); printf '%s' "$sig" > "$state/.seen-rest_status"
+  printf 'blocked: cannot reach the staging database' > "$state/.hb-surfaced-rest"
+  printf 'waiting on the captain' > "$capture_file"
+  pane_hash=$(hash_text "waiting on the captain")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$out"; : > "$state/.wake-queue"
+  export FM_FAKE_CREW_STATE='state: blocked · source: status-log · cannot reach the staging database'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not keep escalating an already-surfaced blocked: session"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the blocked: stale did not print a wake reason"
+  unset FM_FAKE_CREW_STATE
+  pass "a finished worker surfaces once then rests, while a blocked worker keeps escalating"
+}
+
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
 # Regression for the 2026-07 herdr false-surface incidents: a crew's own status
 # log gets no new entry once firstmate hands it to a no-mistakes validation
@@ -1566,6 +1636,7 @@ test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
+test_done_rests_after_one_surface_while_blocked_keeps_escalating
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold

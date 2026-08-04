@@ -815,6 +815,23 @@ EOF
             printf '%s' "$h" > "$sf"
             wake "stale: $w"
           fi
+        elif stale_is_terminal "$w" "$STATE" \
+             && status_is_resting "$(last_status_line "$STATE/$task.status")" \
+             && [ "$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)" \
+                  = "$(last_status_line "$STATE/$task.status")" ]; then
+          # RESTING. The crew finished (done:) and that exact line has already
+          # been surfaced to firstmate once, by this stale path or by the signal
+          # wake the append itself produced. A finished worker is healthy, not a
+          # fault: its PR can wait days for review while the pane sits idle
+          # forever, so re-reporting it as "stopped responding" every few minutes
+          # is pure noise. Stay quiet until something actually moves - the merge
+          # poll (bin/fm-pr-check.sh) still fires its own check: wake, and a new
+          # status line changes the marker and surfaces again. failed: and
+          # blocked: are faults and never reach here; they keep escalating
+          # through the branch below (bin/fm-classify-lib.sh owns the verbs).
+          printf '%s' "$h" > "$sf"
+          rm -f "$ssf" "$ewf"
+          triage_log "absorbed stale (resting: finished worker already surfaced): $w"
         elif stale_is_terminal "$w" "$STATE"; then
           # The log's last line is captain-relevant - but that alone is not
           # proof the crew is actually done: a crew's own status log gets no
