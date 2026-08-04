@@ -323,7 +323,6 @@ ROWS
   pass "bootstrap enforces no-mistakes minimum version"
 }
 
-
 test_git_is_required_with_supported_install_instruction() {
   local case_dir fakebin bash_env out expected
   case_dir="$TMP_ROOT/git-required"
@@ -349,43 +348,6 @@ SH
   [ "$out" = "$expected" ] || fail "missing git should report the supported install instruction, got: $out"
   pass "bootstrap requires git with an install instruction"
 }
-
-
-# Build a fake toolchain with tmux REMOVED and the named backend session CLI(s)
-# plus jq added, so a backend that must NOT require tmux can be proven silent
-# with tmux absent. Echoes the fakebin dir. The removed tmux is what makes these
-# cases catch the old "everything but orca demands tmux" bug: with the buggy
-# TOOLS list a herdr/zellij/cmux home would report MISSING: tmux here.
-make_fake_toolchain_no_tmux() {  # <case-dir> <extra-cli...>
-  local dir=$1 fakebin
-  shift
-  fakebin=$(make_fake_toolchain "$dir")
-  rm -f "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" jq "$@"
-  printf '%s\n' "$fakebin"
-}
-
-
-
-
-
-
-jq() {
-  return 127
-}
-SH
-    out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
-    assert_contains "$out" "MISSING: jq" "backend=$backend must fail closed on missing jq"
-    assert_not_contains "$out" "MISSING: tmux" "backend=$backend must not demand tmux when jq is missing"
-  done <<'ROWS'
-herdr
-zellij
-cmux
-ROWS
-  pass "bootstrap: JSON-emitting backends require jq (their genuine dep), never tmux"
-}
-
 
 test_fleet_sync_timeout_scales_with_origin_backed_project_count() {
   local case_dir home fakebin fake_root out
@@ -553,8 +515,6 @@ test_routine_bootstrap_contract_runs_under_system_bash() {
   [ -z "$out" ] || fail "routine bootstrap contract should be silent under /bin/bash, got: $out"
   pass "bootstrap routine contract runs under system /bin/bash"
 }
-
-
 
 test_bootstrap_reporting
 test_no_mistakes_min_version

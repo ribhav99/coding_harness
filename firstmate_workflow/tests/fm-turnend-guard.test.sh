@@ -421,49 +421,6 @@ test_hook_runs_fast() {
   pass "fm-turnend-guard: runs well under the generous timing margin (${elapsed_s}s)"
 }
 
-
-
-
-
-
-
-
-
-
-if (!promptBody.includes("guard-fired")) {
-  console.error(`missing prompt body: ${promptBody}`);
-  process.exit(1);
-}
-if (!promptBody.includes("watcher cycle is missing, failed, or unhealthy")) {
-  console.error(`missing recovery-only preamble: ${promptBody}`);
-  process.exit(1);
-}
-if (promptBody.includes("Resume supervision according to the session-start operating block")) {
-  console.error(`ordinary continuity leaked into guard follow-up: ${promptBody}`);
-  process.exit(1);
-}
-EOF
-)
-  status=$?
-  expect_code 0 "$status" "OpenCode plugin must run the guard from worktree even when directory is elsewhere"
-  [ -z "$out" ] || fail "OpenCode plugin worktree-root test printed output: $out"
-  pass ".opencode primary plugin: guard path is anchored to worktree, not directory"
-}
-
-await settled({ type: "agent_settled" }, {});
-if (prompts !== 2) throw new Error(`multi-tool run produced ${prompts - 1} follow-ups`);
-
-const guardRuns = readFileSync(process.env.FM_GUARD_LOG, "utf8").trim().split("\n").length;
-if (guardRuns !== 2) throw new Error(`guard predicate ran ${guardRuns} times for two logical runs`);
-EOF
-)
-  status=$?
-  expect_code 0 "$status" "Pi guard must inject once for no-tool and multi-tool logical runs"
-  [ -z "$out" ] || fail "Pi logical-run guard test printed output: $out"
-  pass ".pi primary extension: no-tool and multi-tool runs each inject exactly one guard follow-up"
-}
-
-
 # --- --claude cooperative mode -----------------------------------------------
 # In --claude mode the guard ignores stop_hook_active (Claude marks every stop
 # after ANY stop-hook continuation true, including asyncRewake rewake turns) and

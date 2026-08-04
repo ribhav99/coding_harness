@@ -307,23 +307,22 @@ test_pause_verb_override_renders_in_status_scaffolds() {
   home="$TMP_ROOT/pause-verb-home"
   mkdir -p "$home/data"
 
-  for kind in scout; do
-    id="brief-pause-verb-$kind"
-    FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
-      "$ROOT/bin/fm-brief.sh" "$id" firstmate --scout >/dev/null 2>&1
-    brief="$home/data/$id/brief.md"
-    assert_grep "States: working, needs-decision, blocked, awaiting, done, failed." "$brief" \
-      "$kind brief did not render the configured pause verb in its states list"
-    # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
-    assert_grep 'Use `awaiting: {why}`' "$brief" \
-      "$kind brief did not instruct the configured pause status"
-    # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
-    assert_no_grep '`paused: {why}`' "$brief" \
-      "$kind brief still instructs the default paused status"
-    assert_grep 'or a blocker clears' "$brief" \
-      "$kind brief did not require durable resolution when a blocker clears"
-  done
-  pass "fm-brief.sh: custom pause verb renders in every scaffold"
+  kind=scout
+  id="brief-pause-verb-$kind"
+  FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
+    "$ROOT/bin/fm-brief.sh" "$id" firstmate --scout >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "States: working, needs-decision, blocked, awaiting, done, failed." "$brief" \
+    "$kind brief did not render the configured pause verb in its states list"
+  # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+  assert_grep 'Use `awaiting: {why}`' "$brief" \
+    "$kind brief did not instruct the configured pause status"
+  # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+  assert_no_grep '`paused: {why}`' "$brief" \
+    "$kind brief still instructs the default paused status"
+  assert_grep 'or a blocker clears' "$brief" \
+    "$kind brief did not require durable resolution when a blocker clears"
+  pass "fm-brief.sh: custom pause verb renders in the scout scaffold"
 }
 
 test_scout_loads_decision_hold_policy() {

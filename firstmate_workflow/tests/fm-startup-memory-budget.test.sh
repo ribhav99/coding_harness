@@ -85,7 +85,7 @@ run_bootstrap() {
 }
 
 test_primary_bootstrap_materializes_visible_default() {
-  local rec root home fakebin out second
+  local rec root home fakebin out
   rec=$(new_bootstrap_world materialize)
   root=${rec%%|*}
   home=${rec#*|}

@@ -11,7 +11,5 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-BRIEF="$ROOT/bin/fm-brief.sh"
-TMP_ROOT=$(fm_test_tmproot fm-ask-user-authority)
 
 
