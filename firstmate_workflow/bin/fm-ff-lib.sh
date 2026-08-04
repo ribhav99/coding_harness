@@ -45,6 +45,9 @@ primary_head_commit() {
   git -C "$root" rev-parse --verify --quiet "refs/heads/$default^{commit}" 2>/dev/null || return 1
 }
 
+# A single fetch refreshes every worktree that shares an object store, so fetch
+# each distinct git-common-dir at most once.
+FETCHED=""
 fetch_once() {
   local dir=$1 common
   common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)

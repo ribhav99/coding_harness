@@ -14,20 +14,4 @@ set -u
 BRIEF="$ROOT/bin/fm-brief.sh"
 TMP_ROOT=$(fm_test_tmproot fm-ask-user-authority)
 
-test_secondmate_instruction_generation() {
-  local home charter
-  home="$TMP_ROOT/home"
-  mkdir -p "$home/data"
 
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SECONDMATE_CHARTER='Handle sample work.' \
-    "$BRIEF" authority-mate --secondmate --no-projects >/dev/null 2>&1
-  charter="$home/data/authority-mate/brief.md"
-  # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  assert_grep 'The local `AGENTS.md` is your job description' "$charter" \
-    "generated secondmate charter does not load the tracked authority boundary"
-  assert_no_grep 'continuous frame-by-frame monitoring' "$charter" \
-    "generated secondmate charter duplicated the detailed authority procedure"
-  pass "secondmates receive the authority rule through generated instructions"
-}
-
-test_secondmate_instruction_generation

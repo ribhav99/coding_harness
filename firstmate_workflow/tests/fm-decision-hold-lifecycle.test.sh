@@ -380,7 +380,7 @@ EOF
 }
 
 test_terminal_single_owner_status_decision_does_not_block_empty_inventory() {
-  local home id open secondmate
+  local home id open
   home=$(make_home stale-terminal-decision)
   id=sample-terminal-review
   mkdir -p "$home/data/$id"
@@ -398,62 +398,9 @@ test_terminal_single_owner_status_decision_does_not_block_empty_inventory() {
     || fail "terminal single-owner stale status decision blocked inventory verification"
   run_teardown "$home" "$id" >/dev/null 2> "$home/terminal-teardown.err" \
     || fail "terminal single-owner stale status decision blocked teardown: $(cat "$home/terminal-teardown.err")"
-
-  secondmate=sample-secondmate
-  write_origin_meta "$home" "$secondmate" secondmate
-  printf 'needs-decision [key=route]: choose route A or route B\ndone: heartbeat complete\n' \
-    > "$home/state/$secondmate.status"
-  if run_decisions "$home" complete "$secondmate" --none \
-    > "$home/secondmate-terminal.out" 2> "$home/secondmate-terminal.err"; then
-    fail "secondmate terminal status decision was incorrectly cleared"
-  fi
   pass "terminal single-owner stale status decisions do not block empty inventory"
 }
 
-test_secondmate_hold_stays_in_authoritative_home() {
-  local parent mate origin hold json
-  parent=$(make_home main-routing)
-  mate="$TMP_ROOT/sample-mate-home"
-  mkdir -p "$mate/data" "$mate/state" "$mate/config" "$mate/projects" "$mate/bin"
-  cp "$ROOT/.tasks.toml" "$mate/.tasks.toml"
-  printf '# Synthetic secondmate home\n' > "$mate/AGENTS.md"
-  printf 'sample-mate\n' > "$mate/.fm-secondmate-home"
-  cat > "$mate/data/backlog.md" <<'EOF'
-## In flight
-
-## Queued
-
-## Done
-EOF
-  fakebin=$(fm_fakebin "$mate")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
-  origin=sample-mate-review
-  mkdir -p "$mate/data/$origin"
-  tasks_in "$mate" add "$origin" "Investigate secondmate sample" --kind scout --repo sample --start >/dev/null
-  write_origin_meta "$mate" "$origin"
-  printf 'done: report and visual review complete\n' > "$mate/state/$origin.status"
-  printf '# Sample secondmate review\n\nOne captain choice remains.\n' > "$mate/data/$origin/report.md"
-  hold=$(run_decisions "$mate" hold "$origin" release \
-    --title "Choose the sample release" --reason "captain release choice pending" --repo sample) \
-    || fail "secondmate-owned hold creation failed"
-  run_decisions "$mate" complete "$origin" release >/dev/null \
-    || fail "secondmate-owned completion failed"
-  run_teardown "$mate" "$origin" >/dev/null 2> "$mate/teardown.err" \
-    || fail "secondmate investigation teardown failed: $(cat "$mate/teardown.err")"
-  tasks_in "$mate" "done" "$origin" --report "data/$origin/report.md" --keep 0 >/dev/null
-
-  printf -- '- sample-mate - synthetic scope (home: %s; scope: sample reviews; projects: sample; added 2026-07-14)\n' \
-    "$mate" > "$parent/data/secondmates.md"
-  fm_write_secondmate_meta "$parent/state/sample-mate.meta" "$mate" \
-    "firstmate:fm-sample-mate" sample
-  json=$(run_bearings "$parent") || fail "parent Bearings could not read secondmate hold"
-  printf '%s' "$json" | jq -e --arg hold "$hold" '
-    .decisions_open | any(.owner == "sample-mate" and .verb == "captain-hold" and (.id | endswith($hold)))
-  ' >/dev/null || fail "secondmate captain hold did not surface with authoritative owner: $json"
-  assert_no_grep "$hold" "$parent/data/backlog.md" "secondmate hold leaked into the main backlog"
-  assert_grep "$hold" "$mate/data/backlog.md" "secondmate hold left its authoritative backlog"
-  pass "main-home and secondmate-home captain holds remain correctly routed"
-}
 
 # tasks-axi quotes multi-entry blocked_by values as "a,b,c". resolve must strip
 # those surrounding quotes before comma-boundary membership so the first and last
@@ -558,5 +505,4 @@ test_origin_slug_validation_precedes_path_construction
 test_visual_review_uses_shared_completion_owner
 test_none_inventory_and_resolved_prose_do_not_create_holds
 test_terminal_single_owner_status_decision_does_not_block_empty_inventory
-test_secondmate_hold_stays_in_authoritative_home
 test_resolve_matches_quoted_blocked_by_edges

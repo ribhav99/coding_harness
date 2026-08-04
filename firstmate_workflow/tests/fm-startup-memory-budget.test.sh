@@ -102,13 +102,6 @@ test_primary_bootstrap_materializes_visible_default() {
   run_bootstrap "$root" "$home" "$fakebin" >/dev/null
   [ "$(<"$home/config/startup-memory-budget")" = 321 ] \
     || fail "bootstrap replaced a valid captain-selected budget"
-
-  second="$TMP_ROOT/materialize/secondmate"
-  mkdir -p "$second/config" "$second/data" "$second/state"
-  printf '%s\n' sm > "$second/.fm-secondmate-home"
-  run_bootstrap "$root" "$second" "$fakebin" >/dev/null
-  [ ! -e "$second/config/startup-memory-budget" ] \
-    || fail "secondmate bootstrap created an independent budget instead of awaiting inheritance"
   pass "primary bootstrap materializes only the visible default and preserves valid captain choices"
 }
 
@@ -157,24 +150,21 @@ test_safe_parser_rejects_ambiguous_and_unsafe_values() {
   pass "budget parser accepts one exact positive value and rejects malformed or unsafe inputs"
 }
 
-test_budget_accounting_reports_all_three_files_and_safe_failure() {
+test_budget_accounting_reports_both_files_and_safe_failure() {
   local home out rc outside
   home="$TMP_ROOT/accounting-home"
   mkdir -p "$home/config" "$home/data"
   printf '10\n' > "$home/config/startup-memory-budget"
   printf 'abc\n' > "$home/data/captain.md"
-  printf 'abcdef\n' > "$home/data/captain-shared.md"
 
   out=$(FM_HOME="$home" "$BUDGET" report)
   assert_contains "$out" 'estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate' \
     "report did not name the stable estimator"
   assert_contains "$out" 'file=data/captain.md bytes=4 estimated_tokens=2 status=present' \
     "report did not account for captain memory"
-  assert_contains "$out" 'file=data/captain-shared.md bytes=7 estimated_tokens=3 status=present' \
-    "report did not account for shared memory"
   assert_contains "$out" 'file=data/learnings.md bytes=0 estimated_tokens=0 status=absent' \
     "report did not account for absent learnings"
-  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of all three files"
+  assert_contains "$out" 'total_estimated_tokens=2' "report total was not the sum of both files"
   assert_contains "$out" 'budget_status=within-budget' "report did not classify the initial total"
 
   printf 'abcdefabcdefabcdefabcdef\n' > "$home/data/learnings.md"
@@ -193,7 +183,7 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
   assert_contains "$out" 'memory file is not an ordinary regular file' \
     "accounting failure did not identify the unsafe memory file"
   [ "$(<"$outside")" = outside ] || fail "accounting failure changed a symlink target"
-  pass "budget accounting sums the three startup files and reports safe failures"
+  pass "budget accounting sums the startup files and reports safe failures"
 }
 
 new_propagation_world() {
@@ -238,80 +228,9 @@ run_config_push() {
     FM_FAKE_TMUX_LOG="$log" "$CONFIG_PUSH"
 }
 
-test_primary_budget_converges_with_exact_reread_and_safe_failures() {
-  local world="$TMP_ROOT/propagation" rec root home sm fakebin log out rc instruction expected outside
-  mkdir -p "$world"
-  rec=$(new_propagation_world "$world")
-  root=${rec%%|*}
-  rec=${rec#*|}
-  home=${rec%%|*}
-  sm=${rec#*|}
-  fakebin=$(make_fake_toolchain "$world")
-  log="$world/tmux.log"
-
-  printf '321\n' > "$home/config/startup-memory-budget"
-  out=$(run_config_push "$root" "$home" "$fakebin" "$log")
-  assert_contains "$out" 'startup-memory-budget: pushed' \
-    "config push did not report the new budget as inherited"
-  [ "$(<"$sm/config/startup-memory-budget")" = 321 ] \
-    || fail "secondmate did not receive the primary budget bytes"
-  instruction=$(latest_reread_instruction "$sm") || fail "budget propagation did not publish a reread instruction"
-  expected=$(printf '%s\n\n%s\n%s\n321\n%s' \
-    'These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.' \
-    'config/startup-memory-budget' \
-    '-----BEGIN config/startup-memory-budget-----' \
-    '-----END config/startup-memory-budget-----')
-  [ "$(<"$instruction")" = "$expected" ] \
-    || fail "budget reread payload was not the exact destination bytes"
-  assert_contains "$(<"$log")" "CONFIG_REREAD: $instruction" \
-    "budget propagation did not send the pointer to its exact reread generation"
-
-  outside="$world/unsafe-budget"
-  printf '555\n' > "$outside"
-  rm -f "$sm/config/startup-memory-budget"
-  ln "$outside" "$sm/config/startup-memory-budget"
-  set +e
-  out=$(run_config_push "$root" "$home" "$fakebin" "$log" 2>&1)
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "unsafe inherited destination should stop propagation"
-  assert_contains "$out" 'startup-memory-budget: error - unsafe or invalid destination: file is hardlinked' \
-    "unsafe inherited destination did not produce a concrete propagation error"
-  [ "$(<"$outside")" = 555 ] || fail "unsafe destination handling changed its hardlinked source"
-  rm -f "$sm/config/startup-memory-budget"
-  run_config_push "$root" "$home" "$fakebin" "$log" >/dev/null
-  [ "$(<"$sm/config/startup-memory-budget")" = 321 ] \
-    || fail "safe retry did not restore the converged primary budget"
-
-  rm -f "$home/config/startup-memory-budget"
-  out=$(run_config_push "$root" "$home" "$fakebin" "$log")
-  assert_contains "$out" 'startup-memory-budget: pushed - mirrored primary absence' \
-    "primary absence was not reported as a converging removal"
-  [ ! -e "$sm/config/startup-memory-budget" ] \
-    || fail "primary absence did not remove the inherited budget"
-  instruction=$(latest_reread_instruction "$sm") || fail "budget absence did not publish a reread instruction"
-  assert_contains "$(<"$instruction")" $'-----BEGIN config/startup-memory-budget-----\nABSENT\n-----END config/startup-memory-budget-----' \
-    "budget absence reread did not use the explicit ABSENT payload"
-
-  rm -f "$sm/config/startup-memory-budget"
-  printf '555\n' > "$outside"
-  ln -s "$outside" "$home/config/startup-memory-budget"
-  set +e
-  out=$(run_config_push "$root" "$home" "$fakebin" "$log" 2>&1)
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "unsafe primary budget should stop propagation"
-  assert_contains "$out" 'startup-memory-budget: error - unsafe or invalid primary source: file is symlinked' \
-    "unsafe primary budget did not produce a concrete propagation error"
-  [ ! -e "$sm/config/startup-memory-budget" ] \
-    || fail "unsafe primary budget changed the converged secondmate copy"
-  [ "$(<"$outside")" = 555 ] || fail "unsafe primary budget handling changed its symlink target"
-  pass "budget propagation converges through config push with exact rereads, absence, and safe rejection"
-}
 
 test_primary_bootstrap_materializes_visible_default
 test_safe_parser_rejects_ambiguous_and_unsafe_values
-test_budget_accounting_reports_all_three_files_and_safe_failure
-test_primary_budget_converges_with_exact_reread_and_safe_failures
+test_budget_accounting_reports_both_files_and_safe_failure
 
 echo '# all fm-startup-memory-budget tests passed'

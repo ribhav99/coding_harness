@@ -48,6 +48,11 @@ while [ "$#" -gt 0 ]; do
       AFK=$(bool_value "$2")
       shift 2
       ;;
+    --queue-pending)
+      [ "$#" -gt 1 ] || { echo "error: --queue-pending requires 0 or 1" >&2; exit 2; }
+      QUEUE_PENDING=$(bool_value "$2")
+      shift 2
+      ;;
     --repair-line)
       REPAIR_LINE=1
       shift
