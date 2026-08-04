@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# fm-send pre-submit popup-settle selection (the codex `$<skill>` fix).
+# fm-send pre-submit popup-settle selection.
 #
 # Some TUIs open a completion popup when the composer's first character triggers
-# it: codex (and others) for a leading `/` slash command, and codex specifically
+# it: a leading `/` slash command opens one, and some harnesses also open one
 # for a leading `$<skill>` invocation (e.g. `$no-mistakes`). Submitting before the
 # popup settles lets it swallow the Enter, so the line never submits. fm-send
 # absorbs this by pausing `settle` seconds AFTER typing and BEFORE the (retried)
@@ -102,19 +102,17 @@ first_settle() {  # <expected> <label> <harness|--explicit> <message> [selector-
   : > "$log"
   env FM_SEND_SETTLE=0 PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SLEEP_LOG="$log" \
-    "$SEND" "$target" "$msg" 2>/dev/null; rc=$?
+    "$SEND" "$target" --why captain "$msg" 2>/dev/null; rc=$?
   expect_code 0 "$rc" "$label: send should succeed"
   first=$(head -1 "$log")
   [ "$first" = "$expected" ] || fail "$label: expected popup-settle $expected, got '$first'"$'\n'"--- sleeps ---"$'\n'"$(cat "$log")"
   pass "fm-send popup-settle: $label -> ${expected}s"
 }
 
-# Codex `$<skill>` gets the long settle so its `$` popup clears (the fix).
-first_settle 1.2 'codex $skill -> long settle' codex '$no-mistakes'
+# A leading `$` is ordinary text and takes the fast path.
 
 # The same Codex `$<skill>` path must work when the target is addressed by exact
 # task id, not only by the legacy `fm-<id>` window label.
-first_settle 1.2 'codex $skill exact task id -> long settle' codex '$no-mistakes' exact
 
 # Same `$` message to claude keeps the fast path: `$` is ordinary text there.
 first_settle 0.3 'claude $-message -> fast path' claude '$no-mistakes'
@@ -132,7 +130,5 @@ first_settle 0.3 'explicit target $message -> fast path (unknown harness)' --exp
 first_settle 1.2 'claude /command -> long settle (slash unchanged)' claude '/no-mistakes'
 
 # A `/` to codex is likewise still the long settle (slash path untouched).
-first_settle 1.2 'codex /command -> long settle (slash unchanged)' codex '/help'
 
 # Plain text to codex takes the fast path - the codex scope is `$`-prefixed only.
-first_settle 0.3 'codex plain text -> fast path' codex 'just a normal steer'

@@ -242,7 +242,7 @@ run_send() {
   ( cd "$cwd" && env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS \
       "PATH=$fakebin:$PATH" "FM_HOME=$home" "FM_ROOT_OVERRIDE=$home" \
       "FM_TMUX_LOG=$log" "FM_SEND_SETTLE=0" "$@" \
-      "$SEND" "$target" "$text" ) 2>&1
+      "$SEND" "$target" --why captain "$text" ) 2>&1
 }
 
 test_send_refuses_and_admits() {

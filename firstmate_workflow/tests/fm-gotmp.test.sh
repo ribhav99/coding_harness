@@ -64,13 +64,11 @@ make_fake_root() {
   ln -s "$ROOT/bin/fm-gate-refuse-lib.sh" "$fake/bin/fm-gate-refuse-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/fm-pr-lib.sh" "$fake/bin/fm-pr-lib.sh"
-  # fm-public-followup-lib.sh (and the fm-x-lib.sh it sources): teardown sources
-  # it for the relay-activation gate on the promised-public-reply check. Neither
-  # does anything in this fixture, which has no .env, but both are real siblings
-  # teardown now requires.
-  ln -s "$ROOT/bin/fm-public-followup-lib.sh" "$fake/bin/fm-public-followup-lib.sh"
-  ln -s "$ROOT/bin/fm-x-lib.sh" "$fake/bin/fm-x-lib.sh"
-  ln -s "$ROOT/bin/fm-secondmate-registry-lib.sh" "$fake/bin/fm-secondmate-registry-lib.sh"
+  # fm-worktree.sh (and the fm-tangle-lib.sh + fm-naming-lib.sh it needs):
+  # teardown sources it for the plain-git worktree provider.
+  ln -s "$ROOT/bin/fm-worktree.sh" "$fake/bin/fm-worktree.sh"
+  ln -s "$ROOT/bin/fm-tangle-lib.sh" "$fake/bin/fm-tangle-lib.sh"
+  ln -s "$ROOT/bin/fm-naming-lib.sh" "$fake/bin/fm-naming-lib.sh"
   # fm-guard.sh: stub (teardown calls it with `|| true`).
   cat > "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
@@ -137,13 +135,11 @@ test_teardown_skips_gracefully_without_tasktmp() {
   ln -s "$ROOT/bin/fm-gate-refuse-lib.sh" "$fake/bin/fm-gate-refuse-lib.sh"
   # fm-pr-lib.sh: teardown uses its canonical task-ID validator for poll cleanup.
   ln -s "$ROOT/bin/fm-pr-lib.sh" "$fake/bin/fm-pr-lib.sh"
-  # fm-public-followup-lib.sh (and the fm-x-lib.sh it sources): teardown sources
-  # it for the relay-activation gate on the promised-public-reply check. Neither
-  # does anything in this fixture, which has no .env, but both are real siblings
-  # teardown now requires.
-  ln -s "$ROOT/bin/fm-public-followup-lib.sh" "$fake/bin/fm-public-followup-lib.sh"
-  ln -s "$ROOT/bin/fm-x-lib.sh" "$fake/bin/fm-x-lib.sh"
-  ln -s "$ROOT/bin/fm-secondmate-registry-lib.sh" "$fake/bin/fm-secondmate-registry-lib.sh"
+  # fm-worktree.sh (and the fm-tangle-lib.sh + fm-naming-lib.sh it needs):
+  # teardown sources it for the plain-git worktree provider.
+  ln -s "$ROOT/bin/fm-worktree.sh" "$fake/bin/fm-worktree.sh"
+  ln -s "$ROOT/bin/fm-tangle-lib.sh" "$fake/bin/fm-tangle-lib.sh"
+  ln -s "$ROOT/bin/fm-naming-lib.sh" "$fake/bin/fm-naming-lib.sh"
   cat > "$fake/bin/fm-guard.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0

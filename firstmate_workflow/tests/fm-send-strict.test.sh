@@ -80,7 +80,7 @@ test_exact_lane_id_send_still_works() {
   fm_write_meta "$home/state/mpf-lane-m8.meta" "window=sess:fm-mpf-lane-m8" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" mpf-lane-m8 "lost dispatch" >/dev/null 2>"$err"; rc=$?
+    "$SEND" mpf-lane-m8 --why captain "lost dispatch" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "exact task id send should succeed when metadata exists"
   got=$(cat "$log")
   assert_contains "$got" "target=sess:fm-mpf-lane-m8 literal=1 arg=lost dispatch" "exact id should type literal text to the meta target"
@@ -94,7 +94,7 @@ test_unset_fm_home_fails() {
   fb=$(make_stubs "$dir"); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   env -u FM_HOME PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$dir" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" sess:win "hello" >/dev/null 2>"$err"; rc=$?
+    "$SEND" sess:win --why captain "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "unset FM_HOME should fail"
   assert_contains "$(cat "$err")" "FM_HOME is not set" "unset FM_HOME diagnostic should be explicit"
   [ ! -s "$log" ] || fail "unset FM_HOME still attempted a send"$'\n'"$(cat "$log")"
@@ -107,7 +107,7 @@ test_unresolvable_target_does_not_tmux_fallback() {
   fb=$(make_stubs "$dir"); home=$(setup_home unresolved); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_FAKE_TMUX_WINDOW=lost-target FM_SEND_SETTLE=0 \
-    "$SEND" lost-target "hello" >/dev/null 2>"$err"; rc=$?
+    "$SEND" lost-target --why captain "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "unresolvable target should fail"
   assert_contains "$(cat "$err")" "not resolvable" "unresolvable diagnostic should be loud"
   assert_contains "$(cat "$err")" "metadata window/terminal lookup" "unresolvable diagnostic should name the attempted lookup"
@@ -116,22 +116,6 @@ test_unresolvable_target_does_not_tmux_fallback() {
   pass "fm-send strict: unresolvable selectors do not fall back to tmux"
 }
 
-test_prefixless_herdr_pane_id_fails() {
-  local dir fb home err log rc
-  dir="$TMP_ROOT/herdr-pane"; mkdir -p "$dir"
-  fb=$(make_stubs "$dir"); home=$(setup_home herdr); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
-  fm_write_meta "$home/state/nudge.meta" \
-    "window=default:wB:p2" "backend=herdr" "herdr_session=default" "herdr_pane_id=wB:p2" "kind=ship"
-
-  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" wB:p2 "nudge" >/dev/null 2>"$err"; rc=$?
-  [ "$rc" -ne 0 ] || fail "prefixless herdr pane id should fail"
-  assert_contains "$(cat "$err")" "matches herdr_pane_id" "herdr pane diagnostic should name the meta match"
-  assert_contains "$(cat "$err")" "expected <herdr-session>:<pane-id>" "herdr pane diagnostic should show expected shape"
-  assert_contains "$(cat "$err")" "default:wB:p2" "herdr pane diagnostic should show the canonical target"
-  [ ! -s "$log" ] || fail "prefixless herdr pane id fell through to tmux send"$'\n'"$(cat "$log")"
-  pass "fm-send strict: prefixless herdr pane ids are rejected before tmux fallback"
-}
 
 test_unmatched_single_colon_target_must_exist() {
   local dir fb home err log rc
@@ -139,7 +123,7 @@ test_unmatched_single_colon_target_must_exist() {
   fb=$(make_stubs "$dir"); home=$(setup_home deadexplicit); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_FAKE_TMUX_DEAD_TARGET=sess:missing FM_SEND_SETTLE=0 \
-    "$SEND" sess:missing "hello" >/dev/null 2>"$err"; rc=$?
+    "$SEND" sess:missing --why captain "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "dead explicit tmux-shaped target should fail"
   assert_contains "$(cat "$err")" "not a live tmux endpoint" "dead explicit target diagnostic should name the assumed backend"
   assert_contains "$(cat "$err")" "backend=tmux" "dead explicit target diagnostic should name the tried backend"
@@ -154,7 +138,7 @@ test_healthy_fm_id_send_still_works() {
   fm_write_meta "$home/state/lane-ok.meta" "window=sess:fm-lane-ok" "kind=ship" "harness=codex"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" fm-lane-ok "hello captain" >/dev/null 2>"$err"; rc=$?
+    "$SEND" fm-lane-ok --why captain "hello captain" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "healthy fm-id send should succeed"
   got=$(cat "$log")
   assert_contains "$got" "target=sess:fm-lane-ok literal=1 arg=hello captain" "healthy send should type literal text to the meta target"
@@ -166,6 +150,5 @@ test_healthy_fm_id_send_still_works() {
 test_exact_lane_id_send_still_works
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
-test_prefixless_herdr_pane_id_fails
 test_unmatched_single_colon_target_must_exist
 test_healthy_fm_id_send_still_works

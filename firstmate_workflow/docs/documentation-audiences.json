@@ -26,11 +26,7 @@
   "readmeSetupTargets": [
     "docs/configuration.md",
     "docs/wedge-alarm.md",
-    "docs/tmux-backend.md",
-    "docs/herdr-backend.md",
-    "docs/zellij-backend.md",
-    "docs/orca-backend.md",
-    "docs/cmux-backend.md"
+    "docs/tmux-backend.md"
   ],
   "requiredOwnerPointers": [
     {
@@ -54,14 +50,6 @@
       "target": "docs/documentation-audiences.json"
     },
     {
-      "source": "docs/calm.md",
-      "target": "docs/calm-mode-feasibility.md"
-    },
-    {
-      "source": "docs/calm-mode-feasibility.md",
-      "target": "docs/calm.md"
-    },
-    {
       "source": "docs/sessionstart-nudge.md",
       "target": "docs/verification/supervision.md"
     },
@@ -79,26 +67,6 @@
     },
     {
       "source": "docs/tmux-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/herdr-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/zellij-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/orca-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/cmux-backend.md",
-      "target": "docs/verification/runtime-backends.md"
-    },
-    {
-      "source": "docs/codex-app-backend.md",
       "target": "docs/verification/runtime-backends.md"
     }
   ],
@@ -132,19 +100,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/firstmate-codexapp/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/firstmate-coding-guidelines/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/firstmate-orca/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/fmx-respond/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -153,14 +109,6 @@
     },
     {
       "path": ".agents/skills/project-management/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/quota-array-dispatch/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/secondmate-provisioning/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -188,6 +136,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "FORK-NOTES.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "README.md",
       "audience": "public-product"
     },
@@ -200,24 +152,8 @@
       "audience": "maintainer-architecture"
     },
     {
-      "path": "docs/calm-mode-feasibility.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/calm.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/cd-guard.md",
       "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/cmux-backend.md",
-      "audience": "operator-current"
-    },
-    {
-      "path": "docs/codex-app-backend.md",
-      "audience": "operator-current"
     },
     {
       "path": "docs/configuration.md",
@@ -230,10 +166,6 @@
     {
       "path": "docs/documentation-audiences.md",
       "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/examples/crew-dispatch.json",
-      "audience": "operator-example"
     },
     {
       "path": "docs/examples/wedge-alarm",
@@ -252,14 +184,6 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/herdr-backend.md",
-      "audience": "operator-current"
-    },
-    {
-      "path": "docs/orca-backend.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/scripts.md",
       "audience": "operator-current"
     },
@@ -276,22 +200,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "docs/supervision-protocols/codex.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/grok.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/opencode.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/pi.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": "docs/supervision-protocols/unknown.md",
       "audience": "agent-runtime"
     },
@@ -302,14 +210,6 @@
     {
       "path": "docs/turnend-guard.md",
       "audience": "operator-current"
-    },
-    {
-      "path": "docs/verification/dispatch-auth.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "docs/verification/public-followup.md",
-      "audience": "maintainer-verification"
     },
     {
       "path": "docs/verification/runtime-backends.md",
@@ -329,10 +229,6 @@
     },
     {
       "path": "docs/wedge-alarm.md",
-      "audience": "operator-current"
-    },
-    {
-      "path": "docs/zellij-backend.md",
       "audience": "operator-current"
     },
     {
