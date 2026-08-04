@@ -102,11 +102,11 @@ prime_turnend_seen() {  # <file>
   printf '%s' "$(seen_sig "$f")" > "$(dirname "$f")/.seen-$base"
 }
 
-record_pi_busy() {  # <state-dir> <id>
+record_claude_busy() {  # <state-dir> <id>
   local state=$1 id=$2 gen
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
   "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" busy --gen "$gen" \
-    --source pi-ext --event agent-start
+    --source claude-hook --event user-prompt-submit
 }
 
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
@@ -760,7 +760,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
   printf 'idle bare shell after agent exit\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\n' "$window" > "$state/held.meta"
   printf 'paused: held per captain while an external decision is pending\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -792,7 +792,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
   printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\n' "$window" > "$state/held.meta"
   printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -815,7 +815,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/gate.status"
   window="test:fm-gate"
   printf 'idle external-decision gate\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/gate.meta"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\n' "$window" > "$state/gate.meta"
   printf 'paused: waiting at an active external-decision gate\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gate_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -1098,8 +1098,8 @@ test_busy_pane_below_turn_age_bound_is_absorbed() {
   dir=$(make_case busy-below-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-fresh"
   printf 'Working... (12.3s)' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-fresh.meta"
-  record_pi_busy "$state" busy-fresh
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-fresh.meta"
+  record_claude_busy "$state" busy-fresh
   printf 'working: setup complete\n' > "$state/busy-fresh.status"
   sig=$(seen_sig "$state/busy-fresh.status"); printf '%s' "$sig" > "$state/.seen-busy-fresh_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -1123,13 +1123,13 @@ test_busy_pane_stable_hash_escalates_past_turn_age_bound() {
   local dir state fakebin out capture_file window key pane_hash sig pid
   dir=$(make_case busy-stable-hash-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-stable"
-  printf 'Working...' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-stable.meta"
-  record_pi_busy "$state" busy-stable
+  printf 'esc to interrupt' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-stable.meta"
+  record_claude_busy "$state" busy-stable
   printf 'working: setup complete\n' > "$state/busy-stable.status"
   sig=$(seen_sig "$state/busy-stable.status"); printf '%s' "$sig" > "$state/.seen-busy-stable_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "Working...")
+  pane_hash=$(hash_text "esc to interrupt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   # No completed turn ever recorded for this task: age the spawn record itself.
@@ -1168,8 +1168,8 @@ test_busy_pane_changing_hash_escalates_past_turn_age_bound() {
   dir=$(make_case busy-changing-hash-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-ticking"
   printf 'Working... (3600.1s)' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-ticking.meta"
-  record_pi_busy "$state" busy-ticking
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-ticking.meta"
+  record_claude_busy "$state" busy-ticking
   printf 'working: setup complete\n' > "$state/busy-ticking.status"
   sig=$(seen_sig "$state/busy-ticking.status"); printf '%s' "$sig" > "$state/.seen-busy-ticking_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
@@ -1208,13 +1208,13 @@ test_busy_pane_turn_end_touch_resets_age() {
   local dir state fakebin out capture_file window key pane_hash sig pid
   dir=$(make_case busy-turn-end-resets-age); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-reset"
-  printf 'Working...' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-reset.meta"
-  record_pi_busy "$state" busy-reset
+  printf 'esc to interrupt' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-reset.meta"
+  record_claude_busy "$state" busy-reset
   printf 'working: setup complete\n' > "$state/busy-reset.status"
   sig=$(seen_sig "$state/busy-reset.status"); printf '%s' "$sig" > "$state/.seen-busy-reset_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "Working...")
+  pane_hash=$(hash_text "esc to interrupt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   # A wedge is already mid-escalation, as if several over-age polls already ran.
@@ -1242,13 +1242,13 @@ test_busy_pane_repeated_escalation_reaches_demand_deep_inspection() {
   local dir state fakebin out capture_file window key pane_hash sig pid n
   dir=$(make_case busy-turn-age-demand-inspect); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-demand-inspect"
-  printf 'Working...' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-demand.meta"
-  record_pi_busy "$state" busy-demand
+  printf 'esc to interrupt' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-demand.meta"
+  record_claude_busy "$state" busy-demand
   printf 'working: setup complete\n' > "$state/busy-demand.status"
   sig=$(seen_sig "$state/busy-demand.status"); printf '%s' "$sig" > "$state/.seen-busy-demand_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "Working...")
+  pane_hash=$(hash_text "esc to interrupt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   touch -t 200001010000 "$state/busy-demand.turn-ended"
@@ -1294,13 +1294,13 @@ test_busy_pane_default_turn_age_bound_is_3600s() {
   local dir state fakebin out capture_file window key pane_hash sig pid
   dir=$(make_case busy-default-turn-age); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-busy-default"
-  printf 'Working...' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/busy-default.meta"
-  record_pi_busy "$state" busy-default
+  printf 'esc to interrupt' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/busy-default.meta"
+  record_claude_busy "$state" busy-default
   printf 'working: setup complete\n' > "$state/busy-default.status"
   sig=$(seen_sig "$state/busy-default.status"); printf '%s' "$sig" > "$state/.seen-busy-default_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "Working...")
+  pane_hash=$(hash_text "esc to interrupt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
 
