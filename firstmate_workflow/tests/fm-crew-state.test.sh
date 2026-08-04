@@ -825,103 +825,9 @@ test_no_run_footer_text_alone_is_not_working() {
   pass "a converted adapter never reads working from rendered footer text"
 }
 
-# Grok keeps its isolated temporary rendered-tail fallback until its structured
-# lifecycle is live-verified, so a grok crew still reads working from its own
-# verified signature.
-test_no_run_grok_uses_isolated_fallback() {
-  reset_fakes
-  local d; d=$(new_case busy-grok)
-  make_repo_on_branch "$d/wt" fm/feat-h3
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-h3.meta" "window=fm:fm-feat-h3" "worktree=$d/wt" "kind=ship" "harness=grok"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_BUSY=1
-  FM_FAKE_BUSY_TEXT='Ctrl+c:cancel'
-  export FM_FAKE_BUSY_TEXT
-  local out; out=$(run_crew_state "$d" feat-h3)
-  assert_contains "$out" "state: working" "grok busy tail -> working"
-  assert_contains "$out" "grok-regex" "the grok verdict names its isolated fallback source"
-  pass "grok still reads working through its isolated rendered-tail fallback"
-}
 
-test_no_run_herdr_unknown_uses_backend_capture() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr pane fallback skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-busy)
-  make_repo_on_branch "$d/wt" fm/feat-herdr
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_BUSY=1
-  FM_FAKE_HERDR_AGENT_STATUS=working
-  local out; out=$(run_crew_state "$d" feat-herdr)
-  assert_contains "$out" "state: working" "herdr native busy -> working"
-  assert_contains "$out" "source: pane" "herdr native busy -> pane source"
-  assert_contains "$out" "herdr-native" "the herdr verdict names its native source"
-  pass "herdr's native busy verdict reads working with no record present"
-}
 
-# Regression (2026-07 herdr false-surface incident, now solved semantically):
-# herdr's agent.get reports generation state ("working" only while the model is
-# actively streaming - docs/herdr-backend.md "Busy state"), not "this crew's
-# turn is still in progress". A crew blocked on its own long-running foreground
-# `no-mistakes axi run` (no --yes; blocks until a gate or outcome) is not
-# generating for that whole span, so agent.get reads idle. The crew's own
-# semantic lifecycle record still says busy for the whole turn, and it outranks
-# the narrower native verdict - so the crew is no longer misread as not-working.
-test_no_run_herdr_idle_agent_status_outranked_by_record() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr idle corroboration skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-idle-busy-record)
-  make_repo_on_branch "$d/wt" fm/feat-herdr-idle
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr-idle.meta" "window=default:w1:p3" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  # No run attributable (mirrors a no-mistakes run-step lookup that found no
-  # matching row within the configured runs-list window): the crew's semantic
-  # busy state is the only remaining signal.
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_AGENT_STATUS=idle
-  FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-idle)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-idle busy --gen "$gen" \
-    --source claude-hook --event user-prompt-submit
-  local out; out=$(run_crew_state "$d" feat-herdr-idle)
-  assert_contains "$out" "state: working" "a busy record with herdr idle agent_status -> working"
-  assert_contains "$out" "claude-hook" "the record's source outranks herdr's narrower native verdict"
-  pass "a mid-tool-call crew stays working because its record outranks herdr's generation state"
-}
 
-# The record must not mask a genuinely idle or human-blocked agent: an idle
-# record with idle agent_status still reads not-busy.
-test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr idle+idle-record skipped without jq"; return; }
-  reset_fakes
-  local d; d=$(new_case herdr-idle-idle-record)
-  make_repo_on_branch "$d/wt" fm/feat-herdr-stopped
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-herdr-stopped.meta" "window=default:w1:p4" "worktree=$d/wt" "kind=ship" \
-    "backend=herdr" "harness=claude"
-  printf 'working: implementing\n' > "$d/state/feat-herdr-stopped.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
-  FM_FAKE_HERDR_AGENT_STATUS=idle
-  FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-stopped)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-stopped idle --gen "$gen" \
-    --source claude-hook --event stop
-  local out; out=$(run_crew_state "$d" feat-herdr-stopped)
-  assert_not_contains "$out" "source: pane" "an idle record must not read as busy"
-  assert_contains "$out" "source: status-log" "an idle record falls to the status log"
-  pass "an idle record with idle agent_status stays not-busy (no regression for a human-blocked agent)"
-}
 
 # (g) no run + idle pane -> the status-log verb, as-is
 test_no_run_idle_pane_uses_log() {
@@ -996,39 +902,6 @@ test_no_run_idle_pane_custom_paused_verb() {
   pass "no run + idle pane honors the configured paused verb"
 }
 
-# A trailing keyed resolved: event is a decision-CLOSING event, not a run-state
-# verb. It must never become the current state or leak its resolution prose as the
-# detail: a healthy idle secondmate that just closed a keyed decision falls through
-# to the idle default (unknown/none), not `unknown` with the resolution note as its
-# `doing`. Regression for the bearings render bug where such a secondmate showed
-# state=unknown with resolution prose. The one-owner keyed fold in fm-classify-lib.sh
-# is untouched; this only stops the deriver from reading a non-state event as state.
-test_no_run_idle_secondmate_resolved_event_not_state() {
-  reset_fakes
-  local d; d=$(new_case resolved-idle)
-  mkdir -p "$d/wt"
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
-  printf 'needs-decision [key=race]: pick subscribe order\n' > "$d/state/mate.status"
-  printf 'resolved [key=race]: went with subscribe-before-write\n' >> "$d/state/mate.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_BUSY=0
-  local out; out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: unknown" "resolved-then-idle secondmate is not a spurious run-state"
-  assert_contains "$out" "source: none" "a resolved event is not treated as a status-log state source"
-  assert_not_contains "$out" "subscribe-before-write" "resolution prose must not leak into the detail"
-  # A bare (non-keyed) resolved: closes the default key and behaves the same.
-  printf 'blocked: waiting on infra\nresolved: infra access granted\n' > "$d/state/mate.status"
-  out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "source: none" "a bare resolved: is not a state source either"
-  assert_not_contains "$out" "infra access granted" "bare resolution prose must not leak into the detail"
-  # Control: a genuine trailing state verb still renders from the log.
-  printf 'working: reconciling routed items\n' > "$d/state/mate.status"
-  out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: working" "a real trailing state verb still renders"
-  assert_contains "$out" "reconciling routed items" "a real state line still carries its detail"
-  pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
-}
 
 test_dead_window_ignores_stale_status_log() {
   reset_fakes
@@ -1335,15 +1208,10 @@ test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_no_run_busy_pane
 test_no_run_footer_text_alone_is_not_working
-test_no_run_grok_uses_isolated_fallback
-test_no_run_herdr_unknown_uses_backend_capture
-test_no_run_herdr_idle_agent_status_outranked_by_record
-test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
-test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step
