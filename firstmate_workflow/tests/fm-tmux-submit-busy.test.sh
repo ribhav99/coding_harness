@@ -212,48 +212,25 @@ test_claude_busy_signature_uses_real_capture_shapes() {
   printf '✢ Pollinating… (16s · ↓ 1.1k tokens)\n' > "$composer"
   pane_busy live && fail "Claude signature must not match without the Claude harness"
 
-  # Each verified harness must use only its own signature.
+  # The one verified harness must use only its own signature, and a harness
+  # firstmate does not recognise must never borrow it.
   printf 'Ctrl+c:cancel\n' > "$composer"
-  pane_busy cross claude && fail "Claude must ignore Grok's cancel footer"
+  pane_busy cross claude && fail "Claude must ignore an unrelated cancel footer"
   printf 'esc interrupt\n' > "$composer"
-  pane_busy cross claude && fail "Claude must ignore OpenCode's interrupt footer"
-  printf 'Working...\n' > "$composer"
-  pane_busy cross codex && fail "Codex must ignore Pi's Working footer"
-  printf 'esc interrupt\n' > "$composer"
-  pane_busy cross codex && fail "Codex must ignore OpenCode's interrupt footer"
-  printf 'Ctrl+c:cancel\n' > "$composer"
-  pane_busy cross opencode && fail "OpenCode must ignore Grok's cancel footer"
-  printf 'esc interrupt\n' > "$composer"
-  pane_busy cross pi && fail "Pi must ignore OpenCode's interrupt footer"
+  pane_busy cross claude && fail "Claude must ignore an unrelated interrupt footer"
   printf 'esc to interrupt\n' > "$composer"
-  pane_busy cross grok && fail "Grok must ignore Claude's legacy interrupt footer"
-  printf 'esc to interrupt\n' > "$composer"
-  pane_busy own codex || fail "Codex's escape footer should be busy"
-  printf 'esc interrupt\n' > "$composer"
-  pane_busy own opencode || fail "OpenCode's interrupt footer should be busy"
+  pane_busy cross some-unverified-harness && fail "an unverified harness must not borrow Claude's footer"
 
-  # No harness keeps the historical combined-pattern compatibility fallback.
+  # The historical combined-pattern compatibility fallback survives for a
+  # capture taken with no harness at all.
   printf 'Working...\n' > "$composer"
-  pane_busy fallback || fail "no-harness fallback should retain Pi's shared signature"
+  pane_busy fallback || fail "no-harness fallback should retain the shared Working signature"
   printf 'Ctrl+c:cancel\n' > "$composer"
-  pane_busy fallback || fail "no-harness fallback should retain Grok's shared signature"
+  pane_busy fallback || fail "no-harness fallback should retain the shared cancel signature"
 
-  # A supplied harness must never use another harness's signature. This is
-  # particularly important for Kimi: its idle key-tip rotation can include the
-  # same cancel token Grok uses to mean busy.
-  printf 'Working...\n' > "$composer"
-  pane_busy unknown kimi && fail "Kimi must ignore Pi's Working footer"
-  printf 'Ctrl+c:cancel\n' > "$composer"
-  pane_busy unknown kimi && fail "idle Kimi must ignore Grok's cancel footer"
-
-  # Older Claude Code and the existing Pi and Grok signatures remain unchanged.
+  # Older Claude Code signatures remain unchanged.
   printf 'esc to interrupt\n' > "$composer"
   pane_busy old-claude claude || fail "older Claude escape footer should be busy"
-  printf 'Working...\n' > "$composer"
-  pane_busy pi pi || fail "Pi Working footer should be busy"
-  pane_busy pi-signed pi-signed || fail "pi-signed should share Pi's exact Working footer"
-  printf 'Ctrl+c:cancel\n' > "$composer"
-  pane_busy grok grok || fail "Grok cancel footer should be busy"
   pass "fm_pane_is_busy: Claude spinner is scoped, multi-frame, and backward-compatible"
 }
 

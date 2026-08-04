@@ -98,33 +98,22 @@ init_changed_fixture_repo() {
     fm-ask-user-authority.test.sh \
     fm-cd-pretool-check.test.sh \
     fm-daemon.test.sh \
-    fm-backend-herdr-smoke.test.sh \
-    fm-secondmate-safety.test.sh \
     fm-session-start.test.sh \
-    fm-afk-pi-herdr-return-e2e.test.sh \
     fm-backend.test.sh \
     fm-pr-merge.test.sh \
-    fm-pi-watch-extension.test.sh \
     fm-afk-return.test.sh \
     fm-bearings-snapshot.test.sh \
-    fm-backend-cmux.test.sh \
-    fm-backend-zellij.test.sh \
-    fm-backend-orca.test.sh; do
+    fm-backend-tmux-smoke.test.sh; do
     printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/$script"
     chmod +x "$repo/tests/$script"
   done
   : >"$repo/tests/lib.sh"
-  : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/unmapped-source.sh"
-  printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
-    >>"$repo/tests/fm-cd-pretool-check.test.sh"
-  printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
-  mkdir -p "$repo/.agents/skills/example" "$repo/.claude" "$repo/.pi/extensions" "$repo/src"
+  printf '# .claude/settings.json\n' >>"$repo/tests/fm-cd-pretool-check.test.sh"
+  mkdir -p "$repo/.agents/skills/example" "$repo/.claude" "$repo/src"
   : >"$repo/.agents/skills/example/SKILL.md"
   : >"$repo/.claude/settings.json"
-  : >"$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  : >"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   : >"$repo/src/unmapped.ts"
   git -C "$repo" init -q
   git -C "$repo" add .
@@ -140,17 +129,9 @@ test_changed_dependency_selection_and_unmapped_failure() {
   printf '\n' >>"$repo/tests/lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-pr-merge.test.sh" "shared helper selects pr-forge dependents"
-  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" "shared helper selects secondmate dependents"
   assert_contains "$listed" "tests/fm-bearings-snapshot.test.sh" "shared helper selects snapshot dependents"
   git -C "$repo" add tests/lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm helper-change
-
-  printf '\n' >>"$repo/tests/fm-backend-herdr-eventwait.test.py"
-  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-backend-herdr-smoke.test.sh" "eventwait test selects Herdr coverage"
-  assert_contains "$listed" "tests/fm-backend.test.sh" "eventwait test selects backend coverage"
-  git -C "$repo" add tests/fm-backend-herdr-eventwait.test.py
-  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm eventwait-change
 
   printf '\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
@@ -161,12 +142,9 @@ test_changed_dependency_selection_and_unmapped_failure() {
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
   printf '\n' >>"$repo/.claude/settings.json"
-  printf '\n' >>"$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  printf '\n' >>"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-ask-user-authority.test.sh" "skill source selects pure contract coverage"
-  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Claude and Pi source selects hook coverage"
-  assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
+  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Claude source selects hook coverage"
   git -C "$repo" add .agents .claude .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
 
@@ -338,25 +316,24 @@ SH
 
 test_exclude_family() {
   local listed
-  listed=$("$RUNNER" --list --all --exclude-family real-herdr-gated)
-  printf '%s\n' "$listed" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
-    && fail "exclude-family real-herdr-gated left a real-herdr script"
+  listed=$("$RUNNER" --list --all --exclude-family afk)
+  printf '%s\n' "$listed" | grep -Fq 'tests/fm-afk-return.test.sh' \
+    && fail "exclude-family afk left an afk script"
   printf '%s\n' "$listed" | grep -Fq 'tests/fm-lint.test.sh' \
     || fail "exclude-family must retain pure-contract-unit scripts"
-  # Explicit family mode still works; exclude of a different family is a no-op.
-  listed=$("$RUNNER" --list --family real-herdr-gated)
-  printf '%s\n' "$listed" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
-    || fail "family real-herdr-gated must list smoke test"
+  # Explicit family mode still works.
+  listed=$("$RUNNER" --list --family afk)
+  printf '%s\n' "$listed" | grep -Fq 'tests/fm-afk-return.test.sh' \
+    || fail "family afk must list the afk return test"
   pass "exclude-family drops the named primary family after selection"
 }
 
 test_portable_shard_union_and_coverage_guard() {
-  local s1 s2 proven serial herdr all_count union_count overlap out first
+  local s1 s2 proven serial all_count union_count overlap out first
   s1=$("$RUNNER" --list --lane portable-parallel-1)
   s2=$("$RUNNER" --list --lane portable-parallel-2)
   proven=$("$RUNNER" --list --proven-isolated)
   serial=$("$RUNNER" --list --lane portable-serial)
-  herdr=$("$RUNNER" --list --family real-herdr-gated)
   [ -n "$s1" ] && [ -n "$s2" ] || fail "portable parallel shards must be non-empty"
   # Shards disjoint.
   overlap=$(comm -12 <(printf '%s\n' "$s1" | LC_ALL=C sort) <(printf '%s\n' "$s2" | LC_ALL=C sort) || true)
@@ -365,23 +342,18 @@ test_portable_shard_union_and_coverage_guard() {
   [ "$(printf '%s\n' "$s1" "$s2" | LC_ALL=C sort -u)" = \
     "$(printf '%s\n' "$proven" | LC_ALL=C sort -u)" ] \
     || fail "shard union must equal proven-isolated set"
-  # No herdr in portable lanes.
-  printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
-    && fail "portable lanes must not include real-herdr-gated smoke"
-  printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
-    || fail "herdr family must include smoke"
   out=$("$RUNNER" --check-coverage)
   assert_contains "$out" "FM_TEST_COVERAGE ok" "coverage guard success marker"
   all_count=$("$RUNNER" --list --all | wc -l | tr -d ' ')
-  union_count=$(printf '%s\n' "$s1" "$s2" "$serial" "$herdr" | LC_ALL=C sort -u | wc -l | tr -d ' ')
+  union_count=$(printf '%s\n' "$s1" "$s2" "$serial" | LC_ALL=C sort -u | wc -l | tr -d ' ')
   [ "$union_count" = "$all_count" ] \
     || fail "union of lanes ($union_count) must equal --all ($all_count)"
-  # No duplicates across the four partitions.
-  [ "$(printf '%s\n' "$s1" "$s2" "$serial" "$herdr" | LC_ALL=C sort | uniq -d | wc -l | tr -d ' ')" = "0" ] \
+  # No duplicates across the three partitions.
+  [ "$(printf '%s\n' "$s1" "$s2" "$serial" | LC_ALL=C sort | uniq -d | wc -l | tr -d ' ')" = "0" ] \
     || fail "lanes must not duplicate scripts"
   # LPT order: first script of shard 1 is the longest proven script.
   first=$(printf '%s\n' "$s1" | head -n 1)
-  [ "$first" = "tests/fm-x-mode.test.sh" ] \
+  [ "$first" = "tests/fm-cd-pretool-check.test.sh" ] \
     || fail "shard 1 must start with the longest proven script, got $first"
   pass "portable shard union, disjointness, and coverage guard hold"
 }
