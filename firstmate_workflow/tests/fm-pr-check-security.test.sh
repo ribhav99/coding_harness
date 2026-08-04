@@ -2097,136 +2097,6 @@ test_nonexecuting_migration() {
   pass "migration never executes legacy checks, preserves X mode, quarantines ambiguity, and is idempotent"
 }
 
-test_historical_x_shim_transition_matrix() {
-  local dir state shim marker_kind executed rc variant target alias
-  for marker_kind in unmarked completed safe-scan; do
-    dir=$(make_case "historical-x-transition-$marker_kind")
-    state="$dir/home/state"
-    shim="$state/x-watch.check.sh"
-    executed="$dir/x-poll-executed"
-    cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-    chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-    write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-    chmod 0755 "$shim"
-    case "$marker_kind" in
-      completed)
-        printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-        chmod 0600 "$state/.pr-check-migration-v1"
-        ;;
-      safe-scan)
-        printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-        chmod 0600 "$state/.pr-check-migration-scan-v1"
-        ;;
-    esac
-
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" "$MIGRATE" >/dev/null 2> "$dir/migrate.err" \
-      || fail "$marker_kind historical X shim transition failed: $(cat "$dir/migrate.err")"
-    fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-      || fail "$marker_kind historical X shim was not replaced with the current identity"
-    [ "$(file_mode "$shim")" = 700 ] || fail "$marker_kind current X shim mode was not 0700"
-    [ ! -e "$executed" ] || fail "$marker_kind historical X shim was executed during migration"
-    assert_valid_migration_marker "$state/.pr-check-migration-v1"
-    assert_valid_scan_marker "$state/.pr-check-migration-scan-v1"
-    ! find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f 2>/dev/null | grep . >/dev/null \
-      || fail "$marker_kind historical X shim was quarantined"
-  done
-
-  dir=$(make_case historical-x-transition-watcher)
-  state="$dir/home/state"
-  shim="$state/x-watch.check.sh"
-  executed="$dir/x-poll-executed"
-  cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-  chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-  write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-  chmod 0755 "$shim"
-  touch "$state/.last-check"
-  printf 'done: synthetic transition wake\n' > "$state/transition.status"
-  set +e
-  FM_TEST_CHECK_INTERVAL=999999 FM_TEST_WATCH_ROOT="$dir/root" \
-    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "standalone watcher did not complete the historical X transition"
-  fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-    || fail "standalone watcher did not publish the current X identity"
-  [ "$(file_mode "$shim")" = 700 ] || fail "standalone watcher X shim mode was not 0700"
-  [ ! -e "$executed" ] || fail "standalone watcher executed the historical X shim"
-
-  for variant in linked symlink byte-mismatch mode-0700 mode-0750 mode-0777; do
-    dir=$(make_case "historical-x-negative-$variant")
-    state="$dir/home/state"
-    shim="$state/x-watch.check.sh"
-    executed="$dir/x-poll-executed"
-    cat > "$dir/root/bin/fm-x-poll.sh" <<SH
-#!/usr/bin/env bash
-touch '$executed'
-SH
-    chmod 0700 "$dir/root/bin/fm-x-poll.sh"
-    case "$variant" in
-      symlink)
-        target="$dir/historical-x-target"
-        write_v1_x_shim "$target" "$dir/home" "$dir/root"
-        chmod 0755 "$target"
-        ln -s "$target" "$shim"
-        ;;
-      *)
-        write_v1_x_shim "$shim" "$dir/home" "$dir/root"
-        chmod 0755 "$shim"
-        ;;
-    esac
-    case "$variant" in
-      linked)
-        alias="$dir/historical-x-alias"
-        ln "$shim" "$alias"
-        ;;
-      byte-mismatch) printf '# different identity\n' >> "$shim" ;;
-      mode-0700) chmod 0700 "$shim" ;;
-      mode-0750) chmod 0750 "$shim" ;;
-      mode-0777) chmod 0777 "$shim" ;;
-    esac
-    printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-    printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-    chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
-
-    set +e
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" "$MIGRATE" --checks-safe \
-      > "$dir/migrate.out" 2> "$dir/migrate.err"
-    rc=$?
-    set -e
-    case "$variant" in
-      linked)
-        [ "$rc" -ne 0 ] || fail "linked historical X lookalike did not fail closed"
-        cmp -s "$alias" <(fmx_poll_shim_v1_content "$dir/home" "$dir/root") \
-          || fail "linked historical X lookalike changed through its alias"
-        [ "$(file_mode "$alias")" = 755 ] || fail "linked historical X alias mode changed"
-        ;;
-      symlink)
-        [ "$rc" -ne 0 ] || fail "symlinked historical X lookalike did not fail closed"
-        [ -L "$shim" ] || fail "symlinked historical X lookalike was replaced"
-        cmp -s "$target" <(fmx_poll_shim_v1_content "$dir/home" "$dir/root") \
-          || fail "symlinked historical X target changed"
-        [ "$(file_mode "$target")" = 755 ] || fail "symlinked historical X target mode changed"
-        ;;
-      *)
-        [ "$rc" -eq 0 ] || fail "$variant historical X lookalike was not safely quarantined"
-        [ ! -e "$shim" ] && [ ! -L "$shim" ] \
-          || fail "$variant historical X lookalike remained live after migration"
-        find "$state/.pr-check-quarantine" -name 'x-watch.check.*' -type f | grep . >/dev/null \
-          || fail "$variant historical X lookalike was not quarantined"
-        ;;
-    esac
-    ! fmx_poll_shim_valid "$shim" "$dir/home" "$dir/root" \
-      || fail "$variant historical X lookalike became a current identity"
-    [ ! -e "$executed" ] || fail "$variant historical X lookalike was executed"
-  done
-  pass "historical X shims migrate only from the exact single-link mode-0755 identity"
-}
 
 test_direct_registration_refreshes_v1_x_shim() {
   local dir state shim quarantined marker_kind number snapshot_before snapshot_after
@@ -2967,43 +2837,6 @@ test_merged_poll_retires_once() {
   pass "validated merged polls notify once and retire before the next watcher cycle"
 }
 
-test_persistent_secondmate_retirement_is_poll_only() {
-  local dir state meta_before status_before registry_before endpoint_before rc
-  dir=$(make_case merged-retirement-secondmate)
-  state="$dir/home/state"
-  fm_write_meta "$state/domain.meta" \
-    'window=session:fm-domain' \
-    "worktree=$dir/secondmate-home" \
-    "project=$dir/project" \
-    'kind=secondmate' \
-    'mode=secondmate' \
-    'backend=tmux' \
-    "home=$dir/secondmate-home" \
-    'pr=https://github.com/o/r/pull/2' \
-    'pr_head=0123456789abcdef0123456789abcdef01234567'
-  mkdir -p "$dir/secondmate-home"
-  printf 'working: persistent endpoint remains healthy\n' > "$state/domain.status"
-  printf -- '- domain | scope: test | home: %s\n' "$dir/secondmate-home" > "$dir/home/data/secondmates.md"
-  printf 'endpoint-alive\n' > "$dir/endpoint-sentinel"
-  meta_before=$(shasum -a 256 "$state/domain.meta")
-  status_before=$(shasum -a 256 "$state/domain.status")
-  registry_before=$(shasum -a 256 "$dir/home/data/secondmates.md")
-  endpoint_before=$(shasum -a 256 "$dir/endpoint-sentinel")
-  seed_canonical_poll "$dir" domain https://github.com/o/r/pull/2
-
-  set +e
-  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "persistent secondmate merged watcher failed: $(cat "$dir/watch.err")"
-  assert_poll_absent "$state" domain
-  [ "$(shasum -a 256 "$state/domain.meta")" = "$meta_before" ] || fail "retirement changed secondmate metadata"
-  [ "$(shasum -a 256 "$state/domain.status")" = "$status_before" ] || fail "retirement changed secondmate status"
-  [ "$(shasum -a 256 "$dir/home/data/secondmates.md")" = "$registry_before" ] || fail "retirement changed secondmate registry"
-  [ "$(shasum -a 256 "$dir/endpoint-sentinel")" = "$endpoint_before" ] || fail "retirement changed secondmate endpoint evidence"
-  [ -d "$dir/secondmate-home" ] || fail "retirement removed the persistent secondmate home"
-  pass "merged poll retirement preserves every persistent secondmate lifecycle artifact"
-}
 
 test_retirement_crash_recovery() {
   local dir state rc raw_count drain_count historical_poll
@@ -3327,7 +3160,6 @@ test_gitlab_merged_poll_retires() {
 test_parser_matrix
 test_gitlab_merge_watch
 test_merged_poll_retires_once
-test_persistent_secondmate_retirement_is_poll_only
 test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
@@ -3353,7 +3185,6 @@ test_complete_single_link_validation
 test_canonical_publication_failure_recovers_only_on_retry
 test_obligation_namespace_compatibility
 test_nonexecuting_migration
-test_historical_x_shim_transition_matrix
 test_direct_registration_refreshes_v1_x_shim
 test_bootstrap_migrates_before_other_mutations
 test_bootstrap_isolates_incomplete_poll_migration

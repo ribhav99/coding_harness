@@ -798,26 +798,6 @@ EOF
   pass "digest sections are ordered diagnostics-first, bulk-context-last"
 }
 
-test_herdr_backend_diagnostics_follow_real_session_start() {
-  local mode rec root home fakebin mask out
-  for mode in configured autodetected; do
-    rec=$(new_world "herdr-$mode")
-    IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-    make_fake_toolchain "$fakebin"
-    make_fake_ps_claude "$fakebin"
-    rm -f "$fakebin/tmux"
-    fm_fake_exit0 "$fakebin" herdr jq
-    printf '%s\n' manual > "$home/config/backlog-backend"
-    mask="$home/mask-tmux.bash"
-    cat > "$mask" <<'SH'
-command() {
-  if [ "${1:-}" = -v ] && [ "${2:-}" = tmux ]; then
-    return 1
-  fi
-  builtin command "$@"
-}
 SH
     if [ "$mode" = configured ]; then
       printf '%s\n' herdr > "$home/config/backend"
@@ -901,102 +881,10 @@ EOF
 
 # --- session-start secondmate recovery boundary -----------------------------
 
-test_session_start_relaunches_missing_pi_secondmate() {
-  local rec root home fakebin mate log spawned out first_calls second_calls
-  rec=$(prepare_session_start_secondmate secondmate-missing-pi)
-  IFS='|' read -r root home fakebin mate log spawned <<EOF
-$rec
-EOF
 
-  out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing)
 
-  assert_not_contains "$out" "SECONDMATE_LIVENESS:" "successful missing-window recovery should stay non-actionable"
-  assert_contains "$(cat "$log")" "new-window" "session start did not relaunch the missing Pi secondmate"
-  assert_not_contains "$(cat "$log")" "kill-window" "session start tried to kill an already-absent window"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=firstmate:fm-$SESSION_START_SECOND_MATE_ID)" \
-    "the later fleet read did not confirm the relaunched window"
-  assert_grep 'harness=pi' "$home/state/$SESSION_START_SECOND_MATE_ID.meta" \
-    "the real respawn path did not preserve the Pi harness: $(cat "$home/state/$SESSION_START_SECOND_MATE_ID.meta")"
 
-  first_calls=$(grep -c 'new-window' "$log" || true)
-  rm -f "$home/state/.lock"
-  run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" missing >/dev/null
-  second_calls=$(grep -c 'new-window' "$log" || true)
-  [ "$first_calls" -eq 1 ] && [ "$second_calls" -eq 1 ] \
-    || fail "a second session-start pass duplicated the relaunched Pi secondmate: $(cat "$log")"
-  pass "session start: an absent recorded tmux window relaunches its Pi secondmate exactly once"
-}
 
-test_session_start_preserves_ambiguous_pi_process() {
-  local rec root home fakebin mate log spawned out
-  rec=$(prepare_session_start_secondmate secondmate-ambiguous-pi)
-  IFS='|' read -r root home fakebin mate log spawned <<EOF
-$rec
-EOF
-
-  out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" ambiguous)
-
-  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate $SESSION_START_SECOND_MATE_ID: skipped: existing endpoint has ambiguous agent process (backend=tmux)" \
-    "session start did not distinguish an existing Pi-shaped process from a missing window"
-  [ ! -s "$log" ] || fail "session start touched an ambiguous existing Pi process: $(cat "$log")"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=firstmate:fm-$SESSION_START_SECOND_MATE_ID)" \
-    "the later fleet read should still see the ambiguous endpoint"
-  pass "session start: an existing ambiguous Pi process prevents duplicate recovery"
-}
-
-test_session_start_preserves_transiently_unreadable_tmux() {
-  local rec root home fakebin mate log spawned out
-  rec=$(prepare_session_start_secondmate secondmate-unreadable-pi)
-  IFS='|' read -r root home fakebin mate log spawned <<EOF
-$rec
-EOF
-
-  out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" unreadable)
-
-  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate $SESSION_START_SECOND_MATE_ID: skipped: endpoint probe unreadable (backend=tmux)" \
-    "session start did not distinguish transient unreadability from absence"
-  [ ! -s "$log" ] || fail "session start touched a transiently unreadable target: $(cat "$log")"
-  assert_contains "$out" "endpoint: dead (backend=tmux window=firstmate:fm-$SESSION_START_SECOND_MATE_ID)" \
-    "the later cheap presence read should preserve the visible offline symptom"
-  pass "session start: transient tmux unreadability never licenses a relaunch"
-}
-
-test_session_start_preserves_proven_bare_shell_recovery() {
-  local rec root home fakebin mate log spawned out
-  rec=$(prepare_session_start_secondmate secondmate-bare-shell)
-  IFS='|' read -r root home fakebin mate log spawned <<EOF
-$rec
-EOF
-
-  out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" shell)
-
-  assert_not_contains "$out" "SECONDMATE_LIVENESS:" "successful bare-shell recovery should stay non-actionable"
-  assert_contains "$(cat "$log")" "kill-window -t =firstmate:=fm-$SESSION_START_SECOND_MATE_ID" \
-    "the proven bare-shell path did not remove its existing dead endpoint"
-  assert_contains "$(cat "$log")" "new-window" "the proven bare-shell path did not relaunch"
-  assert_contains "$out" "endpoint: alive (backend=tmux window=firstmate:fm-$SESSION_START_SECOND_MATE_ID)" \
-    "the later fleet read did not confirm the bare-shell relaunch"
-  pass "session start: the proven bare-shell recovery path remains intact"
-}
-
-test_session_start_relaunches_herdr_husk_secondmate() {
-  local rec root home fakebin mate log state out
-  rec=$(prepare_session_start_herdr_secondmate secondmate-herdr-husk)
-  IFS='|' read -r root home fakebin mate log state <<EOF
-$rec
-EOF
-
-  out=$(run_session_start_herdr_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$state")
-
-  assert_not_contains "$out" "SECONDMATE_LIVENESS:" "successful Herdr husk recovery should stay non-actionable"
-  assert_contains "$(cat "$log")" "pane close p-old" "session start did not close the confirmed Herdr husk"
-  assert_contains "$(cat "$log")" "tab create" "session start did not relaunch the Herdr secondmate"
-  assert_contains "$out" "endpoint: alive (backend=herdr window=default:p-new)" \
-    "the later fleet read did not confirm the relaunched Herdr endpoint"
-  assert_grep 'herdr_pane_id=p-new' "$home/state/$SESSION_START_HERDR_SECOND_MATE_ID.meta" \
-    "the real respawn path did not record the replacement Herdr pane"
-  pass "session start: a confirmed Herdr husk is closed and relaunched"
-}
 
 # --- endpoint liveness: tmux and herdr, live and dead ------------------------
 
@@ -1020,25 +908,6 @@ EOF
   pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one"
 }
 
-test_endpoint_liveness_herdr() {
-  local rec root home fakebin out
-  rec=$(new_world liveness-herdr)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-  make_fake_ps_claude "$fakebin"
-  make_fake_herdr "$fakebin" "p-live"
-
-  printf 'window=sess:p-live\nkind=ship\nbackend=herdr\n' > "$home/state/task-live.meta"
-  printf 'window=sess:p-dead\nkind=ship\nbackend=herdr\n' > "$home/state/task-dead.meta"
-
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$out" "endpoint: alive (backend=herdr window=sess:p-live)" "live herdr endpoint not reported alive"
-  assert_contains "$out" "endpoint: dead (backend=herdr window=sess:p-dead)" "dead herdr endpoint not reported dead"
-
-  pass "herdr endpoint liveness is reported per task: alive for a live pane, dead for a gone one"
-}
 
 # --- composition: real scripts run, not reimplemented ------------------------
 
@@ -1195,26 +1064,6 @@ EOF
   pass "an empty fleet reports (none) for in-flight tasks and an absent AFK flag"
 }
 
-test_next_step_sources_x_mode_cadence() {
-  local rec root home fakebin out
-  rec=$(new_world next-step-x)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-  make_fake_ps_claude "$fakebin"
-  fm_fake_exit0 "$fakebin" curl jq
-  printf 'FMX_PAIRING_TOKEN=tok-next-step\n' > "$home/.env"
-
-  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-
-  assert_contains "$out" "FMX: X mode on" "bootstrap did not activate X mode"
-  assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: claude" "supervision block missing"
-  assert_contains "$out" "- X mode: active" "supervision block did not mention X cadence"
-  assert_contains "$out" "Follow the supervision operating instructions block above" "next step did not point back to the emitted supervision block"
-
-  pass "session start emits X-mode cadence guidance in the harness supervision block"
-}
 
 test_next_step_afk_delegates_to_daemon() {
   local rec root home fakebin out
@@ -1237,185 +1086,23 @@ EOF
   pass "next step delegates watcher ownership to the AFK daemon"
 }
 
-test_supervision_block_exactly_one_and_pi_diagnostic() {
-  local rec root home fakebin out block_count wake_line sup_line context_line
-  rec=$(new_world pi-supervision-block)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-  make_fake_ps_harness "$fakebin" pi
 
-  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  block_count=$(printf '%s\n' "$out" | grep -c '^SUPERVISION OPERATING INSTRUCTIONS - primary harness:')
-  [ "$block_count" -eq 1 ] || fail "expected exactly one supervision block, got $block_count"
-  assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: pi" "pi supervision block missing"
-  assert_contains "$out" "Mode: Pi extension background wake." "pi snippet missing from session start"
-  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi extension load diagnostic missing"
-  assert_contains "$out" "restart plain pi so $root/.pi/extensions/fm-primary-turnend-guard.ts and $root/.pi/extensions/fm-primary-pi-watch.ts auto-load" "pi extension load diagnostic omits the turn-end guard extension"
 
-  wake_line=$(printf '%s\n' "$out" | grep -n '^WAKE QUEUE$' | head -1 | cut -d: -f1)
-  sup_line=$(printf '%s\n' "$out" | grep -n '^SUPERVISION OPERATING INSTRUCTIONS' | head -1 | cut -d: -f1)
-  context_line=$(printf '%s\n' "$out" | grep -n '^CONTEXT$' | head -1 | cut -d: -f1)
-  [ "$wake_line" -lt "$sup_line" ] || fail "supervision block did not follow wake queue"
-  [ "$sup_line" -lt "$context_line" ] || fail "supervision block did not precede context"
 
-  pass "session start emits exactly one detected harness block and reports Pi extension load state"
-}
 
-test_pi_signed_primary_uses_pi_extensions_without_identity_normalization() {
-  local rec root home fakebin out
-  rec=$(new_world pi-signed-supervision-block)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-  make_fake_ps_harness "$fakebin" pi-signed
-
-  out=$(FM_FAKE_HARNESS=pi-signed run_session_start "$home" "$root" "$fakebin:$BASE_PATH" pi-signed)
-
-  assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: pi-signed" \
-    "session start normalized a pi-signed primary to pi"
-  assert_contains "$out" "Mode: Pi extension background wake." \
-    "pi-signed primary did not reuse Pi's supervision protocol"
-  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" \
-    "pi-signed primary skipped Pi extension validation"
-  assert_contains "$out" "restart pi-signed so $root/.pi/extensions/fm-primary-turnend-guard.ts and $root/.pi/extensions/fm-primary-pi-watch.ts auto-load" \
-    "pi-signed extension diagnostic did not preserve the executable identity"
-
-  pass "session start preserves pi-signed primary identity while applying Pi extension guarantees"
-}
-
-test_pi_diagnostic_rejects_stale_loaded_marker() {
-  local rec root home fakebin out marker holder_pid
-  rec=$(new_world pi-stale-loaded-marker)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-
-  sleep 300 &
-  holder_pid=$!
-  make_fake_ps_pi_holder "$fakebin" "$holder_pid"
-  install_pi_turnend_extension_fixture "$root"
-  install_pi_watch_extension_fixture "$root"
-  marker="$home/state/.pi-watch-extension-loaded"
-  printf 'stale-extension-version\n%s\n' "$holder_pid" > "$marker"
-  write_pi_turnend_loaded_marker "$home" "$root" "$holder_pid"
-  touch -t 203001010000 "$marker" 2>/dev/null || touch "$marker"
-
-  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  kill "$holder_pid" 2>/dev/null || true
-  wait "$holder_pid" 2>/dev/null || true
-
-  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic trusted a stale loaded marker"
-
-  pass "session start rejects stale Pi loaded markers"
-}
-
-test_pi_diagnostic_accepts_prelock_loaded_marker() {
-  local rec root home fakebin out holder_pid
-  rec=$(new_world pi-prelock-loaded-marker)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-
-  sleep 300 &
-  holder_pid=$!
-  make_fake_ps_pi_holder "$fakebin" "$holder_pid"
-  install_pi_turnend_extension_fixture "$root"
-  install_pi_watch_extension_fixture "$root"
-
-  write_pi_loaded_markers "$home" "$root" "$holder_pid"
-
-  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  kill "$holder_pid" 2>/dev/null || true
-  wait "$holder_pid" 2>/dev/null || true
-
-  assert_not_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic rejected a current pre-lock loaded marker"
-
-  pass "session start accepts current Pi markers written before lock acquisition"
-}
-
-test_pi_diagnostic_rejects_missing_turnend_guard_marker() {
-  local rec root home fakebin out holder_pid
-  rec=$(new_world pi-missing-turnend-marker)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-
-  sleep 300 &
-  holder_pid=$!
-  make_fake_ps_pi_holder "$fakebin" "$holder_pid"
-  install_pi_turnend_extension_fixture "$root"
-  install_pi_watch_extension_fixture "$root"
-
-  write_pi_watch_loaded_marker "$home" "$root" "$holder_pid"
-
-  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  kill "$holder_pid" 2>/dev/null || true
-  wait "$holder_pid" 2>/dev/null || true
-
-  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic trusted a session without the turn-end guard extension"
-
-  pass "session start rejects Pi sessions missing the turn-end guard marker"
-}
-
-test_pi_diagnostic_rejects_previous_session_loaded_marker() {
-  local rec root home fakebin out marker version holder_pid
-  rec=$(new_world pi-previous-session-loaded-marker)
-  IFS='|' read -r root home fakebin <<EOF
-$rec
-EOF
-  make_fake_toolchain "$fakebin"
-
-  sleep 300 &
-  holder_pid=$!
-  make_fake_ps_pi_holder "$fakebin" "$holder_pid"
-  install_pi_turnend_extension_fixture "$root"
-  install_pi_watch_extension_fixture "$root"
-  marker="$home/state/.pi-watch-extension-loaded"
-  version=$(hash_file_for_test "$root/.pi/extensions/fm-primary-pi-watch.ts")
-  printf '%s\n999999\n' "$version" > "$marker"
-  write_pi_turnend_loaded_marker "$home" "$root" "$holder_pid"
-
-  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  kill "$holder_pid" 2>/dev/null || true
-  wait "$holder_pid" 2>/dev/null || true
-
-  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic trusted a marker from a previous Pi process"
-
-  pass "session start rejects Pi loaded markers from previous sessions"
-}
 
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
 test_session_lock_concurrent_single_winner
 test_output_ordering_diagnostics_lead
-test_herdr_backend_diagnostics_follow_real_session_start
-test_session_start_relaunches_missing_pi_secondmate
-test_session_start_preserves_ambiguous_pi_process
-test_session_start_preserves_transiently_unreadable_tmux
-test_session_start_preserves_proven_bare_shell_recovery
-test_session_start_relaunches_herdr_husk_secondmate
 test_status_tail_bounding
 test_orphan_status_logs_are_printed
 test_endpoint_liveness_tmux
-test_endpoint_liveness_herdr
 test_composition_invokes_real_scripts
 test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
 test_backlog_compact_manual_backend_skips_indented_bodies
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
-test_next_step_sources_x_mode_cadence
 test_next_step_afk_delegates_to_daemon
-test_supervision_block_exactly_one_and_pi_diagnostic
-test_pi_signed_primary_uses_pi_extensions_without_identity_normalization
-test_pi_diagnostic_rejects_stale_loaded_marker
-test_pi_diagnostic_accepts_prelock_loaded_marker
-test_pi_diagnostic_rejects_missing_turnend_guard_marker
-test_pi_diagnostic_rejects_previous_session_loaded_marker

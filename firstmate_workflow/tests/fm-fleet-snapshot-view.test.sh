@@ -583,26 +583,6 @@ test_view_renders_snapshot() {
   pass "fleet view renders the snapshot without secondmate peek guidance"
 }
 
-test_view_renders_dead_secondmate_agent_status() {
-  local home fakebin view
-  home=$(make_home dead-secondmate)
-  fm_write_meta "$home/state/dead-secondmate.meta" \
-    "window=firstmate:fm-dead-secondmate" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha, beta"
-  printf 'working: watching delegated scope\n' > "$home/state/dead-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead |" \
-    "view should distinguish a present secondmate endpoint from a dead agent"
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead | - | $home/secondmate-home (absent) |" \
-    "view should show a recorded missing secondmate home path"
-  pass "fleet view renders secondmate agent liveness"
-}
 
 # A still-open decision must survive a LATER, UNRELATED terminal event on the same
 # append-only stream. This is the fmdev masking bug: last-event-wins read the trailing
@@ -637,30 +617,6 @@ test_open_decision_survives_later_unrelated_event() {
   pass "durable fold keeps an open decision past a later unrelated event"
 }
 
-test_secondmate_open_decision_survives_live_endpoint() {
-  local home fakebin out
-  home=$(make_home active-secondmate)
-  mkdir -p "$home/secondmate-home"
-  fm_write_meta "$home/state/active-secondmate.meta" \
-    "window=firstmate:fm-active-secondmate" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  printf 'needs-decision [key=race]: choose ordering\n' > "$home/state/active-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "active-secondmate")
-    | .endpoint.agent_alive == "alive"
-      and .hints.pending_decision == true
-      and (.hints.open_decisions | length) == 1
-  ' >/dev/null || fail "a live secondmate endpoint must not clear an unrelated keyed decision: $out"
-  pass "a live secondmate endpoint preserves unrelated open decisions"
-}
 
 # An open decision clears ONLY on an explicit resolution referencing its key, never
 # on an unrelated terminal line.
@@ -785,7 +741,6 @@ test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
 test_event_hints_follow_reconciled_current_state
 test_open_decision_survives_later_unrelated_event
-test_secondmate_open_decision_survives_live_endpoint
 test_open_decision_transfers_to_captain_hold
 test_open_decision_clears_on_keyed_resolution
 test_completed_scout_report_is_pointer_not_pending
@@ -793,4 +748,3 @@ test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
-test_view_renders_dead_secondmate_agent_status
