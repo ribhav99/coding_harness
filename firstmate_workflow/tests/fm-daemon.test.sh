@@ -358,10 +358,10 @@ test_housekeeping_paused_resumed_cleared() {
   win="sess:fm-held-w12"; pane="$dir/pane.txt"
   printf 'paused: holding for the upstream tool release\n' > "$state/held-w12.status"
   printf 'Working...\n' > "$pane"
-  fm_write_meta "$state/held-w12.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
+  fm_write_meta "$state/held-w12.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=claude"
   local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" held-w12)
   "$ROOT/bin/fm-busy-event.sh" apply "$state" held-w12 busy --gen "$gen" \
-    --source pi-ext --event agent-start
+    --source claude-hook --event user-prompt-submit
   key=$(printf '%s' "held-w12" | tr ':/.' '___')
   echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
@@ -451,10 +451,10 @@ test_housekeeping_resumed_stale_cleared() {
   printf 'Working...\n' > "$pane"
   # A resumed crew proves it is working through its own semantic busy-state
   # record (bin/fm-busy-lib.sh), not through the pane's rendered footer.
-  fm_write_meta "$state/res-w6.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
+  fm_write_meta "$state/res-w6.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=claude"
   local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" res-w6)
   "$ROOT/bin/fm-busy-event.sh" apply "$state" res-w6 busy --gen "$gen" \
-    --source pi-ext --event agent-start
+    --source claude-hook --event user-prompt-submit
   key=$(printf '%s' "res-w6" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
@@ -1302,11 +1302,11 @@ test_wedge_alarm_config_file_multi_channel() {
   local dir cfgdir log
   dir=$(make_wedge_case wedge-config); log="$dir/alert.log"
   cfgdir="$dir/config"; mkdir -p "$cfgdir"
-  printf '# active alert channels\n\nosascript\nherdr\n' > "$cfgdir/wedge-alarm"
+  printf '# active alert channels\n\nosascript\ncommand:true\n' > "$cfgdir/wedge-alarm"
   FM_WEDGE_ALARM_LOG="$log" FM_CONFIG_OVERRIDE="$cfgdir" \
     wedge_alarm_notify "away-mode WEDGED 700s" "/s/.marker"
   grep -F 'osascript' "$log" >/dev/null || fail "config/wedge-alarm osascript line was not selected"
-  grep -F 'herdr' "$log" >/dev/null || fail "config/wedge-alarm herdr line was not selected"
+  grep -F 'command' "$log" >/dev/null || fail "config/wedge-alarm command line was not selected"
   pass "config/wedge-alarm selects every configured channel and skips comment and blank lines"
 }
 
@@ -1314,12 +1314,12 @@ test_wedge_alarm_failing_channel_degrades_gracefully() {
   local dir log rc
   dir=$(make_wedge_case wedge-degrade); log="$dir/alert.log"
   FM_WEDGE_ALARM_LOG="$log" FM_WEDGE_ALARM_FAIL=osascript \
-    FM_WEDGE_ALARM_CHANNEL=$'osascript\nherdr' \
+    FM_WEDGE_ALARM_CHANNEL=$'osascript\ncommand:true' \
     wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
   rc=$?
   [ "$rc" -eq 0 ] || fail "a failing channel made wedge_alarm_notify return non-zero ($rc)"
   grep -F 'osascript' "$log" >/dev/null || fail "the failing osascript channel was not even attempted"
-  grep -F 'herdr' "$log" >/dev/null || fail "a failing earlier channel prevented the herdr channel from firing"
+  grep -F 'command' "$log" >/dev/null || fail "a failing earlier channel prevented the next channel from firing"
   pass "a failing channel logs and falls back to the next channel, never crashing the alarm"
 }
 
@@ -1370,13 +1370,13 @@ SH
   chmod +x "$blocker"
   start=$SECONDS
   LOG="$daemon_log" FM_WEDGE_ALARM_EXEC="$blocker" FM_WEDGE_ALARM_TIMEOUT_SECS=1 \
-    FM_WEDGE_ALARM_CHANNEL=$'osascript\nherdr' \
+    FM_WEDGE_ALARM_CHANNEL=$'osascript\ncommand:true' \
     wedge_alarm_notify "away-mode WEDGED 900s" "/s/.marker"
   elapsed=$((SECONDS - start))
   [ "$elapsed" -lt 6 ] || fail "a hung wedge notifier override blocked the alarm for ${elapsed}s"
   grep -F 'osascript notifier timed out' "$daemon_log" >/dev/null \
     || fail "a hung notifier override did not log its timeout: $(cat "$daemon_log" 2>/dev/null)"
-  grep -F 'herdr notifier timed out' "$daemon_log" >/dev/null \
+  grep -F 'command notifier timed out' "$daemon_log" >/dev/null \
     || fail "a hung notifier override prevented the next channel: $(cat "$daemon_log" 2>/dev/null)"
   pass "a hung notifier override is bounded, logged, and proceeds to the next channel"
 }
@@ -1448,14 +1448,14 @@ test_fm_send_exits_nonzero_on_confirmed_swallow() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   # Clean submit -> exit 0.
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
-    FM_SEND_SLEEP=0.05 "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err" \
+    FM_SEND_SLEEP=0.05 "$ROOT/bin/fm-send.sh" sess:win --why captain 'route this work' >/dev/null 2>"$err" \
     || fail "fm-send exited non-zero on a clean submit: $(cat "$err")"
   # Persistent swallow -> exit non-zero with a clear message.
   printf '╭─────╮\n│ >   │\n╰─────╯\n' > "$dir/composer"
   touch "$dir/.swallow"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
+    "$ROOT/bin/fm-send.sh" sess:win --why captain 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
     fail "fm-send exited zero despite a swallowed Enter (silent unsubmitted instruction)"
   fi
   grep -F 'not submitted' "$err" >/dev/null || fail "fm-send did not explain the swallowed submit: $(cat "$err")"
@@ -1468,7 +1468,7 @@ test_fm_send_exits_nonzero_on_initial_send_failure() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SEND_FAIL=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err"; then
+    "$ROOT/bin/fm-send.sh" sess:win --why captain 'route this work' >/dev/null 2>"$err"; then
     fail "fm-send exited zero despite initial tmux send-keys failure"
   fi
   grep -F 'text not sent' "$err" >/dev/null || fail "fm-send did not explain initial send failure: $(cat "$err")"
@@ -1482,7 +1482,7 @@ test_fm_send_exits_nonzero_on_unproven_submit() {
   touch "$dir/.swallow"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win '修复' >/dev/null 2>"$err"; then
+    "$ROOT/bin/fm-send.sh" sess:win --why captain '修复' >/dev/null 2>"$err"; then
     fail "fm-send exited zero when submit proof remained pending-unproven"
   fi
   grep -F 'verdict=pending-unproven' "$err" >/dev/null \
@@ -1498,46 +1498,16 @@ test_fm_send_exits_nonzero_on_unproven_submit() {
 # for the duration of that one call only, so these tests are deterministic
 # regardless of what runtime backend is running this test suite itself.
 
-test_discover_supervisor_backend_precedence() {
-  local out
-  out=$(FM_SUPERVISOR_BACKEND=herdr TMUX_PANE='%9' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = herdr ] || fail "explicit FM_SUPERVISOR_BACKEND override was not honored: $out"
-
-  out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='%9' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = tmux ] || fail "TMUX_PANE should win over HERDR_ENV (tmux nested in herdr resolves to tmux): $out"
-
-  out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='' HERDR_ENV=1 HERDR_PANE_ID=w1:p1 discover_supervisor_backend)
-  [ "$out" = herdr ] || fail "HERDR_ENV=1 with HERDR_PANE_ID present should resolve to herdr: $out"
-
-  if out=$(FM_SUPERVISOR_BACKEND='' TMUX_PANE='' HERDR_ENV='' HERDR_PANE_ID='' discover_supervisor_backend); then
-    fail "bare fallback (no override, no TMUX_PANE, no HERDR_ENV) should return non-zero"
-  fi
-  [ "$out" = tmux ] || fail "bare fallback should still print tmux: $out"
-
-  pass "discover_supervisor_backend: override > TMUX_PANE > HERDR_ENV+HERDR_PANE_ID > tmux fallback"
-}
 
 
 
-test_primary_busy_guard_is_harness_scoped() {
-  (
-    fm_backend_busy_state() { printf 'unknown'; }
-    fm_backend_capture() { printf 'esc interrupt\n'; }
-    if FM_DAEMON_PRIMARY_HARNESS=claude pane_is_busy "default:w1:p2" herdr; then
-      fail "OpenCode's rendered signature must not classify a Claude primary busy"
-    fi
-    FM_DAEMON_PRIMARY_HARNESS=opencode pane_is_busy "default:w1:p2" herdr \
-      || fail "OpenCode's rendered signature should classify an OpenCode primary busy"
-  ) || fail "harness-scoped primary busy guard subshell failed"
-  pass "primary busy guard isolates rendered signatures by detected harness"
-}
 
 test_pane_is_busy_defaults_to_tmux_when_backend_omitted() {
   local dir fakebin capture
   dir=$(make_supercase busy-default-backend)
   fakebin="$dir/fakebin"; capture="$dir/pane.txt"
-  printf 'Ctrl+c:cancel\n' > "$capture"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_STATE_OVERRIDE="$dir/state" FM_DAEMON_PRIMARY_HARNESS=grok pane_is_busy "fakepane" \
+  printf 'esc to interrupt\n' > "$capture"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$capture" FM_STATE_OVERRIDE="$dir/state" FM_DAEMON_PRIMARY_HARNESS=claude pane_is_busy "fakepane" \
     || fail "pane_is_busy with no backend arg should still default to tmux"
   pass "pane_is_busy: omitted backend defaults to tmux for Grok's isolated fallback"
 }
@@ -1668,8 +1638,6 @@ test_inject_wedge_alarm_throttles_when_marker_cannot_be_written
 test_fm_send_exits_nonzero_on_confirmed_swallow
 test_fm_send_exits_nonzero_on_initial_send_failure
 test_fm_send_exits_nonzero_on_unproven_submit
-test_discover_supervisor_backend_precedence
-test_primary_busy_guard_is_harness_scoped
 test_pane_is_busy_defaults_to_tmux_when_backend_omitted
 test_inject_msg_defers_on_dead_shell_unknown
 test_inject_msg_defers_on_unrecognized_composer_state
