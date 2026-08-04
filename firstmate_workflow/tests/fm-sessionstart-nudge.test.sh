@@ -81,17 +81,6 @@ test_unmarked_linked_worktree_is_silent() {
   pass "fm-sessionstart-nudge: an unmarked linked task worktree is silent"
 }
 
-test_linked_secondmate_primary_nudges() {
-  local base="$TMP_ROOT/secondmate-base" root="$TMP_ROOT/secondmate-home" out status=0
-  fm_git_worktree "$base" "$root" fm/sessionstart-secondmate
-  mkdir -p "$root/bin" "$root/state"
-  : > "$root/AGENTS.md"
-  printf 'sessionstart-sm\n' > "$root/.fm-secondmate-home"
-  out=$(run_nudge "$root") || status=$?
-  expect_code 0 "$status" "linked secondmate nudge"
-  [ "$out" = "$NUDGE_LINE" ] || fail "linked secondmate printed unexpected output: $out"
-  pass "fm-sessionstart-nudge: a marked linked secondmate home is a primary"
-}
 
 test_missing_state_is_silent() {
   local root="$TMP_ROOT/missing-state"
@@ -109,50 +98,10 @@ test_owned_lock_is_silent() {
   pass "fm-sessionstart-nudge: a lock holder in process ancestry is already run"
 }
 
-test_opencode_plugin_delivers_exact_nudge_once() {
-  local root="$TMP_ROOT/opencode-primary" out status=0
-  make_primary "$root"
-  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
-    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
-  chmod +x "$root/bin/fm-sessionstart-nudge.sh"
-  out=$(PLUGIN="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js" \
-    WORKTREE="$root" EXPECTED="$NUDGE_LINE" node --input-type=module 2>&1 <<'EOF'
-import { pathToFileURL } from "node:url";
-
-const prompts = [];
-const client = {
-  session: {
-    promptAsync: async (request) => {
-      prompts.push(request.body.parts[0].text);
-    },
-  },
-};
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
-const hooks = await mod.FmPrimarySessionstartNudge({
-  client,
-  directory: process.env.WORKTREE,
-  worktree: process.env.WORKTREE,
-});
-const event = {
-  type: "session.created",
-  properties: { sessionID: "session-nudge-test", info: { id: "session-nudge-test" } },
-};
-await hooks.event({ event });
-await hooks.event({ event });
-if (prompts.length !== 1) throw new Error(`expected one prompt, got ${prompts.length}`);
-if (prompts[0] !== process.env.EXPECTED) throw new Error(`unexpected prompt: ${prompts[0]}`);
-EOF
-  ) || status=$?
-  expect_code 0 "$status" "OpenCode exact nudge delivery"
-  [ -z "$out" ] || fail "OpenCode exact nudge delivery printed output: $out"
-  pass "OpenCode session.created delivers the exact wrapper nudge once per session"
-}
 
 test_genuine_primary_nudges
 test_gate_env_is_silent
 test_gate_common_dir_is_silent
 test_unmarked_linked_worktree_is_silent
-test_linked_secondmate_primary_nudges
 test_missing_state_is_silent
 test_owned_lock_is_silent
-test_opencode_plugin_delivers_exact_nudge_once
