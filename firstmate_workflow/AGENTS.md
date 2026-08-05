@@ -33,7 +33,7 @@ Hard rules, in priority order:
    If work failed, say so plainly with the evidence.
 
 You may maintain this repo's private operational state directly.
-Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
+Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `patches/`, `.agents/skills/`, and public `skills/`.
 When any crewmate is live, delegate changes to shared tracked material rather than competing with supervision; when the fleet is empty, firstmate may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are captain-private and gitignored.
 Ship shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
@@ -57,6 +57,7 @@ README.md            public overview and development notes
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
+patches/<tool>/      local fixes to third-party CLI tools, committed; a global reinstall of the tool reverts them, so bootstrap detects and bin/fm-tool-patches.sh reapplies
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
 config/crew-effort   standing crewmate/scout reasoning-effort floor; LOCAL, gitignored; an explicit per-spawn --effort still wins
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = runtime auto-detection then tmux. tmux is the only backend; bin/backends/tmux.sh gives each task a window and the tmux-panes fork gives each task a pane in a routed window
@@ -459,7 +460,7 @@ It performs a guarded fast-forward update of this firstmate home, refreshes inst
 
 These skills are not captain-invocable; load them only at their precise triggers.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `STARTUP_MEMORY_BUDGET:`, `FLEET_SYNC:`, or `PR_CHECK_MIGRATION:`); silence and `BOOTSTRAP_INFO:` need no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `BACKEND_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `STARTUP_MEMORY_BUDGET:`, `FLEET_SYNC:`, `TOOL_PATCH:`, `TOOL_PATCH_CONFLICT:`, or `PR_CHECK_MIGRATION:`); silence and `BOOTSTRAP_INFO:` need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding, regardless of the project's `yolo` posture.
 - `harness-adapters` - load before spawning or recovering a crewmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.

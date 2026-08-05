@@ -1,0 +1,59 @@
+--- a/dist/chrome-client.js
++++ b/dist/chrome-client.js
+@@ -98,6 +98,15 @@
+ let warningsDrawerOpen = false;
+ let warningsAcknowledged = loadJsonState(warningAckStorageKey, false) === true;
+ const snapshotRequests = [];
++// A send waits for the artifact frame to answer a snapshot request over
++// postMessage. When the frame cannot answer - a refused or superseded artifact
++// load, a frame mid-reload, a script that died - that reply never arrives, and
++// without a deadline the send waits for it forever: the prompt stays queued, no
++// request is ever made, and the reviewer is told nothing. The DOM snapshot is
++// context around the feedback, not the feedback itself, so a send that has lost
++// it must still go out rather than be dropped in silence.
++const SNAPSHOT_REPLY_TIMEOUT_MS = 2500;
++let snapshotTimeoutTimer = null;
+ let endAfterSubmit = false;
+ let workingBubble = null;
+ let submitQueuedPromise = null;
+@@ -387,8 +396,27 @@
+   if (frame.contentWindow) frame.contentWindow.postMessage(message, "*");
+ }
+ 
++function clearSnapshotTimeout() {
++  if (snapshotTimeoutTimer) clearTimeout(snapshotTimeoutTimer);
++  snapshotTimeoutTimer = null;
++}
++
++// Give up on the snapshot rather than on the send. A "copy" request is a debug
++// convenience and is simply abandoned; a "submit" is the reviewer's feedback and
++// goes out with an empty snapshot instead of never going out at all.
++function abandonPendingSnapshotRequests() {
++  snapshotTimeoutTimer = null;
++  while (snapshotRequests.length) {
++    if (snapshotRequests.shift() === "copy") continue;
++    pendingSnapshot = "";
++    submitQueued();
++  }
++}
++
+ function requestSnapshot(action) {
+   snapshotRequests.push(action);
++  clearSnapshotTimeout();
++  snapshotTimeoutTimer = setTimeout(abandonPendingSnapshotRequests, SNAPSHOT_REPLY_TIMEOUT_MS);
+   postToFrame({ type: "lavish:requestSnapshot" });
+ }
+ 
+@@ -1743,7 +1771,12 @@
+     enqueuePrompt(msg.prompt);
+   }
+   if (msg.type === "lavish:snapshot") {
++    clearSnapshotTimeout();
+     const snapshotAction = snapshotRequests.shift() || "submit";
++    // One reply answers one request; anything still waiting keeps its deadline.
++    if (snapshotRequests.length) {
++      snapshotTimeoutTimer = setTimeout(abandonPendingSnapshotRequests, SNAPSHOT_REPLY_TIMEOUT_MS);
++    }
+     if (snapshotAction === "copy") {
+       copyText(msg.snapshot || "");
+     } else {

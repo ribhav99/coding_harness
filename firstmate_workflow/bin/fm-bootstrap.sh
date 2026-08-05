@@ -11,6 +11,8 @@
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
+#                 "TOOL_PATCH: <tool>/<name> (apply: <command>)",
+#                 "TOOL_PATCH_CONFLICT: <tool>/<name> <reason>",
 #                 "TANGLE: <remediation>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'".
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
@@ -265,6 +267,10 @@ if command -v tasks-axi >/dev/null 2>&1 && ! fm_tasks_axi_compatible; then
   echo "MISSING: tasks-axi (install: $(install_cmd tasks-axi))"
 fi
 gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
+# Local fixes to third-party CLI tools (patches/), which a global reinstall of
+# the tool silently reverts. Detect only here; fm-tool-patches.sh owns the
+# resolution, the applied/pending/conflict decision, and the exact line format.
+"$SCRIPT_DIR/fm-tool-patches.sh" --check 2>/dev/null || true
 # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
 # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
 # primary only; a detached-HEAD worktree never trips it.
