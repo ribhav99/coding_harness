@@ -218,16 +218,18 @@ The spawn must resolve a genuine isolated task worktree distinct from the primar
 After spawning, confirm the worker is processing the brief, handle any trust dialog through `harness-adapters`, and record ship or scout work as under way.
 
 **When firstmate may steer a worker.**
-Send a message to a live worker only in these three cases:
+Send a message to a live worker only in these four cases:
 
 1. The captain instructed this specific steer.
 2. It is the completion handoff below.
 3. The worker asked: it posted a `needs-decision:` or `blocked:` status and cannot proceed alone.
+4. The worker's reporting channel is broken: it has finished working and reported no outcome at all, so its result cannot reach the captain and no supervision reading can tell it apart from a wedged session.
 
 Anything not on that list is forbidden.
 Specifically, never message a worker to silence a supervision alarm, to ask for its status, to nudge it because it looks idle, to request progress, to ask it to tidy its own state, or for any purpose whose real aim is reducing firstmate's own notification load.
 A worker that has gone quiet is a supervision question, answered by section 8 and `bin/fm-crew-state.sh`, never by typing into its pane.
-`bin/fm-send.sh` enforces this: every message requires `--why captain|handoff|answer`, refuses `--why answer` unless that task has an open unresolved `needs-decision:`/`blocked:`, and records each send to `state/<id>.steers`.
+Case 4 is not an exception to that: it is the narrow repair of the channel every other rule depends on, and it stops applying the instant the worker reports anything at all, however imperfectly.
+`bin/fm-send.sh` enforces this: every message requires `--why captain|handoff|answer|protocol`, refuses `--why answer` unless that task has an open unresolved `needs-decision:`/`blocked:`, refuses `--why protocol` once that task has reported any outcome, and records each send to `state/<id>.steers`.
 Steer with short single-line messages; put long instructions in a file.
 
 Supervise all live work under section 8.

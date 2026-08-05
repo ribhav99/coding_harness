@@ -183,7 +183,7 @@ finding you are confident in, and the evidence for each. That report is the
 deliverable that survives this session.
 
 Report by appending one line to $STATE/$REVIEW_ID.status:
-   \`echo "done: {your review verdict in one line}" >> $STATE/$REVIEW_ID.status\` when the review is delivered - this is how firstmate learns you finished.
+   \`echo "done: {your review verdict in one line}" >> $STATE/$REVIEW_ID.status\` as soon as the review EXISTS - the moment your report is written, before you open any review surface and without waiting for anyone to act on it. This is how firstmate learns your verdict, and it is the only way it reaches the captain. Do not defer it until your findings are approved or posted: a review that is finished but unreported is indistinguishable from a session that hung.
    \`echo "needs-decision: {the options}" >> $STATE/$REVIEW_ID.status\` if something is genuinely ambiguous or is not yours to decide - then STOP and wait for the answer rather than guessing.
 EOF
 fi

@@ -88,6 +88,36 @@ test_exact_lane_id_send_still_works() {
   pass "fm-send strict: exact task/lane ids resolve through home metadata"
 }
 
+# --why protocol repairs the reporting channel itself, so it is permitted only
+# while that channel is provably unused. The moment a worker has reported any
+# outcome it must be refused, or the narrow repair becomes an ordinary nudge -
+# which is the exact behaviour the justification gate exists to stop.
+test_why_protocol_only_for_a_worker_that_reported_nothing() {
+  local dir fb home err log rc
+  dir="$TMP_ROOT/protocol"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); home=$(setup_home protocol); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
+  fm_write_meta "$home/state/silent-r4.meta" "window=sess:fm-silent-r4" "kind=scout"
+  fm_write_meta "$home/state/spoke-r5.meta" "window=sess:fm-spoke-r5" "kind=scout"
+
+  # A worker that has never reported: the channel is broken, so the repair lands.
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" silent-r4 --why protocol "report your verdict now" >/dev/null 2>"$err"; rc=$?
+  expect_code 0 "$rc" "a worker that reported nothing should accept a protocol repair"
+  assert_contains "$(cat "$log")" "literal=1 arg=report your verdict now" "the protocol repair should have been typed"
+  grep -q "	protocol	" "$home/state/silent-r4.steers" || fail "the protocol steer was not recorded with its justification"
+
+  # A worker that already reported - even a non-terminal progress line is not
+  # enough; only a real reported outcome closes the gate.
+  : > "$log"
+  printf 'done: review delivered\n' > "$home/state/spoke-r5.status"
+  PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
+    "$SEND" spoke-r5 --why protocol "say it again" >/dev/null 2>"$err"; rc=$?
+  [ "$rc" -ne 0 ] || fail "protocol repair should be refused once a worker has reported an outcome"
+  assert_contains "$(cat "$err")" "has already reported an outcome" "the refusal should name why it was refused"
+  [ ! -s "$log" ] || fail "a refused protocol repair still typed into the pane"$'\n'"$(cat "$log")"
+  pass "fm-send strict: --why protocol repairs only a worker that reported nothing"
+}
+
 test_unset_fm_home_fails() {
   local dir fb err log rc
   dir="$TMP_ROOT/nohome"; mkdir -p "$dir"
@@ -148,6 +178,7 @@ test_healthy_fm_id_send_still_works() {
 }
 
 test_exact_lane_id_send_still_works
+test_why_protocol_only_for_a_worker_that_reported_nothing
 test_unset_fm_home_fails
 test_unresolvable_target_does_not_tmux_fallback
 test_unmatched_single_colon_target_must_exist

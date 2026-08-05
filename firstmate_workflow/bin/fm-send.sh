@@ -20,15 +20,19 @@
 # Slash commands get a longer pre-Enter settle so completion popups do not
 # swallow Enter.
 #
-# Justification (--why): firstmate may steer a worker only in the three cases
-# AGENTS.md section 7 lists, so every text send must name which one it is.
-#   --why captain  the captain asked for this exact steer
-#   --why handoff  the completion handoff in AGENTS.md section 7
-#   --why answer   answering a needs-decision:/blocked: the worker itself raised
-# A send with no --why is refused. --why answer is CHECKED: it needs an open,
-# unresolved keyed decision in that task's status log (bin/fm-classify-lib.sh's
-# status_open_decisions). captain and handoff are not checkable - a hook cannot
-# read the captain's intent - but a flag firstmate must consciously choose is
+# Justification (--why): firstmate may steer a worker only in the cases AGENTS.md
+# section 7 lists, so every text send must name which one it is.
+#   --why captain   the captain asked for this exact steer
+#   --why handoff   the completion handoff in AGENTS.md section 7
+#   --why answer    answering a needs-decision:/blocked: the worker itself raised
+#   --why protocol  repairing a worker that finished without reporting anything
+# A send with no --why is refused. Two of them are CHECKED against that task's
+# status log (bin/fm-classify-lib.sh): --why answer needs an open, unresolved
+# keyed decision (status_open_decisions), and --why protocol is refused the
+# moment the worker has reported ANY outcome (last_reported_outcome), so it can
+# only ever repair a silent worker and can never widen into an ordinary nudge.
+# captain and handoff are not checkable - a hook cannot read the captain's intent
+# - but a flag firstmate must consciously choose is
 # far stronger than prose, and every send is recorded to state/<id>.steers
 # (task id, timestamp, justification, first 80 characters of the message) so a
 # drift pattern is visible afterwards rather than invisible. The --key path
@@ -211,14 +215,14 @@ if [ "${1:-}" = "--key" ]; then
   fm_send_record_interrupt "$2" || exit 1
 else
   if [ "${1:-}" != "--why" ]; then
-    echo "error: fm-send refuses a steer with no justification; pass --why captain|handoff|answer before the message (AGENTS.md section 7 owns when firstmate may steer a worker)" >&2
+    echo "error: fm-send refuses a steer with no justification; pass --why captain|handoff|answer|protocol before the message (AGENTS.md section 7 owns when firstmate may steer a worker)" >&2
     exit 1
   fi
   WHY=${2:-}
   case "$WHY" in
-    captain|handoff|answer) ;;
-    '') echo "error: --why requires a value: captain, handoff, or answer" >&2; exit 1 ;;
-    *) echo "error: unknown --why '$WHY'; expected captain, handoff, or answer" >&2; exit 1 ;;
+    captain|handoff|answer|protocol) ;;
+    '') echo "error: --why requires a value: captain, handoff, answer, or protocol" >&2; exit 1 ;;
+    *) echo "error: unknown --why '$WHY'; expected captain, handoff, answer, or protocol" >&2; exit 1 ;;
   esac
   shift 2
   if [ "$WHY" = answer ]; then
@@ -228,6 +232,23 @@ else
     fi
     if [ -z "$(status_open_decisions "$STATE/$TARGET_TASK_ID.status")" ]; then
       echo "error: --why answer refused: task $TARGET_TASK_ID has no open needs-decision: or blocked: line to answer (an earlier one was resolved, or none was ever raised)" >&2
+      exit 1
+    fi
+  fi
+  # --why protocol repairs the reporting channel itself, so it is permitted ONLY
+  # in the one state where that channel is provably broken: the worker has
+  # reported NO outcome at all - no done:, failed:, blocked: or needs-decision: -
+  # so firstmate has no way to learn what it did and the captain never gets the
+  # result. A worker that has reported anything is refused here: correcting what
+  # it said, or asking it to say more, is not a protocol repair, and the whole
+  # point of this gate is that it cannot widen into an ordinary nudge.
+  if [ "$WHY" = protocol ]; then
+    if [ -z "$TARGET_TASK_ID" ]; then
+      echo "error: --why protocol needs a task selector whose status log can be read; '$RAW_TARGET' resolved to no task in this home" >&2
+      exit 1
+    fi
+    if [ -n "$(last_reported_outcome "$STATE/$TARGET_TASK_ID.status")" ]; then
+      echo "error: --why protocol refused: task $TARGET_TASK_ID has already reported an outcome, so its reporting channel is not broken; use --why captain when the captain asked for this steer" >&2
       exit 1
     fi
   fi

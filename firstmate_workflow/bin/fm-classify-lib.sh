@@ -69,6 +69,27 @@ status_is_resting() {  # <status-line>
   [ "$verb" = "${FM_CLASSIFY_RESTING_VERB:-$FM_CLASSIFY_RESTING_VERB_DEFAULT}" ]
 }
 
+# The newest line in a status file that REPORTS AN OUTCOME to firstmate - a
+# terminal done:/failed:, or a needs-decision:/blocked: asking for help - or
+# empty when the worker has never reported one. Progress verbs are excluded on
+# purpose: working: and paused: say a worker is alive, not what it produced. This
+# is the test for "has this worker's reporting channel been used at all", which
+# is a different question from "what state is it in now" (last_state_status_line).
+last_reported_outcome() {  # <status-file>
+  local f=$1 line
+  [ -e "$f" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if status_is_terminal_verb "$line"; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done <<EOF
+$(awk 'NF {lines[++n]=$0} END {for (i=n; i>0; i--) print lines[i]}' "$f" 2>/dev/null)
+EOF
+  return 0
+}
+
 # 0 if a status line's leading verb is one this vocabulary maps onto a crew state.
 # Everything else - a decision-closing resolved:, or a verb a crewmate invented -
 # is an event that carries no state.
