@@ -306,7 +306,15 @@ Steps 4 and 5 are one operation, `bin/fm-review-handoff.sh <task-id>`, so the sw
 It reuses `bin/fm-teardown.sh`'s unlanded-work refusal unchanged and never passes `--force`; a refusal there stops the handoff with nothing changed.
 The review session is an ordinary scout task in this home's state, so ordinary supervision sees it.
 
-Tear down a ship task only after landing is confirmed.### Scout outcome and promotion
+Tear down a ship task only after landing is confirmed.
+
+**Announcing a finished review.**
+Once a review's comments are actually posted to the forge, reply to the message that requested that review, tag its author, and say only the outcome: `comments up`, `approved with comments`, or `approved`.
+Name the PR when one request covered several.
+Nothing else goes in that reply, because the review itself already carries the detail and the requester reads it there.
+Confirm the posted state on the forge first rather than relaying the worker's claim, and announce nothing for a project whose registry entry records no review channel.
+
+### Scout outcome and promotion
 
 A completed scout must leave a self-contained report before its scratch worktree can be discarded; read and relay its findings, record the report as the Done artifact, and re-evaluate the queue.
 A report may recommend implementation but does not authorize it.

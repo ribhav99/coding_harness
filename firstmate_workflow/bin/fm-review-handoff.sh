@@ -185,6 +185,12 @@ deliverable that survives this session.
 Report by appending one line to $STATE/$REVIEW_ID.status:
    \`echo "done: {your review verdict in one line}" >> $STATE/$REVIEW_ID.status\` as soon as the review EXISTS - the moment your report is written, before you open any review surface and without waiting for anyone to act on it. This is how firstmate learns your verdict, and it is the only way it reaches the captain. Do not defer it until your findings are approved or posted: a review that is finished but unreported is indistinguishable from a session that hung.
    \`echo "needs-decision: {the options}" >> $STATE/$REVIEW_ID.status\` if something is genuinely ambiguous or is not yours to decide - then STOP and wait for the answer rather than guessing.
+
+Report a SECOND time, the same way, once you have acted on the captain's decisions and
+actually posted to the forge: \`done: POSTED - {approved | approved with comments | comments
+up}, {what went up and what was dropped}\`. Firstmate announces that outcome to whoever asked
+for this review, and it has no other way to learn that the comments landed. A review whose
+comments are posted but unreported looks identical to one still waiting on the captain.
 EOF
 fi
 
