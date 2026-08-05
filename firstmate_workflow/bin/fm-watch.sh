@@ -816,9 +816,9 @@ EOF
             wake "stale: $w"
           fi
         elif stale_is_terminal "$w" "$STATE" \
-             && status_is_resting "$(last_status_line "$STATE/$task.status")" \
+             && status_is_resting "$(last_state_status_line "$STATE/$task.status")" \
              && [ "$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)" \
-                  = "$(last_status_line "$STATE/$task.status")" ]; then
+                  = "$(last_state_status_line "$STATE/$task.status")" ]; then
           # RESTING. The crew finished (done:) and that exact line has already
           # been surfaced to firstmate once, by this stale path or by the signal
           # wake the append itself produced. A finished worker is healthy, not a

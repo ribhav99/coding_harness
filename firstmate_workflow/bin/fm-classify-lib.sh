@@ -69,6 +69,42 @@ status_is_resting() {  # <status-line>
   [ "$verb" = "${FM_CLASSIFY_RESTING_VERB:-$FM_CLASSIFY_RESTING_VERB_DEFAULT}" ]
 }
 
+# 0 if a status line's leading verb is one this vocabulary maps onto a crew state.
+# Everything else - a decision-closing resolved:, or a verb a crewmate invented -
+# is an event that carries no state.
+status_line_carries_state() {  # <status-line>
+  local line=$1
+  [ -n "$line" ] || return 1
+  status_is_paused "$line" && return 0
+  case "$(status_line_verb "$line")" in
+    working|needs-decision|blocked|failed) return 0 ;;
+    "${FM_CLASSIFY_RESTING_VERB:-$FM_CLASSIFY_RESTING_VERB_DEFAULT}") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The newest line in a status file whose verb carries a state, or empty.
+# The status log is an append-only EVENT stream and not every event is a state,
+# so last_status_line alone cannot answer "what state is this crew in": one
+# append with an unmapped verb after a real done: would otherwise erase a
+# perfectly readable state, which reads as a lost crew and re-escalates a healthy
+# finished worker forever. Scanning back to the newest state-bearing event keeps
+# the same last-event-wins rule over the events that actually carry one.
+last_state_status_line() {  # <status-file>
+  local f=$1 line
+  [ -e "$f" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if status_line_carries_state "$line"; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done <<EOF
+$(awk 'NF {lines[++n]=$0} END {for (i=n; i>0; i--) print lines[i]}' "$f" 2>/dev/null)
+EOF
+  return 0
+}
+
 # The deliberate-external-wait verb. A crew (or firstmate steering it) appends
 #   paused: <reason>
 # to declare it is intentionally idling on a KNOWN external dependency - an
@@ -417,7 +453,11 @@ signal_crew_provably_working() {  # <file> ...
 # while the away-mode daemon applies its persistence recheck.
 stale_is_terminal() {  # <window> <state>
   local win=$1 state=$2 last
-  last=$(last_status_line "$state/$(window_to_task "$win" "$state").status")
+  # The newest STATE-bearing event, not simply the newest line: an append whose
+  # verb carries no state must not change what this window's status says about
+  # it, or a trailing `update:` after a real `done:` silently drops a resting
+  # worker back into escalation (last_state_status_line owns that rule).
+  last=$(last_state_status_line "$state/$(window_to_task "$win" "$state").status")
   [ -n "$last" ] && status_is_captain_relevant "$last"
 }
 

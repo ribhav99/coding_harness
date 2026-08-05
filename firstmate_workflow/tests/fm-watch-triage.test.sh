@@ -526,6 +526,41 @@ test_done_rests_after_one_surface_while_blocked_keeps_escalating() {
   pass "a finished worker surfaces once then rests, while a blocked worker keeps escalating"
 }
 
+# A crewmate can append an event whose verb this vocabulary does not carry - an
+# `update:` amending its own earlier report, say. That event says nothing about
+# the crew's state, so it must not cancel the rest a real `done:` established:
+# reading the last line alone put a healthy finished worker back into
+# escalate-every-few-minutes for as long as it sat there.
+test_done_still_rests_behind_an_unrecognized_trailing_event() {
+  local dir state fakebin out capture_file window key pane_hash sig pid
+  dir=$(make_case resting-trailing-event); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-rest-trailing"
+  printf 'review delivered, awaiting your call' > "$capture_file"
+  printf 'window=%s\nkind=scout\n' "$window" > "$state/rest2.meta"
+  printf 'done: REQUEST CHANGES on PR 292\nupdate: a late judge amended the report\n' > "$state/rest2.status"
+  sig=$(seen_sig "$state/rest2.status"); printf '%s' "$sig" > "$state/.seen-rest2_status"
+  # The done: line is the one that was surfaced; the trailing event never was.
+  printf 'done: REQUEST CHANGES on PR 292' > "$state/.hb-surfaced-rest2"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "review delivered, awaiting your call")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: done · source: status-log · REQUEST CHANGES on PR 292'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "an unrecognized trailing event cancelled a finished worker's rest: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || fail "a resting finished worker printed a wake reason behind a trailing event"
+  [ ! -s "$state/.wake-queue" ] || fail "a resting finished worker enqueued a wake behind a trailing event"
+  reap "$pid"
+  unset FM_FAKE_CREW_STATE
+  pass "an unrecognized trailing status event does not cancel a finished worker's rest"
+}
+
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
 # Regression for the 2026-07 herdr false-surface incidents: a crew's own status
 # log gets no new entry once firstmate hands it to a no-mistakes validation
@@ -1561,6 +1596,7 @@ test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
 test_done_rests_after_one_surface_while_blocked_keeps_escalating
+test_done_still_rests_behind_an_unrecognized_trailing_event
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold
