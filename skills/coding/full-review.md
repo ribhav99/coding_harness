@@ -160,6 +160,30 @@ The one permitted exception is in reviewer mode: if the comment you are about to
   - **Author mode:** READY TO MERGE | NEEDS FIXES | NEEDS DISCUSSION, one sentence why.
   - **Reviewer mode:** the **recommendation you would give the author** — APPROVE | APPROVE WITH COMMENTS | REQUEST CHANGES | NEEDS DISCUSSION — with one sentence why, and a control for the user to override it. This is the single most important thing on the page: it is what the author will act on.
 
+#### The decision form — build it exactly this way
+
+You write this page from scratch every time, and the way it fails is silent: the user clicks through every decision, the page looks like it worked, and what you read back is empty. You then post something they did not choose, under their name, and nobody finds out. Two real instances, both from this skill, both invisible from the user's side:
+
+- A verdict `<select>` carried an `id` but no `name`, so `FormData` never saw it and the verdict came back `null`. The user chose REQUEST CHANGES; the review went out as a plain comment.
+- Each comment draft was rendered into a `<div>` inside a collapsed `<details>` and read back with `innerText`. `innerText` returns `""` for anything not currently rendered, and collapsed `<details>` content is not rendered — so every comment body came back empty and the drafts the user had edited were lost.
+
+Four rules kill both permanently:
+
+1. **`name` on every control that carries a decision, unique per finding** — `name="f1-decision"`, `name="f1-comment"`. An `id` alone is invisible to `FormData`. Radios in one group share that one `name`.
+2. **Editable comment text is a `<textarea name="...">`, read with `.value`.** A textarea reports its value whether or not it is visible, collapsed, or scrolled out of view. Never render a draft into a `<div>` and read the text back out of the DOM.
+3. **Never use `innerText` to read anything.** It is a rendering-dependent read and silently returns `""` inside `<details>`, `hidden`, `display:none`, or anything off-screen. If you must read a non-input element, use `textContent`.
+4. **Validate before sending, and fail loudly.** Collect with `new FormData(form)`, then check that every finding produced a non-empty decision and, where one is expected, non-empty text. If anything is missing, show the user an error on the page and send nothing. A visible refusal is recoverable; a silent empty payload is not.
+
+#### Before you hand the page over
+
+Check your own artifact before running `lavish-axi`. All three are static checks on the file you just wrote:
+
+- Every `<input>`, `<select>` and `<textarea>` inside the decision form has a `name` attribute.
+- The string `innerText` does not appear anywhere in the file.
+- The submit path refuses and surfaces an error when a decision or an expected comment body is empty, rather than sending a partial payload.
+
+Fix anything that fails before the user ever sees the page. A surface that collects the wrong thing is worse than no surface, because it launders your own output as the user's decision.
+
 ### 7. Collect decisions
 
 ```
