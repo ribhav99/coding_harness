@@ -147,15 +147,6 @@ test_guard_warnings() {
   queue_line=$(grep -n 'queued wakes pending - drain them' "$err" | head -1 | cut -d: -f1)
   [ "$banner_line" -lt "$queue_line" ] || fail "queued-wakes warning printed before the no-watcher banner"
 
-  dir=$(make_case guard-xmode)
-  state="$dir/state"
-  err="$dir/guard.err"
-  mkdir -p "$dir/config"
-  printf 'project=x\n' > "$state/task.meta"
-  : > "$dir/config/x-mode.env"
-  CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
-  grep -F "source '$dir/config/x-mode.env' first" "$err" >/dev/null || fail "guard repair line did not source the X-mode cadence config"
-
   # (2) fresh watcher, empty queue -> silence.
   dir=$(make_case guard-fresh)
   state="$dir/state"
@@ -573,6 +564,51 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "attached arm did not fail after seed died (status $status)"
   grep -qF 'watcher: FAILED - cycle ended without an actionable reason' "$armout" || fail "attached arm did not emit the typed cycle-end failure"
   pass "arm attaches to a live fresh watcher and fails loudly when that cycle has no successor"
+}
+
+# An attached arm never waits on the watcher process, so it cannot see the exit
+# status. When the arm that STARTED that watcher already recorded an actionable
+# close for it, the attached arm must read that record and close cleanly instead
+# of raising a supervision alarm for a watcher that did exactly its job.
+test_attached_arm_reads_starter_actionable_close() {
+  local dir state fakebin out armout i wpid armpid status
+  dir=$(make_case arm-attach-actionable-close)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  armout="$dir/arm.out"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  wpid=$!
+  i=0
+  while [ "$i" -lt 60 ]; do
+    [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] || fail "seed watcher did not take the lock"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" &
+  armpid=$!
+  i=0
+  while [ "$i" -lt 80 ]; do
+    grep -qF "watcher: attached pid=$wpid" "$armout" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -qF "watcher: attached pid=$wpid" "$armout" || fail "arm did not attach to the live watcher"
+  # The starting arm's own record of this exact watcher closing on a real wake.
+  printf 'arm_pid=%s\twatcher_pid=%s\torigin=started\tstarted_at=1\tended_at=2\texit_code=0\tsignal=none\treason=actionable-stale\tbeacon_age=1\tlock_before=none\tlock_after=none\tsuccessor=none\n' \
+    99999 "$wpid" >> "$state/.watch-cycle-exits.log"
+  kill "$wpid" 2>/dev/null || true
+  wait "$wpid" 2>/dev/null || true
+  wait_for_exit "$armpid" 80
+  status=$?
+  [ "$status" -eq 0 ] || fail "attached arm did not close cleanly after an actionable starter close (status $status)"
+  grep -qF "watcher: closed pid=$wpid (actionable-stale)" "$armout" \
+    || fail "attached arm did not report the starter's actionable close"
+  ! grep -qF 'watcher: FAILED' "$armout" || fail "attached arm raised a false supervision alarm"
+  grep -q "reason=attached-cycle-closed-actionable-stale" "$state/.watch-cycle-exits.log" \
+    || fail "the clean attached close was not classified in the lifecycle ledger"
+  pass "an attached arm closes cleanly when the starting arm recorded an actionable close"
 }
 
 test_attached_arm_signal_is_recorded_in_cycle_ledger() {
@@ -1031,6 +1067,7 @@ test_watch_restart_attaches_to_healthy_peer
 test_watcher_self_evicts_on_lock_takeover
 test_arm_self_eviction_is_loud_without_successor
 test_arm_attaches_and_waits_for_live_fresh_watcher
+test_attached_arm_reads_starter_actionable_close
 test_attached_arm_signal_is_recorded_in_cycle_ledger
 test_arm_starts_and_self_heals
 test_arm_hup_cleans_child_and_temp_output

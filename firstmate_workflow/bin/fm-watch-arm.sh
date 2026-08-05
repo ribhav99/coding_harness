@@ -29,6 +29,9 @@
 #   watcher: attached pid=<N> (beacon <age>s)            - a live+fresh successor holds the lock;
 #                                                          this arm attaches and follows it
 #   watcher: FAILED - no live watcher with a fresh beacon  - could not confirm one
+#   watcher: closed pid=<N> (<reason>)                    - the watcher this arm was ATTACHED to
+#                                                          closed for an actionable reason recorded
+#                                                          by the arm that started it
 #   watcher: FAILED - cycle ended without an actionable reason
 #                                                        - a clean cycle ended with no wake and no
 #                                                          verified healthy successor
@@ -36,11 +39,17 @@
 # stale-beacon or dead-pid holder either self-heals (the fresh child steals the
 # dead lock per the singleton self-eviction/steal path and is confirmed) or this
 # returns the FAILED line. On started it waits the child and propagates the wake
-# reason; on attached it stays live across identity-matched successors. An
-# attached cycle that ends without a healthy successor is a typed nonzero failure,
-# never a clean empty completion. On FAILED it exits non-zero so the failure is
-# loud. A live cycle already present means re-arm attaches - do not start a second
-# watcher.
+# reason; on attached it stays live across identity-matched successors.
+#
+# An attached arm cannot observe its watcher's exit status - only the arm that
+# STARTED that watcher waits on it and learns the reason. So before declaring an
+# attached cycle unexplained, this consults the ledger below for the starting
+# arm's own record of that same watcher pid: an actionable close there means the
+# wake was delivered and the next turn end re-arms, which is a clean close for
+# this arm too, not a failure. Without such a record it is a typed nonzero
+# failure, never a clean empty completion. On FAILED it exits non-zero so the
+# failure is loud. A live cycle already present means re-arm attaches - do not
+# start a second watcher.
 #
 # Every observed watcher cycle appends one tab-separated lifecycle record to
 # state/.watch-cycle-exits.log. The arm layer owns that bounded ledger; it records
@@ -261,11 +270,40 @@ fail_unexplained_cycle() {
   return 1
 }
 
+# starter_close_reason <watcher-pid>: the reason the arm that STARTED <watcher-pid>
+# recorded when that watcher closed, or empty when no such record exists yet.
+# An attached arm never waits on the watcher process, so this ledger record is its
+# only way to distinguish a normal actionable close from a crash.
+starter_close_reason() {  # <watcher-pid>
+  local pid=$1
+  [ -n "$pid" ] || return 0
+  [ -r "$CYCLE_LOG" ] || return 0
+  awk -F'\t' -v want="watcher_pid=$pid" '
+    {
+      matched = 0; origin = ""; reason = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i == want) matched = 1
+        else if ($i ~ /^origin=/) origin = substr($i, 8)
+        else if ($i ~ /^reason=/) reason = substr($i, 8)
+      }
+      if (matched && origin == "started" && reason ~ /^actionable-/) last = reason
+    }
+    END { if (last != "") print last }
+  ' "$CYCLE_LOG" 2>/dev/null
+}
+
+# An attached cycle whose watcher closed for an actionable reason is a clean close
+# for this arm too: the wake is already queued and the next turn end re-arms.
+report_attached_actionable_close() {  # <watcher-pid> <reason>
+  echo "watcher: closed pid=$1 ($2)"
+  return 0
+}
+
 # Stay alive across identity-matched healthy holders. If one cycle ends, attach
 # to a verified successor. With no successor, fail loudly instead of returning a
 # clean empty completion that an adapter could mistake for a no-op.
 attach_and_wait() {
-  local attached_pid=$1
+  local attached_pid=$1 closed_reason
   while :; do
     if healthy_watcher; then
       if [ "$HEALTHY_PID" != "$attached_pid" ]; then
@@ -283,6 +321,12 @@ attach_and_wait() {
       cycle_begin "$attached_pid" attached
       report_attached
       continue
+    fi
+    closed_reason=$(starter_close_reason "$attached_pid")
+    if [ -n "$closed_reason" ]; then
+      cycle_log_append unknown unknown "attached-cycle-closed-$closed_reason" none
+      report_attached_actionable_close "$attached_pid" "$closed_reason"
+      return 0
     fi
     cycle_log_append unknown unknown attached-cycle-ended none
     fail_unexplained_cycle
