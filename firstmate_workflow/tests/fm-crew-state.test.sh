@@ -783,6 +783,27 @@ EOF
   pass "another branch's run is ignored, falls back"
 }
 
+# The status log is an append-only EVENT stream, so a crewmate can append a line
+# whose verb this vocabulary does not carry. That event says nothing about the
+# crew's state and must not erase the state a real earlier event established: a
+# healthy finished crew reported as `unknown` reads as lost and invites a
+# recovery it does not need.
+test_unrecognized_trailing_verb_keeps_the_last_real_state() {
+  reset_fakes
+  local d; d=$(new_case trailing-nonstate)
+  make_repo_on_branch "$d/wt" fm/feat-t
+  fm_write_meta "$d/state/feat-t.meta" "window=fm:fm-feat-t" "worktree=$d/wt" "kind=scout" "harness=claude"
+  printf 'done: review delivered, request changes\nupdate: a late judge amended the report\n' > "$d/state/feat-t.status"
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-t
+  local out; out=$(run_crew_state "$d" feat-t)
+  assert_contains "$out" "state: done" "an unrecognized trailing event must not erase the last real state"
+  assert_contains "$out" "source: status-log" "the state still comes from the status log"
+  assert_contains "$out" "review delivered" "the note comes from the state line, not the trailing event"
+  assert_not_contains "$out" "state: unknown" "a readable crew must never report as lost"
+  pass "an unrecognized trailing status verb keeps the last real state"
+}
+
 # (f) no run for this crew + a busy pane -> working via pane
 test_no_run_busy_pane() {
   reset_fakes
@@ -1206,6 +1227,7 @@ test_cross_branch_attribution_via_runs_list
 test_cross_branch_attribution_picks_most_recent_row
 test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
+test_unrecognized_trailing_verb_keeps_the_last_real_state
 test_no_run_busy_pane
 test_no_run_footer_text_alone_is_not_working
 test_no_run_idle_pane_uses_log

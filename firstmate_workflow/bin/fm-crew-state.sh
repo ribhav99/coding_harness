@@ -113,6 +113,29 @@ log_last_line() {
   [ -f "$LOG" ] || return 1
   grep -v '^[[:space:]]*$' "$LOG" 2>/dev/null | tail -1
 }
+# The most recent status line whose verb map_log_state recognizes as a state.
+# The status log is an append-only EVENT stream, and not every event is a state:
+# a decision-closing `resolved:`, or a verb a crewmate invented that this
+# vocabulary does not carry, says nothing about what the crew is doing now. The
+# last line alone therefore cannot answer "what state is this crew in" - a single
+# unrecognized append after a real `done:` would otherwise erase a perfectly
+# readable state and report `unknown`, which reads as a lost crew and invites a
+# recovery that is not needed. Scanning back to the newest line that IS a state
+# keeps the same last-event-wins rule over the events that actually carry one.
+log_last_state_line() {
+  local line
+  [ -f "$LOG" ] || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [ "$(map_log_state "$line")" != unknown ]; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done <<EOF
+$(awk 'NF {lines[++n]=$0} END {for (i=n; i>0; i--) print lines[i]}' "$LOG" 2>/dev/null)
+EOF
+  return 1
+}
 # Map a status-log verb onto a canonical state for the fallback path. `paused` is
 # the deliberate-external-wait verb (fm-classify-lib.sh's FM_CLASSIFY_PAUSED_VERB):
 # a crew with no active run and an idle pane that declared a known external wait
@@ -580,20 +603,22 @@ case "${BUSY_VERDICT%% *}" in
   *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
 esac
 
-# Fall back to the status log's last line, but ONLY when its verb maps to a real
-# run-state. A decision-closing event - resolved: (fm-classify-lib.sh's
-# FM_CLASSIFY_RESOLVE_VERB), and any future decision-only sibling - is NOT a state:
-# it exists solely to CLOSE a keyed decision in the durable fold, so a trailing
-# resolved: must never become the current state or leak its resolution prose as the
-# detail. Skipping it lets a just-resolved idle crew fall through to the idle
-# default instead of rendering
-# `unknown` with the resolution note as `doing`. map_log_state is the single owner of
-# the verb->state mapping (including the configurable paused verb), so reusing its
-# `unknown` verdict as the "not a state" test needs no second verb list here.
-if [ -n "$LOG_VERB" ]; then
-  LOG_STATE=$(map_log_state "$LOG_LINE")
+# Fall back to the status log's most recent line that IS a state. A
+# decision-closing event - resolved: (fm-classify-lib.sh's FM_CLASSIFY_RESOLVE_VERB),
+# and any future decision-only sibling - is NOT a state: it exists solely to CLOSE a
+# keyed decision in the durable fold, so a trailing resolved: must never become the
+# current state or leak its resolution prose as the detail. The same holds for a verb
+# a crewmate invented that this vocabulary does not carry. log_last_state_line skips
+# past those to the newest event that does carry a state, so one such append cannot
+# erase a readable state and report a healthy crew as lost. map_log_state is the
+# single owner of the verb->state mapping (including the configurable paused verb),
+# so reusing its `unknown` verdict as the "not a state" test needs no second verb
+# list here.
+LOG_STATE_LINE=$(log_last_state_line || true)
+if [ -n "$LOG_STATE_LINE" ]; then
+  LOG_STATE=$(map_log_state "$LOG_STATE_LINE")
   if [ "$LOG_STATE" != unknown ]; then
-    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
+    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_STATE_LINE")"
   fi
 fi
 
