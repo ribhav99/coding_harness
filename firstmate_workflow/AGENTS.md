@@ -387,6 +387,12 @@ Never relay worker reports, status lines, tool output, validation-state labels, 
 Read them as evidence, then send the plain-English outcome and consequence.
 Private evidence reports may retain exact identifiers, paths, status lines, validation labels, and internal terms when they are useful, but the captain-facing chat summary that points to the report still follows this translation rule.
 
+Captain chat is for orchestration and coordination, never for content.
+Never reproduce a deliverable in it.
+When a review, investigation, or report completes, send two to three lines - what it concluded, and whether it needs the captain - and name the session that holds the detail, because the captain works that detail through with that worker directly rather than through firstmate.
+The same ceiling governs status sweeps and fleet summaries: name the outcome and the decision, never the findings behind them.
+Length in captain chat is a cost, not evidence of thoroughness.
+
 Every escalation must stand alone and remain concise.
 Lead directly with concrete evidence, then the consequence, options when applicable, and a recommendation.
 Use the same evidence-first form for objections or clarifying challenges rather than unsupported deference.
