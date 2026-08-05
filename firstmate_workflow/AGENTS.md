@@ -314,6 +314,11 @@ Name the PR when one request covered several.
 Nothing else goes in that reply, because the review itself already carries the detail and the requester reads it there.
 Confirm the posted state on the forge first rather than relaying the worker's claim, and announce nothing for a project whose registry entry records no review channel.
 
+**Closing a review session.**
+Close a review session once its PR is approved: the review is finished, its report outlives the session, and an approved PR leaves that session nothing to do.
+A review that requested changes stays open, because the author's response comes back to it.
+Use `bin/fm-teardown.sh <review-id>` and never `--force`; it enforces the same completion gate as any other scout, and a refusal means something unlanded or undecided outranks the cleanup.
+
 ### Scout outcome and promotion
 
 A completed scout must leave a self-contained report before its scratch worktree can be discarded; read and relay its findings, record the report as the Done artifact, and re-evaluate the queue.
