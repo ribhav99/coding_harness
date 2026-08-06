@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# surface - shim onto the CLI, so `surface open` works from any review session.
+# Symlink this onto PATH: ln -sf <repo>/surface/bin-surface /opt/homebrew/bin/surface
+exec node "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/cli.mjs" "$@"

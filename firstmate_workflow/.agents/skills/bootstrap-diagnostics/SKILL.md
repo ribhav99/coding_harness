@@ -21,12 +21,6 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `MISSING_MANUAL: <tool> (instructions: <url>)` - tell the captain why the tool is required and give them the printed instructions URL, but do not pass the tool to `bin/fm-bootstrap.sh install`; wait for the captain to complete the manual installation, then rerun session start to confirm the dependency is present.
 - `BACKEND_INVALID: <name> (known: <names>)` - the resolved runtime backend has no verified dependency or lifecycle contract, so do not dispatch work until the invalid `FM_BACKEND` or `config/backend` value is corrected to one of the listed backends.
 - `NEEDS_GH_AUTH` - ask the captain to run `! gh auth login` (interactive; you cannot run it for them).
-- `TOOL_PATCH: <tool>/<name> (apply: <command>)` - a fix this repo carries for a third-party CLI tool is not applied to the installed copy, which is the normal state on a new machine and after any global reinstall of that tool.
-  Run the printed command; it is idempotent and needs no captain consent, because it only restores a fix already tracked in this repo rather than installing anything new.
-  Applying it changes an installed tool outside this repo, so report the plain consequence for the tool the captain actually uses rather than the patch name.
-- `TOOL_PATCH_CONFLICT: <tool>/<name> <reason>` - the tool changed underneath a tracked fix, so the patch no longer applies and was deliberately not forced.
-  Do not force it: re-read the patch against the new source, confirm whether the upstream bug is now fixed, and either refresh or delete the patch.
-  Until that is settled, the bug that patch exists to fix is live again on this machine, so say so plainly if the captain relies on that tool.
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.

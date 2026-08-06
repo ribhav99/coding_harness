@@ -107,18 +107,52 @@ When the bucket is genuinely ambiguous, it is JUDGMENT. The cost of surfacing on
 
 **In reviewer mode the split still runs, but it means something different.** Nothing gets applied either way, so the buckets sort by *how much of the author's attention a finding deserves*: JUDGMENT findings are the substance of your review, and MECHANICAL ones are nits. Nits are worth at most one batched line in the summary — never a separate inline comment each, which is how a review reads as pedantic instead of useful. A reviewer who spends four comments on import order and none on the broken error path has reviewed nothing.
 
-### 6. Build the review surface
+### 6. Write the review spec
 
-Before writing any HTML, run these and follow them:
+**You do not write HTML.** You write one JSON file and the surface renders it. Every
+review therefore looks identical — same layout, same decision controls, same verdict
+options — so the user builds muscle memory instead of re-learning the page, and no
+review can hand-roll a form that collects the wrong thing.
 
+Write the spec to `.review/review.json` in your worktree:
+
+```json
+{
+  "id": "pr-<n>",
+  "title": "PR #<n> review — <what it changes, in a few words>",
+  "pr": "<the PR url>",
+  "summary": "2-3 sentences: what this branch changes for someone using the product, and your overall read.",
+  "recommendation": { "value": "request-changes", "why": "one line" },
+  "findings": [
+    {
+      "id": "f1",
+      "title": "What is wrong, in plain words",
+      "severity": "medium",
+      "blocks_merge": true,
+      "what_breaks": "The consequence, first.",
+      "when": "The concrete situation that triggers it. Who is doing what when this bites.",
+      "why": "The underlying cause, explained conceptually.",
+      "where": "Named the way the user would name it, not by file.",
+      "found_by": "which judge, or your own read",
+      "anchor": "path/to/File.tsx:61",
+      "default": "inline",
+      "comment": "The exact comment that would be posted under the user's name."
+    }
+  ],
+  "nits": ["one plain line each"],
+  "tests": "what ran, what passed, what is new",
+  "judges": [{ "name": "Design", "verdict": "fail", "note": "what it turned on" }],
+  "scope": "does the change match the work order or issue"
+}
 ```
-lavish-axi playbook input      # collecting structured decisions — required for this skill
-lavish-axi design              # CDN snippet and component reference
-```
 
-Write the artifact to `.lavish/review-<branch>.html`.
+`recommendation.value` and the user's verdict override are one of `approve`,
+`approve-with-comments`, `request-changes`, `needs-discussion`. Each finding's
+`default` is `inline`, `summary` or `drop` — set it to what *you* would do, so the
+user is confirming a judgment rather than composing from scratch. `anchor` is the
+`file:line` the comment would attach to; omit it for a summary-level point.
 
-Pin the **Lavish-recommended Tailwind v4 + DaisyUI v5 CDN** default. Do NOT match the reviewed project's design system — a review surface should look identical no matter which repo is under review, so the user builds muscle memory instead of re-learning the page every time.
+The rules below govern what goes in those fields.
 
 #### The one rule that governs this page: no code
 
@@ -160,42 +194,32 @@ The one permitted exception is in reviewer mode: if the comment you are about to
   - **Author mode:** READY TO MERGE | NEEDS FIXES | NEEDS DISCUSSION, one sentence why.
   - **Reviewer mode:** the **recommendation you would give the author** — APPROVE | APPROVE WITH COMMENTS | REQUEST CHANGES | NEEDS DISCUSSION — with one sentence why, and a control for the user to override it. This is the single most important thing on the page: it is what the author will act on.
 
-#### The decision form — build it exactly this way
-
-You write this page from scratch every time, and the way it fails is silent: the user clicks through every decision, the page looks like it worked, and what you read back is empty. You then post something they did not choose, under their name, and nobody finds out. Two real instances, both from this skill, both invisible from the user's side:
-
-- A verdict `<select>` carried an `id` but no `name`, so `FormData` never saw it and the verdict came back `null`. The user chose REQUEST CHANGES; the review went out as a plain comment.
-- Each comment draft was rendered into a `<div>` inside a collapsed `<details>` and read back with `innerText`. `innerText` returns `""` for anything not currently rendered, and collapsed `<details>` content is not rendered — so every comment body came back empty and the drafts the user had edited were lost.
-
-Four rules kill both permanently:
-
-1. **`name` on every control that carries a decision, unique per finding** — `name="f1-decision"`, `name="f1-comment"`. An `id` alone is invisible to `FormData`. Radios in one group share that one `name`.
-2. **Editable comment text is a `<textarea name="...">`, read with `.value`.** A textarea reports its value whether or not it is visible, collapsed, or scrolled out of view. Never render a draft into a `<div>` and read the text back out of the DOM.
-3. **Never use `innerText` to read anything.** It is a rendering-dependent read and silently returns `""` inside `<details>`, `hidden`, `display:none`, or anything off-screen. If you must read a non-input element, use `textContent`.
-4. **Validate before sending, and fail loudly.** Collect with `new FormData(form)`, then check that every finding produced a non-empty decision and, where one is expected, non-empty text. If anything is missing, show the user an error on the page and send nothing. A visible refusal is recoverable; a silent empty payload is not.
-
-#### Before you hand the page over
-
-Check your own artifact before running `lavish-axi`. All three are static checks on the file you just wrote:
-
-- Every `<input>`, `<select>` and `<textarea>` inside the decision form has a `name` attribute.
-- The string `innerText` does not appear anywhere in the file.
-- The submit path refuses and surfaces an error when a decision or an expected comment body is empty, rather than sending a partial payload.
-
-Fix anything that fails before the user ever sees the page. A surface that collects the wrong thing is worse than no surface, because it launders your own output as the user's decision.
-
-### 7. Collect decisions
+### 7. Open the page, then STOP
 
 ```
-lavish-axi .lavish/review-<branch>.html          # open the session
-lavish-axi poll .lavish/review-<branch>.html     # wait for feedback
+surface open .review/review.json
 ```
 
-Keep the poll in the **foreground**. Never background it, never `&`, never kill it.
+It registers the review, starts the server if it is not already up, opens the page,
+prints the URL, and returns immediately.
 
-If the poll times out because the tool call hit its limit, **just run it again** — queued feedback is never lost. A timeout is not a failure and is not a reason to give up on the session or fall back to reporting in chat.
+**Then stop your turn.** Do not wait, do not poll, do not loop. There is no `poll`
+command and its absence is deliberate: the previous tool had you block on a connection
+that died every half hour, and each death woke you for nothing.
 
-If the user sends feedback without ending, apply what they decided, update the artifact to reflect the new state, and poll again. `Send & End` ends the session; after that, do not reopen it uninvited.
+When the user hits send, the server writes their decisions and types one line into your
+pane, which wakes you. Read them with:
+
+```
+surface read .review/review.json
+```
+
+That prints their verdict, their per-finding decision and the exact comment text they
+approved — theirs, not your draft, if they edited it. Exit status 1 means they have not
+sent yet, which is not an error and not a reason to poll.
+
+If they send again after you have acted, you are woken again the same way. Nothing you
+do between sends needs to keep anything alive.
 
 ### 8. Apply the decisions
 
