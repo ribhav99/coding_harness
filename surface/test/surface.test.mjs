@@ -194,6 +194,35 @@ test('a pane already claimed by another review is refused, not stolen', async ()
   assert.equal(moved.rebound_from, '%7', 'a rebind was not reported to the caller');
 });
 
+// The supervisor's pane is the captain's chat. This is not hypothetical: it
+// happened twice while building this component, because running `surface open`
+// from the supervisor's own session is the natural way to try it out, and the
+// captain's decisions were then typed at the captain.
+test("a review cannot bind to the supervisor's own pane", async () => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
+  const work = mkdtempSync(join(tmpdir(), 'surface-work-'));
+  mkdirSync(join(work, 'pr-c'), { recursive: true });
+  const specPath = join(work, 'pr-c', 'review.json');
+  writeFileSync(specPath, JSON.stringify({ ...SPEC, id: 'pr-c' }));
+
+  process.env.SURFACE_HOME = home;
+  const store = await import(`${join(ROOT, 'lib/store.mjs')}?sup=${encodeURIComponent(home)}`);
+
+  store.claimSupervisorPane('%1');
+  assert.throws(
+    () => store.register(specPath, { pane: '%1' }),
+    /supervisor's own session/,
+    'a review bound to the supervisor pane, which types decisions into the captain chat',
+  );
+
+  // Any other pane is still fine, so the guard blocks the mistake and nothing else.
+  const ok = store.register(specPath, { pane: '%2' });
+  assert.equal(ok.pane, '%2');
+
+  // And a pane already owned by a review cannot be claimed as the supervisor's.
+  assert.throws(() => store.claimSupervisorPane('%2'), /already bound to review/);
+});
+
 test('a page for an unknown review says so instead of rendering blank', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
   const port = 4403;

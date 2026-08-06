@@ -38,6 +38,31 @@ function saveRegistry(reg) {
   writeFileSync(registryPath(), JSON.stringify(reg, null, 2));
 }
 
+function supervisorPaneFile() {
+  return join(registryDir(), 'supervisor-pane');
+}
+
+// The pane the supervisor runs in, recorded once by `surface claim-supervisor`.
+// Absent means unknown, and the guard below simply does not fire - it protects
+// against a real mistake without inventing a dependency when it is not set.
+export function supervisorPane() {
+  const p = supervisorPaneFile();
+  if (!existsSync(p)) return null;
+  const value = readFileSync(p, 'utf8').trim();
+  return value || null;
+}
+
+export function claimSupervisorPane(pane) {
+  if (!pane) throw new Error('no pane to claim: run this inside a tmux pane, or set SURFACE_PANE');
+  const reg = loadRegistry();
+  const claimedBy = Object.values(reg).find((e) => e.pane === pane);
+  if (claimedBy) {
+    throw new Error(`pane ${pane} is already bound to review "${claimedBy.id}"; it is not the supervisor's`);
+  }
+  writeFileSync(supervisorPaneFile(), `${pane}\n`);
+  return pane;
+}
+
 // An id has to be stable across reopens - a captain's tab from yesterday must
 // still resolve - and safe in a URL. The spec's own id wins; otherwise the
 // containing directory names it, which is already the task id in practice.
@@ -61,6 +86,17 @@ export function register(specPath, { pane = null } = {}) {
   // testing, and the wake landed in the supervisor's chat - so a pane already
   // claimed by a different review is refused rather than quietly stolen.
   if (pane) {
+    // The supervisor's pane is the captain's chat. A review bound to it types
+    // decisions there instead of at a reviewer - which happened twice while
+    // building this, because running `surface open` from the supervisor's own
+    // session is the natural way to try it out.
+    if (pane === supervisorPane()) {
+      throw new Error(
+        `pane ${pane} is the supervisor's own session; a review bound to it would ` +
+          "type the captain's decisions into their chat. Run `surface open` from the " +
+          'review\'s session, or set SURFACE_PANE to it.',
+      );
+    }
     const claimedBy = Object.values(reg).find((e) => e.pane === pane && e.id !== id);
     if (claimedBy) {
       throw new Error(

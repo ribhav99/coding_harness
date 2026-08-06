@@ -9,6 +9,8 @@
 //                                exit 1 if not. This is what a woken reviewer runs.
 //   surface url <spec.json>      print the page URL without opening a browser
 //   surface list                 the reviews this server knows about
+//   surface claim-supervisor     record this pane as the supervisor's, so no review
+//                                can ever bind to it and type into the captain's chat
 //   surface stop                 shut the server down
 //
 // There is no `poll`, and that absence is the design. A reviewer does not wait
@@ -18,7 +20,9 @@ import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { register, lookup, idFor, readDecisions, decisionsPath, listReviews } from './lib/store.mjs';
+import {
+  register, lookup, idFor, readDecisions, decisionsPath, listReviews, claimSupervisorPane,
+} from './lib/store.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.SURFACE_PORT || 4390);
@@ -124,6 +128,16 @@ if (command === 'list') {
   process.exit(0);
 }
 
+if (command === 'claim-supervisor') {
+  const pane = process.env.SURFACE_PANE || process.env.TMUX_PANE || null;
+  try {
+    process.stdout.write(`surface: ${claimSupervisorPane(pane)} recorded as the supervisor's pane; no review can bind to it\n`);
+  } catch (err) {
+    die(err.message);
+  }
+  process.exit(0);
+}
+
 if (command === 'stop') {
   try {
     execFileSync('pkill', ['-f', join(HERE, 'server.mjs')], { stdio: 'ignore' });
@@ -134,4 +148,4 @@ if (command === 'stop') {
   process.exit(0);
 }
 
-die('usage: surface open|read|url|list|stop');
+die('usage: surface open|read|url|list|claim-supervisor|stop');
