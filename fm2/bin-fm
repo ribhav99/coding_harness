@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# fm - shim onto the CLI. Symlink onto PATH:
+#   ln -sf <repo>/fm2/bin-fm /opt/homebrew/bin/fm
+exec node "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/cli.mjs" "$@"

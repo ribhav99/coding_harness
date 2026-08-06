@@ -1,0 +1,248 @@
+// A task is a tmux pane, a git worktree, and a brief. Spawning one, and taking
+// one down without destroying work.
+//
+// The rails here are not general safety theatre. Each one caught a real mistake
+// in the two days before this was written, and each refusal is loud.
+
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { join, dirname, basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { saveTask, loadTask, removeTask, projectConfig, dir, home as homeDir } from './config.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FM2 = dirname(HERE);
+
+function git(cwd, args, { quiet = true } = {}) {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+  }).trim();
+}
+
+function tmux(args) {
+  return execFileSync('tmux', args, { encoding: 'utf8' }).trim();
+}
+
+export function defaultBranch(project) {
+  try {
+    const head = git(project, ['symbolic-ref', 'refs/remotes/origin/HEAD']);
+    return head.split('/').pop();
+  } catch {
+    return projectConfig(project).default_branch;
+  }
+}
+
+// The worktree sits beside the project, named for the task, following the
+// convention the project already uses by hand.
+export function worktreePath(project, id) {
+  const cfg = projectConfig(project);
+  const parent = cfg.worktree_parent || dirname(resolve(project));
+  return join(parent, `${basename(resolve(project))}-${id}`);
+}
+
+// A task never runs in the primary checkout. Asserted before an agent exists,
+// because by the time one does it has already started editing.
+function assertIsolated(project, worktree) {
+  const primary = resolve(project);
+  const wt = resolve(worktree);
+  if (wt === primary) throw new Error(`refusing to run task in the primary checkout: ${primary}`);
+  if (!wt.startsWith(dirname(primary))) throw new Error(`worktree ${wt} is not beside the project`);
+}
+
+// Each task gets its own Stop hook, so stopping reports.
+//
+// Passed at launch with --settings rather than written into the worktree's
+// .claude/. Writing it there depends on Claude Code discovering project-local
+// settings, which it did not do for a fresh worktree - the session ran, stopped,
+// and reported nothing. Handing the file to the launch command removes the
+// discovery step entirely, and leaves the worktree clean of harness files.
+function writeWorkerSettings(id) {
+  const hook = join(FM2, 'hooks/worker-stop.mjs');
+  const file = join(dir('hooks'), `${id}.json`);
+  // Home and task are baked into the command, not inherited. An environment that
+  // does not reach the hook is indistinguishable from a hook that never fired,
+  // and that cost an hour to tell apart once.
+  const command =
+    `FM2_HOME=${JSON.stringify(homeDir())} FM2_TASK=${JSON.stringify(id)} node ${JSON.stringify(hook)}`;
+  writeFileSync(
+    file,
+    JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command }] }] } }, null, 2),
+  );
+  return file;
+}
+
+// tmux window targets are ambiguous without a session: a bare name is read as a
+// pane first, which is why `-t reviews` fails with "can't find pane". Resolve the
+// session explicitly and address windows as <session>:<window> throughout.
+function sessionName() {
+  if (process.env.TMUX_PANE) {
+    try { return tmux(['display-message', '-p', '-t', process.env.TMUX_PANE, '#{session_name}']); } catch { /* fall through */ }
+  }
+  try { return tmux(['list-sessions', '-F', '#{session_name}']).split('\n')[0]; } catch { /* none yet */ }
+  return null;
+}
+
+function openPane(window, cwd, briefPath, id, settingsFile) {
+  // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
+  // inherits the tmux SERVER's environment, not the environment of whatever
+  // shell asked for the pane. Without them the hook fires and writes its report
+  // into the wrong home, which looks exactly like the hook not firing at all.
+  const env = `FM2_TASK=${JSON.stringify(id)} FM2_HOME=${JSON.stringify(homeDir())}`;
+  const command =
+    `${env} claude --dangerously-skip-permissions --effort max ` +
+    `--settings ${JSON.stringify(settingsFile)} ` +
+    `"$(cat ${JSON.stringify(briefPath)})"`;
+  let session = sessionName();
+  if (!session) {
+    session = 'fm';
+    tmux(['new-session', '-d', '-s', session, '-n', window, '-c', cwd, command]);
+    return tmux(['list-panes', '-t', `${session}:${window}`, '-F', '#{pane_id}']).split('\n')[0];
+  }
+  // Address the window by INDEX, not name. Names are not unique - a session can
+  // hold three windows called "reviews" - and tmux refuses an ambiguous name
+  // with "can't find window" even though listing shows it. Resolving to an index
+  // once removes the ambiguity for every later call.
+  const windows = tmux(['list-windows', '-t', session, '-F', '#{window_index}\t#{window_name}'])
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .filter(([, name]) => name === window);
+  if (windows.length === 0) {
+    const created = tmux(['new-window', '-d', '-P', '-F', '#{window_index}', '-t', session, '-n', window, '-c', cwd, command]);
+    return tmux(['list-panes', '-t', `${session}:${created}`, '-F', '#{pane_id}']).split('\n').pop();
+  }
+  const target = `${session}:${windows[0][0]}`;
+  const pane = tmux(['split-window', '-d', '-P', '-F', '#{pane_id}', '-t', target, '-c', cwd, command]);
+  try { tmux(['select-layout', '-t', target, 'tiled']); } catch { /* single pane */ }
+  return pane;
+}
+
+// A fresh worktree is a folder Claude Code has not seen, so it asks whether the
+// folder is trusted and waits. Until that is answered the session has not
+// started, has not read its brief, and will never stop - so it never reports,
+// which looks precisely like a broken hook. Answer it here, where the pane is
+// known, rather than leaving every spawn to be rescued by hand.
+function acceptTrustPrompt(pane, { attempts = 12, waitMs = 1000 } = {}) {
+  for (let i = 0; i < attempts; i += 1) {
+    execFileSync('sleep', [String(waitMs / 1000)]);
+    let screen = '';
+    try { screen = tmux(['capture-pane', '-p', '-t', pane]); } catch { return false; }
+    if (/I trust this folder/i.test(screen)) {
+      tmux(['send-keys', '-t', pane, 'Enter']);
+      return true;
+    }
+    // The brief is being worked, so no dialog is coming.
+    if (/esc to interrupt|✻|⏺/i.test(screen)) return false;
+  }
+  return false;
+}
+
+export function spawnTask({ id, project, brief, baseRef = null, window = 'workers', env = {} }) {
+  if (loadTask(id)) throw new Error(`task "${id}" already exists`);
+  const wt = worktreePath(project, id);
+  assertIsolated(project, wt);
+  if (existsSync(wt)) throw new Error(`worktree already exists: ${wt}`);
+
+  if (baseRef) {
+    git(project, ['worktree', 'add', '--detach', wt, baseRef]);
+  } else {
+    git(project, ['worktree', 'add', '-b', id, wt, defaultBranch(project)]);
+  }
+
+  const briefDir = dir('briefs', id);
+  const briefPath = join(briefDir, 'brief.md');
+  writeFileSync(briefPath, brief);
+  const settingsFile = writeWorkerSettings(id);
+
+  // One pane per task in a named window, so the captain can watch a row of them.
+  // Everything from here can fail, and a half-made task is worse than none: it
+  // leaves a worktree nobody owns and a branch nobody will finish. So the rest
+  // rolls back.
+  let pane;
+  try {
+    pane = openPane(window, wt, briefPath, id, settingsFile);
+    acceptTrustPrompt(pane);
+  } catch (err) {
+    try { git(project, ['worktree', 'remove', '--force', wt]); } catch { /* never made it */ }
+    throw new Error(`could not start "${id}": ${err.message.split('\n')[0]}`);
+  }
+
+  return saveTask({
+    id,
+    project: resolve(project),
+    worktree: wt,
+    pane,
+    brief: briefPath,
+    kind: baseRef ? 'review' : 'ship',
+    created_at: new Date().toISOString(),
+    ...env,
+  });
+}
+
+// --- teardown ----------------------------------------------------------------
+
+// Unlanded work is work that exists nowhere but this worktree. Uncommitted
+// changes, or commits no remote has. Refusing is the point: a worktree removed
+// with either is gone.
+export function unlandedWork(task) {
+  const wt = task.worktree;
+  if (!existsSync(wt)) return [];
+  const problems = [];
+  const dirty = git(wt, ['status', '--porcelain']).split('\n').filter((l) => l.trim() && !l.startsWith('??'));
+  if (dirty.length) problems.push(`${dirty.length} uncommitted change(s)`);
+  try {
+    const unpushed = git(wt, ['log', '--oneline', '--branches', '--not', '--remotes']).split('\n').filter(Boolean);
+    if (unpushed.length) problems.push(`${unpushed.length} commit(s) on no remote`);
+  } catch { /* detached with no branch: nothing local to strand */ }
+  return problems;
+}
+
+// A review whose findings live only in a session is a review that dies with it.
+export function missingReport(task) {
+  if (task.kind !== 'review') return null;
+  const report = join(dirname(task.brief), 'report.md');
+  return existsSync(report) ? null : report;
+}
+
+export function closeTask(id, { force = false } = {}) {
+  const task = loadTask(id);
+  if (!task) throw new Error(`no task "${id}"`);
+
+  if (!force) {
+    const unlanded = unlandedWork(task);
+    if (unlanded.length) {
+      throw new Error(
+        `refusing to close "${id}": ${unlanded.join(', ')}. ` +
+          'That work exists nowhere else. Land it, or say so explicitly.',
+      );
+    }
+    const report = missingReport(task);
+    if (report) {
+      throw new Error(
+        `refusing to close review "${id}": no report at ${report}. ` +
+          'Its findings would go with the worktree.',
+      );
+    }
+  }
+
+  try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
+  try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }
+  removeTask(id);
+  return task;
+}
+
+export function sendToPane(pane, line) {
+  tmux(['send-keys', '-t', pane, '-l', line]);
+  tmux(['send-keys', '-t', pane, 'Enter']);
+}
+
+export function paneAlive(pane) {
+  try {
+    tmux(['display-message', '-p', '-t', pane, 'ok']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export { git, tmux };
