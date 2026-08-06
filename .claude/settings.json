@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exec node \"$CLAUDE_PROJECT_DIR\"/fm2/hooks/supervisor-stop.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
