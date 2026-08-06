@@ -125,36 +125,33 @@ must be able to write it.
   a cross-check — it is the record.
 - A task never runs in the primary checkout.
 
-## 6. Open decision — the review surface
+## 6. The review surface
 
-The captain wants the current behaviour: a rich page, per-finding decisions, editable
-comment text, answers reaching the agent. Hard constraint from B7: **the surface may
-not poke an idle worker.** Lavish's listener was reaped every half hour and each reap
-fed an idle session a pointless turn — that is what produced the interruption storm, and
-any design that repeats it is disqualified.
+Lavish, with its bugs fixed — not a rewrite. Of what went wrong: the two reviews that
+posted the wrong thing were our bug (every review hand-wrote its own decision form) and
+are fixed by the canonical form and static checks now in the review skill; the silent
+send failure is patched and the patch is tracked; blank pages come from the load-token
+handshake after a server restart, and restarts are almost never needed.
 
-| | Build cost | Trade |
-|---|---|---|
-| **A. Keep Lavish** | none | Keeps blank-page and silent-send failures; violates B7 unless the listener is replaced |
-| **B. Own local server** | high | One process, many pages, one held connection per waiting session. No per-load token handshake, one harness-generated decision form, submit fails loudly |
-| **C. Static page, decide in the pane** | low | Every failure mode disappears; costs the clicking |
+One item is unresolved and it gates this decision: **why a listener dies roughly every
+half hour.** Not the idle timeout, which does not arm while a poll is connected, and not
+Node's request timeout, which does not apply to a streaming response. Until it is known,
+B7 is not satisfied — each death feeds an idle worker a pointless turn, which is what
+produced the interruption storm.
 
-Recommendation: **B**. It is most of the build effort, so worth confirming first. **C**
-is the fallback if the surface is not worth its own subsystem.
+- If the cause is config or a small patch: stay on Lavish. Building a server, a page
+  generator, a form layer and a connection model to replace a working tool buys nothing
+  and is ours to maintain forever.
+- If the cause is structural in how the CLI holds a poll: build our own. One process,
+  many pages, one durable connection per waiting session, no per-load token handshake,
+  submit fails loudly.
 
-## 7. Scale target
+Static pages with decisions typed in the pane remain the fallback if the surface turns
+out not to be worth a subsystem at all.
 
-| | v1 | v2 |
-|---|---|---|
-| scripts | 74 | under 10 |
-| lines of bash | 21,506 | ~1,500 |
-| always-loaded instructions | 500 lines | under 120 |
-| skills | 13 | 2 — review workflow, recovery |
-| tests | 57 files, 27,761 lines | ~8 files, covering §5 and the trigger |
-
-Reviews keep their depth: the judge fan-out stays, at full effort.
-
-## 8. Migration
+## 7. Migration
 
 Build alongside v1. Cut over one PR review end to end. Delete v1 subsystems only after
 that works.
+
+Reviews keep their depth throughout: the judge fan-out stays, at full effort.
