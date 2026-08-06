@@ -127,27 +127,41 @@ must be able to write it.
 
 ## 6. The review surface
 
-Lavish, with its bugs fixed — not a rewrite. Of what went wrong: the two reviews that
-posted the wrong thing were our bug (every review hand-wrote its own decision form) and
-are fixed by the canonical form and static checks now in the review skill; the silent
-send failure is patched and the patch is tracked; blank pages come from the load-token
-handshake after a server restart, and restarts are almost never needed.
+Written from scratch, replacing Lavish entirely. Lavish's own code, the local patch,
+the patch applier and its setup check all go once this works.
 
-One item is unresolved and it gates this decision: **why a listener dies roughly every
-half hour.** Not the idle timeout, which does not arm while a poll is connected, and not
-Node's request timeout, which does not apply to a streaming response. Until it is known,
-B7 is not satisfied — each death feeds an idle worker a pointless turn, which is what
-produced the interruption storm.
+**No held connection.** This is the whole architectural change. Lavish has the agent
+block in a foreground poll waiting for the captain; that connection dies and gets
+restarted, and every restart feeds an idle worker a turn — the interruption storm, and
+a direct B7 violation. Here nothing waits:
 
-- If the cause is config or a small patch: stay on Lavish. Building a server, a page
-  generator, a form layer and a connection model to replace a working tool buys nothing
-  and is ours to maintain forever.
-- If the cause is structural in how the CLI holds a poll: build our own. One process,
-  many pages, one durable connection per waiting session, no per-load token handshake,
-  submit fails loudly.
+```
+  review session   writes its page, opens it, and STOPS
+  captain          decides in the browser, hits send
+  page             POSTs the decisions to the server
+  server           writes decisions.json beside the page
+                   injects one line into that session's pane
+  session          wakes, reads decisions.json, acts, STOPS
+```
 
-Static pages with decisions typed in the pane remain the fallback if the surface turns
-out not to be worth a subsystem at all.
+A worker is woken exactly when the captain sends something, and never otherwise. One
+turn per captain action, which is the only turn there should be.
+
+**One server, many pages, started on demand.** It serves review pages from disk by
+path. No per-load token handshake, so opening a page twice, reloading it, or coming
+back to a tab from yesterday all work — the blank-page failure cannot occur because
+there is no negotiated state to go stale.
+
+**The decision form is generated, never hand-written.** One implementation, used by
+every review. The two reviews that posted the wrong thing did so because each wrote its
+own form and each got it wrong differently; generating it makes that class of bug
+impossible rather than merely documented.
+
+**Submit fails loudly.** Empty or partial payloads are refused and shown on the page.
+Nothing is ever silently dropped, and nothing is posted that the captain did not see.
+
+**Pages are cheap.** Static CSS, no browser-side compilation, no CDN. A page is a file
+that renders instantly and holds no runtime.
 
 ## 7. Migration
 
@@ -155,3 +169,9 @@ Build alongside v1. Cut over one PR review end to end. Delete v1 subsystems only
 that works.
 
 Reviews keep their depth throughout: the judge fan-out stays, at full effort.
+
+**Nothing survives that is not used at the end.** When the cutover is done, v1's
+subsystems, its tests, its docs, Lavish, the tracked Lavish patch, the patch applier and
+its setup check are all deleted. The repo holds one harness, not two, and no dormant
+code kept in case it is wanted later — the whole point of this exercise is that the
+unused surface is the cost.
