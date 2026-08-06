@@ -86,15 +86,21 @@ fi
 # no client - including the instant `new-session -d` creates one. A session built
 # detached is therefore destroyed before its first window exists.
 #
-# The global has to come off to get the session created at all: a per-session
-# option cannot be set on a session that does not exist yet, and it will not
-# exist for long enough. But the global stays off only across the create - not
-# across the whole build - because while it is off every OTHER detached session
-# loses the same protection.
-tmux set-option -g destroy-unattached off >/dev/null 2>&1 || true
-tmux new-session -d -s "$SES" -n control -c "$FM_REPO"
-tmux set-option -t "$SES" destroy-unattached off >/dev/null 2>&1 || true
-tmux set-option -g destroy-unattached on >/dev/null 2>&1 || true
+# The create and the session's exemption from that rule are one tmux invocation.
+# tmux drains a command queue before it looks for unattached sessions, so a
+# set-option chained onto the create lands while the session is still safe. Two
+# separate invocations lose it in the gap between them.
+#
+# Taking the exemption off the GLOBAL option instead - which is what this did
+# first - is wrong twice over. While it is off, every other detached session
+# loses the same protection. And with no tmux server running there is nothing to
+# set a global option ON: the call fails, `new-session` then starts a server that
+# reads destroy-unattached on straight from ~/.tmux.conf, and the session is gone
+# before its second window. That is a cold start, i.e. the first launch after a
+# reboot, and it failed with "no server running" from the next command in the
+# build.
+tmux new-session -d -s "$SES" -n control -c "$FM_REPO" \
+  \; set-option -t "$SES" destroy-unattached off
 
 # From here the session is protected by its own setting, not the global one. The
 # trap unsets it, handing the session back to the global rule at exactly the

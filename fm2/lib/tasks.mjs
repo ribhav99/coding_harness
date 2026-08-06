@@ -96,7 +96,13 @@ function openPane(window, cwd, briefPath, id, settingsFile) {
   let session = sessionName();
   if (!session) {
     session = 'fm';
-    tmux(['new-session', '-d', '-s', session, '-n', window, '-c', cwd, command]);
+    // Chained, not two calls: ~/.tmux.conf sets destroy-unattached on, and a
+    // session built detached is destroyed the instant it has no client. tmux
+    // drains a command queue before it looks for unattached sessions, so the
+    // exemption has to ride along with the create - otherwise the worker's pane
+    // dies before the next line can list it. Same reason as in bin-fmp.
+    tmux(['new-session', '-d', '-s', session, '-n', window, '-c', cwd, command,
+      ';', 'set-option', '-t', session, 'destroy-unattached', 'off']);
     return tmux(['list-panes', '-t', `${session}:${window}`, '-F', '#{pane_id}']).split('\n')[0];
   }
   // Address the window by INDEX, not name. Names are not unique - a session can
