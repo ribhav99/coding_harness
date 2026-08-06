@@ -160,8 +160,20 @@ impossible rather than merely documented.
 **Submit fails loudly.** Empty or partial payloads are refused and shown on the page.
 Nothing is ever silently dropped, and nothing is posted that the captain did not see.
 
-**Pages are cheap.** Static CSS, no browser-side compilation, no CDN. A page is a file
-that renders instantly and holds no runtime.
+**The look stays as it is.** Keeping the current styling, including the Tailwind
+browser runtime, because the case for changing it did not survive measurement: one
+review page costs 75MB in Chrome, and eight open at once are 4% of a Chrome already
+holding 13.5GB across the captain's own 64 tabs, which average 216MB each. Page weight
+is not the problem and rewriting the styling would buy nothing. The one thing worth
+revisiting later is the CDN dependency, which means a page needs network to render —
+that matters for reopening an old tab and on a machine without connectivity, and it is
+a correctness question rather than a resource one.
+
+**Content is not this component's contract.** What a review page says — findings as
+plain-English consequence, no code, per-finding controls, editable comment text,
+batched nits, the verdict — is owned by `skills/coding/full-review.md`. This component
+renders and collects; it does not decide what goes on the page. Two real pages are kept
+in `surface/reference/` as the concrete target.
 
 ## 7. Migration
 

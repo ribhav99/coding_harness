@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PR #298 review — multiple side pouches</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      :where(.grid, .flex) > * { min-width: 0; }
+      :where(p, h1, h2, h3, h4, li, dd, td, th, .badge, .label) { overflow-wrap: anywhere; }
+      :where(img, svg) { max-width: 100%; height: auto; }
+      .finding-card[data-decision="drop"] { opacity: 0.5; }
+      .draft-box { font-size: 0.9rem; line-height: 1.5; }
+      .mock-row { border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
+    </style>
+  </head>
+  <body class="bg-base-200 text-base-content">
+    <main class="mx-auto max-w-5xl p-4 sm:p-6 lg:p-10">
+
+      <!-- ─────────────────────────  HEADER  ───────────────────────── -->
+      <header class="mb-8">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <span class="badge badge-soft badge-info">Reviewer mode</span>
+          <span class="badge badge-ghost">PR #298</span>
+          <span class="badge badge-ghost">Rowan Gaertner</span>
+          <span class="badge badge-ghost">61 files &middot; +4,516 / &minus;681</span>
+        </div>
+        <h1 class="text-3xl sm:text-4xl font-bold leading-tight">
+          A pack can now hold more than one side pouch
+        </h1>
+        <p class="mt-4 text-base-content/80 leading-relaxed">
+          Until now Main Body could hold exactly one component bag. A rep who needed a second one had
+          nowhere to put it, and the back office had no way to tell one bag's contents from another.
+          A tester hit exactly that in UAT. This change lets a rep open as many bags as they want,
+          numbers them when there is more than one, lets them drop an empty one, and carries the
+          numbering into the spreadsheet the back office builds from.
+        </p>
+        <p class="mt-3 text-base-content/80 leading-relaxed">
+          The work is careful and unusually well tested: one clean database change, every write path
+          updated together, and a large set of tests that pin the awkward cases rather than the
+          implementation. Every check I ran passes. I found no breakage. What follows is one gap on
+          the screen a rep signs off on, one design call worth recording, and some smaller things.
+        </p>
+        <div class="alert alert-soft alert-warning mt-5">
+          <span>
+            Nothing has been posted to GitHub. Nothing on this branch has been touched. Decide each
+            finding and I post exactly what you approve, in your words.
+          </span>
+        </div>
+      </header>
+
+      <!-- ─────────────────────────  FORM  ───────────────────────── -->
+      <form id="review-form" data-lavish-question="pr-298-review">
+
+        <h2 class="text-2xl font-bold mb-1">Findings</h2>
+        <p class="text-base-content/60 mb-6 text-sm">
+          Most significant first. Each is pre-set to what I would do; change it if you disagree, and
+          edit the wording &mdash; it goes out under your name.
+        </p>
+
+        <!-- ══════════════  F1  ══════════════ -->
+        <section class="card card-border border-warning/40 bg-base-100 mb-6 finding-card" data-card="f1">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                1. On the screen the rep signs off, the same component in two bags shows as two
+                identical lines with nothing to tell them apart
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-warning">Medium</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                Pack Review &mdash; the last read-through before a pack is sent &mdash; lists each
+                component as code, description, brand, quantity, grouped under its section. It shows
+                nothing about which bag a line is in. So the whole point of this feature, the same
+                swabs in two different bags, arrives on that screen as two lines that are
+                character-for-character identical. The rep cannot tell whether they are looking at a
+                deliberate split across two bags or an accidental duplicate.
+              </p>
+            </div>
+
+            <div class="rounded-box border border-base-content/15 bg-base-200 p-4">
+              <p class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
+                What Pack Review shows &mdash; Main Body
+              </p>
+              <div class="text-sm">
+                <div class="mock-row py-2 flex gap-4"><span class="opacity-60 w-24">SW-4001</span><span class="flex-1">Cellulose Swab 12mm</span><span class="opacity-60 w-28">B+L Surgical</span><span class="w-6 text-right">1</span></div>
+                <div class="mock-row py-2 flex gap-4"><span class="opacity-60 w-24">SW-4001</span><span class="flex-1">Cellulose Swab 12mm</span><span class="opacity-60 w-28">B+L Surgical</span><span class="w-6 text-right">1</span></div>
+              </div>
+              <p class="text-xs text-base-content/60 mt-3">
+                One of these is in the first bag and one is in the second. The spreadsheet says so.
+                This screen does not.
+              </p>
+            </div>
+
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                Every time a rep uses the feature as intended and then reviews the pack. This is the
+                headline case, not an edge one.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                Two lines for one component used to be impossible in one bag-and-section combination
+                &mdash; anything that would have produced them was silently folded into a single line
+                with the quantities added up. Keeping them apart is exactly what this change had to
+                do, and it did it correctly. But nobody went back to the review screen to give the
+                reader the one piece of information that now distinguishes them, and that screen
+                drops it. The line already carries which bag it is in; only the row component throws
+                it away, so this is a small fix.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">The component list on Pack Review.</p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: the adversarial judge; I verified it. Honest caveat: two identical rows were
+              already possible before this change &mdash; put the same knife loose and in the tray and
+              you got the same thing. So it is not strictly new. What is new is that it is now the
+              normal result of using the feature, on the one screen whose job is the final check.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f1-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f1-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f1-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f1-comment" class="textarea textarea-bordered w-full draft-box" rows="7">ReviewBomRow renders SKU · name · brand · qty and no placement, so the feature's headline case — same SKU in two bags — lands on Pack Review as two byte-identical rows under "Main Body". The rep can't tell a deliberate split from a duplicate on the screen whose whole job is the last read-through, and the xlsx they're about to freeze does distinguish them.
+
+Not strictly new (loose + tray already produced identical rows), but the fold widening makes it the normal outcome rather than an oddity, and it cuts against the WO's own "so the back office can tell them apart, rather than collapsing them into one".
+
+`ReviewZone.lines` already carries `container`/`containerIndex`, so it's a prop and a cell. Rank against populated bags only so it reads the same as the spec.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F2  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f2">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                2. A bag's number is a position, so the same physical bag can be called something
+                different later &mdash; and the document that says so is then frozen
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-warning">Medium</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                "Side Pouch 2" does not name a bag. It means "the second bag that currently holds
+                something". Empty a bag, or drop an empty one, and every bag after it slides up a
+                number. So a rep can spend an afternoon calling a bag "Side Pouch 3", walk to the
+                review screen, download the spec, and hand the back office a document that calls the
+                very same bag "Side Pouch 2" &mdash; and Pack Review shows no bag names at all, so
+                they never see the change happen.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                Any working session where a bag ends up empty. Bags one, two and three; the rep moves
+                everything out of bag two; the rail keeps showing three cards while they work, because
+                that is deliberately what stops the layout jumping under them. Then they leave the
+                page &mdash; to review, to the dashboard, anywhere &mdash; and the empty one is
+                forgotten, so bag three becomes bag two.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                Nothing stores what a bag is called. Each surface counts the bags it can see and
+                numbers them on the spot. There <em>is</em> a stable internal identifier, and it is
+                deliberately never shown &mdash; which is what keeps the numbers still mid-edit, and
+                is also exactly why they move afterwards.
+              </p>
+              <p class="mt-2">
+                The part that makes this worth raising rather than shrugging at: the first spec
+                download locks the pack. So a numbering the rep did not expect is not just sent, it is
+                sealed. Correcting it means duplicating the pack and starting again.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">
+                Visualize &amp; Assemble, and the spec spreadsheet the back office receives.
+              </p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: my own review, and independently by the architecture and adversarial judges.
+              The request behind this work only asked for the bag limit to be lifted &mdash; the
+              numbering is this work order's own addition, so nothing external says positional is
+              wrong. It is a call worth recording rather than leaving implicit.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f2-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f2-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f2-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f2-comment" class="textarea textarea-bordered w-full draft-box" rows="8">The stored key is stable; the name isn't. It's the bag's position among bags currently holding lines, recomputed on every read — so emptying a bag renumbers every bag after it.
+
+`sidePouchKeys` is useState on the page, so "until reload" is really "until unmount": Configurator → Review → back renumbers a filled bag with no write and no cue. The rep works on "Side Pouch 3", downloads, and the xlsx says "Side Pouch 2". Pack Review renders no container names, so they never see the switch.
+
+And the first download calls `_freeze_draft_and_cache` — the pack locks. A numbering the rep didn't expect isn't just sent, it's sealed; correcting it means duplicating the pack.
+
+FB-146 only asked for the limit to be lifted; the numbering is this WO's addition, so nothing forces positional. Worth confirming with whoever owns the SIH handoff that a name which can migrate between physical bags is what they want.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F3  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f3">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                3. A bag with components in it offers no way to remove it, and no explanation
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-warning">Medium</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                The small &times; that removes a bag appears only on an empty one. On a bag holding
+                anything there is nothing at all &mdash; no greyed-out control, no tooltip, no hint. A
+                rep who has decided a whole bag should not exist has to work out for themselves that
+                the path is to move every component out, one at a time, before a remove control
+                appears.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                A rep sets up three bags for a customer, the customer changes their mind about one,
+                and the rep wants it gone.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                An empty bag exists only in the browser, so dropping it costs nothing and needs no
+                decision. A bag with components in it would need someone to have decided what happens
+                to them &mdash; do they move somewhere, or go away with the bag &mdash; and that
+                decision has not been made. Stopping at "empty only" is reasonable. Showing the rep
+                nothing at all is the part worth fixing, and a disabled control with one line of
+                explanation is cheap.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">The Main Body bag cards in the configurator rail.</p>
+            </div>
+            <p class="text-sm text-base-content/60">Found by: my own review, corroborated by the requirements judge.</p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f3-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f3-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f3-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f3-comment" class="textarea textarea-bordered w-full draft-box" rows="5">A populated bag renders no remove control at all — not a disabled one, no hint. A rep who wants the whole bag gone gets no affordance and no path; they have to infer "empty it first, one line at a time".
+
+Gating removal on empty is defensible — deleting a populated bag has no defined semantics. Rendering nothing isn't. A disabled X with a title naming the precondition is a few lines here.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F4  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f4">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                4. The spreadsheet works out its bag numbers separately, from a different set of bags
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-info">Low</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                The pull request says every surface names a bag through one shared piece of code. The
+                spreadsheet does not &mdash; the server works it out independently, and from a
+                different set: it counts only bags that hold something, while the screen counts every
+                bag the rep can see, empty ones included. There is a test pinning the screen's rule
+                and a test pinning the server's. Nothing compares the two.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                Not observably today, as far as I can reproduce: the screen is rebuilt from scratch on
+                the way to the download, which erases the empty bags before the two rules can be seen
+                to disagree. This is finding 2 wearing different clothes &mdash; the same missing
+                notion of a bag having a name. Worth its own line because the pull request states the
+                opposite, and the next person to change one rule will not know there is a second.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                The spreadsheet is built on the server and cannot call the browser's code, so the rule
+                had to be written twice. That much is unavoidable. Describing it as one place is what
+                invites someone to change one half.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">The pack spec download on Pack Review.</p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: my own review; both the regression and adversarial judges reached the same
+              place. The adversarial judge rated it high on the basis that the two disagree at the
+              moment of export &mdash; I could not reproduce that, because the screen state that
+              disagrees is gone before a download is possible. Downgraded on that basis.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f4-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f4-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f4-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f4-comment" class="textarea textarea-bordered w-full draft-box" rows="6">The PR body says numbering is decided in one place ("because containerLabelFor is the only thing that decides it"). The xlsx can't route through it — this is a second implementation, over a different input set: bags holding lines here, vs every bag on screen including empties in containerLabelFor, which configurations.test.ts pins explicitly ("counts the bags on the surface, empties included"). The plain-vs-numbered gate differs the same way.
+
+I couldn't make them disagree in practice — the configurator unmounts before a download, so the empties are gone. But nothing enforces the agreement and no test compares them. Worth correcting the claim in the PR body, and a test asserting both rules over one stored state would pin it.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F5  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f5">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                5. This is a narrower version of a design the backlog already specifies
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-info">Design</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                Nothing today. But there is an existing, written, ready-to-build work order that
+                specifies containers as real things a rep can add, remove and number in <em>any</em>
+                section, persisted like anything else. This instead stamps a number onto every
+                component line, for one kind of bag only, and keeps empty bags in the browser. When
+                the bigger design lands it removes what was added here, redoes the same sweep through
+                every module, and changes the naming rules under reps who have got used to these.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                Whenever the container-instance work is picked up. The author is aware &mdash; the
+                code points at it as pending &mdash; but the trade is not written anywhere a reader of
+                the merged history would find it.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                The request behind this is a real UAT failure that needs unblocking now, and the full
+                design is large. Shipping the narrow thing first is a perfectly normal call. The
+                repo's own rule is that deviating is fine as long as it is called out, so it reads as
+                a choice rather than drift. That call-out is what is missing.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">
+                Not user-facing. It is about what the next person to touch this pays.
+              </p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: the architecture judge, which called it a blocker. I disagree on severity
+              &mdash; unblocking UAT with a narrow, coherent, well-tested change is the right trade;
+              the gap is that it is undeclared.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f5-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f5-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f5-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f5-comment" class="textarea textarea-bordered w-full draft-box" rows="5">WO-156 is written and ready and specifies this properly: containers as first-class numbered instances in any zone, persisted, with add/remove as real writes. This column is on the wrong side of that migration, and the naming semantics differ (persisted ordinal vs recomputed position).
+
+Shipping narrow to unblock UAT is the right call. But it's a deliberate deviation from a spec that already exists, and CLAUDE.md asks those be called out — put it in the PR body or a WO-156 note so it reads as a choice, not drift.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F6  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f6">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                6. The pack's history cannot say which bag anything moved to
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-info">Low</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                Every move of a component from one bag to another is recorded as the words "moved to
+                another side pouch". No from, no to. A move into a bag from elsewhere records only
+                "container set to Side Pouch", with no number.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                Someone reviewing a finished pack asks why the swabs ended up where they did, or
+                support is reconstructing what a rep changed after a complaint.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                The stored data is faithful &mdash; the identifier is recorded on both sides of every
+                move. It is the reading of it that is lossy: the number people see is worked out from
+                the pack as it is <em>now</em>, so a history row from last week cannot be translated
+                into it. Falls straight out of finding 2. Not a regression: before this change there
+                was only ever one bag, so there were no moves between bags to record.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">The activity list on Pack Review.</p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: the architecture and adversarial judges; verified by me.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f6-decision" value="summary" checked />
+                <span>Raise in the review summary <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f6-decision" value="inline" />
+                <span>Comment inline</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f6-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f6-comment" class="textarea textarea-bordered w-full draft-box" rows="4">Every bag→bag move logs as bare "moved to another side pouch"; arriving from Loose logs "container set to Side Pouch" with no number. The stored snapshots carry the keys faithfully — it's the projection that's lossy, for the reason the comment gives.
+
+Consequence of the positional-naming call, not a separate defect. If it ever matters, snapshotting the position alongside the key at write time is the only moment it's knowable.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F7  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f7">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                7. An empty bag looks like a change to the pack but only lives in the browser, and
+                nothing caps how many you can open
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-info">Low</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                A rep clicks "+ Add side pouch" and gets a titled card with its own delete button and
+                a live drop zone. Everything about it says "I changed this pack". Leave the page and
+                it is gone, with no message. Alongside that there is no cap: the button now shows
+                unconditionally, so holding it down fills the rail with empty cards, each drawn again
+                in both pack views.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                A rep opens two bags to plan a layout before filling them, gets interrupted, and comes
+                back to a page that has forgotten one.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                An empty bag has nothing to store &mdash; it is only "a bag" because a component
+                mentions it &mdash; so it is remembered only while the page is open. Deliberate and
+                documented, and the previous single-bag behaviour worked the same way. It just gets
+                more noticeable now a rep can open five. Note the "two reps see different bags"
+                version of this is not reachable: a pack is only editable by the rep who owns it.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">The configurator rail.</p>
+            </div>
+            <p class="text-sm text-base-content/60">Found by: my own review, and the architecture judge.</p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f7-decision" value="summary" checked />
+                <span>Raise in the review summary <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f7-decision" value="inline" />
+                <span>Comment inline</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f7-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f7-comment" class="textarea textarea-bordered w-full draft-box" rows="4">An empty bag gets a titled card, a delete control and a live drop target — every affordance says persisted — then vanishes on any unmount, silently. Pre-existing shape, far more visible now a rep can open several.
+
+Also no cap and no confirm on "+ Add side pouch": it renders unconditionally now, so N clicks give N empty cards, each drawn again in the rail and both pack views.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  F8  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6 finding-card" data-card="f8">
+          <div class="card-body gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <h3 class="card-title text-xl">
+                8. Two new pieces of the write interface have no caller &mdash; and if they stay
+                unwired, adding a component can only ever reach the first bag
+              </h3>
+              <div class="flex gap-2 shrink-0">
+                <span class="badge badge-info">Low</span>
+                <span class="badge badge-soft">Blocks merge: no</span>
+              </div>
+            </div>
+
+            <div>
+              <p class="font-semibold text-warning">What breaks</p>
+              <p class="mt-1">
+                Two of the three ways a client can say "which bag" were added and validated, but
+                nothing sends them &mdash; not the app, not any script, not the importer. Only the
+                third has a caller. There is a real consequence hiding behind that: because adding a
+                component can never name a bag, a component added while a rep is looking at their
+                third bag lands in the first one, and they have to drag it. And if a caller ever did
+                name the bag kind without a number, it would land at the lowest slot, pushing every
+                existing bag's number up.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">When</p>
+              <p class="mt-1">
+                The unreachable part costs nothing at runtime; it costs the next reader, who has to
+                establish that two of three write paths are dead before trusting anything about them.
+                The add-lands-in-bag-one part is a live rep-facing rough edge on a multi-bag pack.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Why</p>
+              <p class="mt-1">
+                Symmetry &mdash; it looks odd for one write path to accept something the other two do
+                not. The house rule here is blunt: if code is dead, delete it, no exceptions. So it is
+                one decision or the other, not both: wire it up so an add can target a bag, or delete
+                it and accept that adds always land in the first bag.
+              </p>
+            </div>
+            <div>
+              <p class="font-semibold">Where in the product</p>
+              <p class="mt-1 text-base-content/80">
+                Adding a component to a pack that has more than one bag.
+              </p>
+            </div>
+            <p class="text-sm text-base-content/60">
+              Found by: the architecture judge for the dead half, the adversarial judge for the
+              lands-at-the-front half; I confirmed no caller exists anywhere in the repo.
+            </p>
+
+            <div class="divider my-1"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f8-decision" value="inline" checked />
+                <span>Comment inline <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f8-decision" value="summary" />
+                <span>Raise in the review summary</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="f8-decision" value="drop" />
+                <span>Drop &mdash; say nothing</span>
+              </label>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">The message being sent</span>
+              <textarea name="f8-comment" class="textarea textarea-bordered w-full draft-box" rows="6">container_index on BomRequestLine and AddBomItemRequest has no caller — no producer anywhere outside backend/src, tests and the migration. The FE add types deliberately omit it ("an add names a container KIND, never one bag"). Only UpdateBomItemRequest is reachable. CLAUDE.md: if code is dead, delete it, no exceptions.
+
+Worth pairing with the consequence: since an add can't name a bag, adding a component on a three-bag pack always lands it in bag 1 and the rep has to drag it out. And `resolved_index = container_index or 1` means a caller that ever sends `container: side_pouch` with no key seats a bag at the LOWEST slot, shifting every existing bag's position.
+
+Either wire it (and append rather than seat at 1) or delete it — not both.</textarea>
+            </label>
+          </div>
+        </section>
+
+        <!-- ══════════════  NITS  ══════════════ -->
+        <h2 class="text-2xl font-bold mb-1 mt-10">Nits</h2>
+        <p class="text-base-content/60 mb-4 text-sm">
+          Six. None change what the program does. Never applied by me and never posted as separate
+          comments &mdash; at most one batched line in the summary.
+        </p>
+        <div tabindex="0" class="collapse collapse-arrow bg-base-100 border border-base-content/10 mb-6">
+          <div class="collapse-title font-semibold">6 nits &mdash; mention or skip?</div>
+          <div class="collapse-content">
+            <ol class="list-decimal ml-5 space-y-3 text-sm text-base-content/85">
+              <li>
+                Every bag carries a "which position am I" number that is worked out for it and then
+                thrown away &mdash; it is read in exactly one place, which re-derives it by searching
+                the list anyway. To make that search possible the whole list of bags is passed down
+                into two components that do not draw it, and the same two-line unwrap is repeated at
+                six call sites.
+              </li>
+              <li>
+                The description on the new "section &mdash; container" text says it is the format the
+                pack spec prints. The spec builds its own version on the server and never reads this
+                one; the only thing that uses it is the toast after adding a component.
+              </li>
+              <li>
+                Six comments explain a bug from an earlier draft of this same branch ("an earlier
+                round had each counting its own pouches", "counting them here is what once let&hellip;").
+                Once this is squashed there is nothing to look up. The invariant each states is worth
+                keeping; the anecdote is not.
+              </li>
+              <li>
+                The database change validates its new range check immediately, which takes a brief
+                exclusive lock and reads every existing row. Almost certainly imperceptible at current
+                volumes; worth knowing if the table ever gets large.
+              </li>
+              <li>
+                On the server the three-part slot is passed as three separate arguments through six or
+                more signatures and returned as a five-element tuple, where the browser half of the
+                same feature introduced a named type for it and reads noticeably better.
+              </li>
+              <li>
+                The comment on the new column states "only a side pouch ever carries more than one" as
+                though the database enforces it. The database only checks the value is at least one;
+                the rest is an application rule. Either say so, or add the check.
+              </li>
+            </ol>
+            <div class="divider my-3"></div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Decision for the whole set</legend>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="nits-decision" value="mention" checked />
+                <span>Mention as one batched line in the summary <span class="text-base-content/50">(recommended)</span></span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="radio" class="radio radio-sm" name="nits-decision" value="skip" />
+                <span>Skip them entirely</span>
+              </label>
+            </fieldset>
+          </div>
+        </div>
+
+        <!-- ══════════════  EVIDENCE  ══════════════ -->
+        <h2 class="text-2xl font-bold mb-4 mt-10">What I ran, and what the judges said</h2>
+
+        <div class="grid gap-4 lg:grid-cols-2 mb-6">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Checks I ran myself</h3>
+              <ul class="space-y-2 text-sm">
+                <li><span class="badge badge-success badge-sm mr-2">pass</span>Browser tests &mdash; 2,045 across 232 files.</li>
+                <li><span class="badge badge-success badge-sm mr-2">pass</span>Full server suite &mdash; 1,941, including a real-database test of the schema change going on and coming back off.</li>
+                <li><span class="badge badge-success badge-sm mr-2">pass</span>Type check and linting, both clean.</li>
+                <li><span class="badge badge-success badge-sm mr-2">pass</span>One schema change only, chained correctly onto the current tip, reversible.</li>
+                <li><span class="badge badge-ghost badge-sm mr-2">n/a</span>No previously-resolved-findings log exists for this branch, so nothing was suppressed.</li>
+              </ul>
+              <p class="text-xs text-base-content/60 mt-2">
+                Not run: the end-to-end browser suite and the component-gallery snapshots. Both are in
+                the pre-push gate the author reports as green.
+              </p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Ground truth</h3>
+              <p class="text-sm text-base-content/85">
+                The request behind this is a real UAT failure. A tester wrote: "there is no need to
+                limit the number of component bags you add, as you may sometimes need more than one
+                depending on the quantity, volume or nature of the components." That ask is fully met.
+              </p>
+              <p class="text-sm text-base-content/85 mt-2">
+                The numbering and the delete control are the work order author's additions on top, so
+                nothing external says how a bag should be named. The product requirements repo has
+                nothing on the subject &mdash; I checked.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-box border border-base-content/10 bg-base-100 mb-8">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Reviewer</th><th>Verdict</th><th>What it turned on</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Requirements</td>
+                <td><span class="badge badge-success badge-sm">pass</span></td>
+                <td>All four asks met. Raised the missing explanation on a full bag (finding 3).</td>
+              </tr>
+              <tr>
+                <td>Regression</td>
+                <td><span class="badge badge-success badge-sm">pass</span></td>
+                <td>Every call site of every changed shape is updated; the schema change's default protects the raw-SQL and script insert paths. No breakage outside the changed lines.</td>
+              </tr>
+              <tr>
+                <td>Security</td>
+                <td><span class="badge badge-success badge-sm">pass</span></td>
+                <td>New input bounded at the edge and backed by a database check; ownership rules unchanged. Nothing above "low".</td>
+              </tr>
+              <tr>
+                <td>Adversarial</td>
+                <td><span class="badge badge-error badge-sm">fail</span></td>
+                <td>Six of the nine claims in the pull request hold exactly. Found finding 1, which is the most useful thing anyone found. Rated finding 4 high; I could not reproduce the export-time disagreement and downgraded it.</td>
+              </tr>
+              <tr>
+                <td>Architecture</td>
+                <td><span class="badge badge-error badge-sm">fail</span></td>
+                <td>Called findings 2 and 5 blockers. I verified both and disagree on severity, not on facts. Its "any client can invent a bag" claim I checked and dropped &mdash; it describes what the normal flow does.</td>
+              </tr>
+              <tr>
+                <td>Maintainability</td>
+                <td><span class="badge badge-error badge-sm">fail</span></td>
+                <td>Three polish concerns, all in the nits list. No behaviour at stake.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ══════════════  VERDICT  ══════════════ -->
+        <section class="card card-border bg-base-100 mb-6">
+          <div class="card-body gap-4">
+            <h2 class="card-title text-2xl">The recommendation that goes to Rowan</h2>
+            <p class="text-base-content/85">
+              I found no breakage. The tests pass, the schema change is clean and reversible, every
+              write path moved together, and the ask behind the work is met. Two judges returned
+              "fail" and I read both closely: their facts hold, their severities do not &mdash; the
+              things they call blockers are a deliberate, documented design trade and a deliberate
+              staging decision, neither of which makes the product wrong today.
+            </p>
+            <p class="text-base-content/85">
+              What is genuinely worth acting on before this ships is finding 1: the review screen a
+              rep signs off on cannot distinguish the two lines this feature exists to create, and the
+              fix is small because the data is already there. Everything else is worth saying and not
+              worth blocking on.
+            </p>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend">Submit the review as</legend>
+              <select name="verdict" class="select select-bordered w-full max-w-md">
+                <option value="APPROVE WITH COMMENTS" selected>Approve, with the comments above</option>
+                <option value="COMMENT">Comment only &mdash; no approval either way</option>
+                <option value="REQUEST CHANGES">Request changes</option>
+                <option value="NEEDS DISCUSSION">Post nothing yet &mdash; I want to talk this over first</option>
+              </select>
+            </fieldset>
+            <label class="form-control">
+              <span class="label-text font-semibold">Anything to add, or a steer for me</span>
+              <textarea name="overall-note" class="textarea textarea-bordered w-full draft-box" rows="3" placeholder="Optional. e.g. 'the real problem is X', or 'hold finding 5 until I've talked to Rowan'."></textarea>
+            </label>
+          </div>
+        </section>
+
+        <div id="form-error" class="alert alert-error mb-4" role="alert" hidden>
+          <span id="form-error-text"></span>
+        </div>
+
+        <div class="flex flex-wrap gap-3 items-center mb-16">
+          <button type="submit" class="btn btn-primary btn-lg">Send these decisions</button>
+          <span class="text-sm text-base-content/60">
+            Queues one message back to me. Nothing reaches GitHub until then.
+          </span>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      (function () {
+        var FINDINGS = [
+          { id: "f1", title: "Pack Review can't distinguish the same SKU in two bags" },
+          { id: "f2", title: "Bag number is a position, not a durable name; download then freezes it" },
+          { id: "f3", title: "No remove affordance or explanation on a populated bag" },
+          { id: "f4", title: "xlsx numbering is a second implementation over a different key set" },
+          { id: "f5", title: "Narrower than the already-specified container-instance model (WO-156)" },
+          { id: "f6", title: "Audit log cannot name which bag a line moved to" },
+          { id: "f7", title: "Empty bag looks persisted but is per-mount; no cap on adding" },
+          { id: "f8", title: "container_index unreachable on two request schemas; adds can only reach bag 1" }
+        ];
+
+        var form = document.getElementById("review-form");
+        var errorBox = document.getElementById("form-error");
+        var errorText = document.getElementById("form-error-text");
+
+        // Dim a dropped card so selected state is visible before anything is sent.
+        form.addEventListener("change", function (event) {
+          var target = event.target;
+          if (!target || !target.name || target.name.indexOf("-decision") === -1) return;
+          var id = target.name.split("-")[0];
+          var card = form.querySelector('[data-card="' + id + '"]');
+          if (card) card.setAttribute("data-decision", target.value);
+        });
+
+        function fail(message) {
+          errorText.textContent = message;
+          errorBox.hidden = false;
+          errorBox.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          errorBox.hidden = true;
+
+          var data = new FormData(form);
+          var decisions = [];
+          var missing = [];
+
+          for (var i = 0; i < FINDINGS.length; i++) {
+            var f = FINDINGS[i];
+            var decision = data.get(f.id + "-decision");
+            var comment = data.get(f.id + "-comment");
+            if (!decision) {
+              missing.push("Finding " + (i + 1) + " has no decision.");
+              continue;
+            }
+            if (decision !== "drop" && (!comment || !String(comment).trim())) {
+              missing.push("Finding " + (i + 1) + " is set to post but its message is empty.");
+              continue;
+            }
+            decisions.push({
+              id: f.id,
+              title: f.title,
+              decision: String(decision),
+              comment: decision === "drop" ? "" : String(comment).trim()
+            });
+          }
+
+          var nits = data.get("nits-decision");
+          if (!nits) missing.push("The nits have no decision.");
+
+          var verdict = data.get("verdict");
+          if (!verdict) missing.push("No verdict is selected.");
+
+          if (missing.length > 0) {
+            fail("Nothing was sent. " + missing.join(" "));
+            return;
+          }
+
+          var note = String(data.get("overall-note") || "").trim();
+
+          var lines = [];
+          lines.push("PR #298 review decisions.");
+          lines.push("");
+          lines.push("VERDICT: " + verdict);
+          lines.push("NITS: " + nits);
+          if (note) {
+            lines.push("");
+            lines.push("NOTE FROM ME: " + note);
+          }
+          lines.push("");
+          for (var j = 0; j < decisions.length; j++) {
+            var d = decisions[j];
+            lines.push("--- " + d.id.toUpperCase() + " (" + d.title + ") -> " + d.decision.toUpperCase());
+            if (d.comment) lines.push(d.comment);
+            lines.push("");
+          }
+          lines.push("Post exactly this and nothing else. Do not touch the branch.");
+
+          var counts = { inline: 0, summary: 0, drop: 0 };
+          for (var k = 0; k < decisions.length; k++) counts[decisions[k].decision] += 1;
+          var summary =
+            verdict + " | " + counts.inline + " inline, " + counts.summary +
+            " in summary, " + counts.drop + " dropped, nits " + nits;
+
+          window.lavish.queuePrompt(lines.join("\n"), {
+            tag: "review-decisions",
+            text: summary,
+            element: form,
+            queueKey: "pr-298-review",
+            data: { verdict: verdict, nits: nits, note: note, findings: decisions }
+          });
+
+          errorText.textContent = "";
+          errorBox.hidden = true;
+          var sent = document.createElement("div");
+          sent.className = "alert alert-success mb-4";
+          sent.setAttribute("role", "status");
+          sent.textContent =
+            "Queued: " + summary + ". Press Send to Agent in the top bar to hand it over.";
+          form.appendChild(sent);
+          sent.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #297 review — toasts over overlays &amp; the dashboard tab</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where(.grid, .flex) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, dd, td, th, .badge) { overflow-wrap: anywhere; }
+  .draft {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem; line-height: 1.55;
+    min-height: 15rem; width: 100%;
+  }
+  .rail { border-left: 3px solid var(--color-base-content); opacity: .999; padding-left: 1rem; }
+  .lede { font-size: 1.02rem; line-height: 1.6; }
+  .rowlabel { font-variant-caps: all-small-caps; letter-spacing: .08em; font-weight: 700; opacity: .62; font-size: .78rem; }
+</style>
+</head>
+<body class="bg-base-200 text-base-content">
+
+<div class="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+
+  <!-- ============ HEADER ============ -->
+  <header class="mb-10">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      <span class="badge badge-soft">PR #297</span>
+      <span class="badge badge-soft">WO-303</span>
+      <span class="badge badge-soft badge-info">Reviewer mode — someone else's branch</span>
+    </div>
+    <h1 class="text-3xl font-bold leading-tight sm:text-4xl">Toasts over overlays, and the dashboard tab</h1>
+    <p class="mt-2 text-sm opacity-70">by Rowan G · 11 files, +352 / −23 · frontend only, no backend, no migration</p>
+
+    <div class="rail mt-6 space-y-3">
+      <p class="lede">
+        Two unrelated bug fixes. <strong>One:</strong> a toast's close button was dead whenever a modal or
+        the cart was open, so the toast just sat there until it timed out. <strong>Two:</strong> going into a
+        pack from the Packs tab and clicking "Dashboard" to come back dropped the rep on Accounts
+        instead of Packs.
+      </p>
+      <p class="lede">
+        Both root causes are correctly diagnosed and both bugs are genuinely fixed. The problem is the
+        price of the first fix: making the toast clickable also makes it <em>absorb</em> clicks, and the
+        toast sits exactly on top of the cart's action buttons.
+      </p>
+    </div>
+
+    <div role="alert" class="alert alert-warning alert-soft mt-6">
+      <div>
+        <div class="font-semibold">Recommendation: request changes — on one finding.</div>
+        <div class="mt-1 text-sm">
+          The work order for this task explicitly said to make the toast dismissable
+          <em>"without letting it block interaction with the overlay beneath it."</em> This does exactly
+          that, and the PR describes the blockage as unavoidable. It isn't — there's a small, contained
+          change that gets both halves. Everything else here is a comment.
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <form id="reviewForm" novalidate>
+
+  <!-- ============ FINDINGS ============ -->
+  <h2 class="mb-1 text-xl font-bold">Findings</h2>
+  <p class="mb-6 text-sm opacity-70">Most significant first. Each is verified against the code — judge claims I couldn't reproduce were dropped and are listed at the bottom.</p>
+
+  <!-- ---------- F1 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/src/index.css" data-line="454">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F1 · The toast eats clicks on the cart's buttons</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-warning">medium</span>
+          <span class="badge badge-error badge-soft">blocks merge</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          With the cart open, a toast covers the cart's main action buttons and swallows any click aimed
+          at them. Not "clicks the wrong thing" — <strong>nothing happens at all</strong>, for the four
+          seconds the toast is on screen (plus about half a second more while it fades out invisibly).
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          A rep opens the cart and presses <em>"Add to this pack"</em>. If that fails — a component that
+          can't be resolved, a conflict, a server error, a dropped connection — the app raises an error
+          toast and <strong>deliberately leaves the cart open so the rep can retry</strong>. The toast
+          lands on the retry button it is telling them to press. The same thing happens for the app-wide
+          error toast appearing over any open dialog.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          The cart slides in from the right and puts its buttons at the bottom of that panel — bottom-right
+          of the screen. Toasts also appear bottom-right. They overlap almost exactly.
+        </p>
+        <p class="mt-2">
+          Previously the toast was "transparent" to the mouse: it looked like it covered the button, but
+          the click passed straight through and the button worked. This change makes the toast solid to
+          the mouse so its own close button works — and a solid toast catches everything else too. A
+          second part of the change then stops that click from travelling anywhere else, so it dies on
+          the toast.
+        </p>
+        <p class="mt-2">
+          <strong>It is avoidable.</strong> Only the toast's own close and action buttons need to be
+          solid. The rest of the toast can stay transparent, letting clicks through to the cart button
+          underneath as before. That shrinks the blocked area from roughly the size of a business card to
+          the size of the little "×". Nothing is lost: swiping a toast away and hovering to pause it were
+          already impossible while a modal was open, both before and after this change.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">The shopping cart panel, and any dialog with buttons in its bottom-right corner.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: me, and independently by the regression, design and spec reviewers. Verified against the cart's layout, the toast library's defaults, and the underlying overlay library's source.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f1-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f1-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f1-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f1-comment" class="textarea textarea-bordered draft">This makes the cart's footer CTAs unclickable for the toast's 4s life.
+
+The cart is a right-anchored Sheet with a SheetFooter, so its buttons sit bottom-right; sonner defaults to bottom-right, 356px wide, 24px offset. Direct overlap. Before this rule the toast inherited `pointer-events: none` and the click fell through to the button — now the toast takes it, and Toaster's stopPropagation means nothing else reacts either. `useAddCartToPack` raises its error toasts and returns *without* closing the panel (CartPanel passes `onSuccess: onClose` only), so the retry button is exactly what gets covered. Same shape for the global error toast over any open modal.
+
+WO-303: "without letting it block interaction with the overlay beneath it."
+
+`pointer-events` is overridable at any depth — that's how Radix re-enables its own layers under an inert body — so scoping to the controls gets both halves:
+
+    [data-sonner-toast] [data-close-button],
+    [data-sonner-toast] [data-button] {
+      pointer-events: auto;
+    }
+
+Live area drops from ~356x56px to the 20x20 close button plus the one action button in the app (pack-review "Open draft"). Nothing regresses when no modal is open — the toast is already `auto` by inheritance there — and swipe-to-dismiss / hover-to-pause under a modal were already dead before this PR.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f1-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- F2 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/README.md" data-line="219">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F2 · The docs say the opposite of what the code does</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-warning">medium</span>
+          <span class="badge badge-ghost">does not block</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          The PR adds a row to the frontend README's reference table of "how we store what kind of state",
+          and that row states a rule the same PR deliberately broke. The repo's own convention says the
+          README wins when code and README disagree — so this row is what future work gets measured
+          against.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          The next person who reads that table to decide how to remember something. They'll be told this
+          category of memory is wiped when the page reloads. For the dashboard tab, it isn't.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          The new row says the remembered value <em>"resets on reload."</em> The PR's own description says
+          the tab <em>"survives a reload too"</em> — and the code agrees with the description, because the
+          fix writes the current tab into the address bar, and a reload reads it straight back. Both
+          statements can't be right. The same wrong claim is repeated in a comment in the new file, and a
+          test is <em>named</em> after the reload scenario while actually testing something else (a
+          cleared memory with an empty address bar, which is not what a reload does).
+        </p>
+        <p class="mt-2">
+          The row also lumps three things together that aren't the same. Two of them are plain in-memory
+          values. This third one is address-bar state seeded from an in-memory value, with an extra step
+          reconciling the two. Flattening that hides a real distinction.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">Nowhere a user sees — this is developer documentation and the next person's default.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: the quality reviewer; verified by me against the code and the PR description.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f2-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f2-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f2-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f2-comment" class="textarea textarea-bordered draft">"resets on reload" is false for `useDashboardTab`. The PR description says the tab "survives a reload too" — and it does: the mount write leaves `/?tab=packs`, so a reload resolves straight back to Packs. Only a fresh load at a bare `/` resets. Same claim in useDashboardTab.ts:13, and the test at useDashboardTab.test.tsx:55 is named "starts over on Accounts after a fresh load" while actually exercising module-reset + no query string, which isn't what a reload does.
+
+The Tool column is off for this one too: the other two hooks are a module `let` seeding `useState` and nothing more; this is nuqs URL state *seeded from* a module `let`, with an effect reconciling two sources of truth.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f2-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- F3 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/src/components/atoms/Toaster.tsx" data-line="19">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F3 · The comment recording the trade-off names the wrong trade-off</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-warning">medium</span>
+          <span class="badge badge-ghost">does not block</span>
+        </div>
+      </div>
+
+      <div class="alert alert-info alert-soft text-sm">
+        <span>Late addition — the last reviewer returned after the rest of this page was written, and found this. I verified every part of it against the library source.</span>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          The PR asks reviewers to eyeball one specific behaviour change and weigh whether it's
+          acceptable. <strong>That change is described backwards.</strong> The menus the PR says are now
+          affected aren't; the one it says is safe isn't. The same wrong description is written into a
+          code comment, which is what the next person to touch this will read and believe.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          A rep has any dropdown open — the "⋯" menu on a pack row, the user menu in the top bar, a
+          toolbar filter, a picker — and clicks a toast. Those menus <strong>used to close and now stay
+          open</strong>, on a page that is otherwise frozen, until they press Escape or pick an item. The
+          PR states these are unaffected. Meanwhile the one kind of overlay the PR says will now linger —
+          a hover-card style popover — still closes exactly as before.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          The PR's description rests on a category error. It calls dropdowns and pickers "non-modal", but
+          in this codebase they are all modal — the library makes that the default and nothing here
+          overrides it. And the comment says clicks are the only way an overlay decides to close; there is
+          a second way, based on where keyboard focus moves. The change only blocks the first. The
+          popover it expected to linger closes through the second channel, because clicking a toast moves
+          focus onto it.
+        </p>
+        <p class="mt-2">
+          <strong>There is a supported fix for both.</strong> The overlay library ships a way to mark a
+          region as "part of the family — clicks and focus landing here are not outside." It covers both
+          channels in one registration, and the library's own toast component uses exactly this. I
+          confirmed it works from where our toast sits, outside every dialog, because the registry is
+          app-wide rather than nested.
+        </p>
+        <p class="mt-2">
+          <strong>The honest counterweight:</strong> reaching it means importing from an entry point the
+          library literally labels "internal", or promoting a sub-package to a direct dependency. That is
+          a real cost and a fair reason to keep what's here — in which case the comment and PR text just
+          need correcting, which is the cheap half of this finding.
+        </p>
+        <p class="mt-2">
+          The main fix — clicking a toast doesn't close the cart or a dialog behind it — is solid and
+          unaffected by any of this.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">Every dropdown in the app, while a toast is showing.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: the design reviewer (the library primitive) and the adversarial reviewer (the inversion). I confirmed both in the library source: dropdowns and pickers default to modal with no override anywhere in our code, and the popover's focus path is only suppressed when a click was seen first — which this change guarantees never happens.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f3-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f3-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f3-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f3-comment" class="textarea textarea-bordered draft">This docstring has the accepted cost backwards, in both directions.
+
+"non-modal dropdown, popover and select" — dropdowns and selects in this app are *modal*. `@radix-ui/react-dropdown-menu:29` and `react-menu:50` default `modal = true`, `ui/dropdown-menu.tsx` forwards props untouched, and there is no `modal={false}` anywhere in src/. Radix Select hard-codes `disableOutsidePointerEvents: true` (`react-select:454`). So the surface that actually regresses is every dropdown in the app — PackRowMenu, the navbar user menu, CatalogToolbar, AccountsToolbar, CategoryFilterSidebar, MultiSelectDropdownMenu — which used to close on a toast click and now stay open on an inerted page until Escape.
+
+Popover is the genuinely non-modal one (`react-popover:35`, `modal = false`) and it still closes. `PopoverContentNonModal.onInteractOutside` preventDefaults the focusin case only when `hasPointerDownOutsideRef.current` is true — which this swallow makes permanently false — so DismissableLayer dismisses it via `focusin` (`react-dismissable-layer:51-58,191`). That also makes lines 11-13 inaccurate: pointerdown is not the only dismissal channel.
+
+Worth knowing either way, but if you want it fixed rather than just documented: Radix ships `DismissableLayer.Branch`, which exempts a subtree from *both* channels in one registration (`react-dismissable-layer:44,52`). `DismissableLayerContext` has no Provider — module-level singleton — so a Branch around a top-level <Toaster/> registers fine despite sitting in no dialog, and Radix's own Toast wraps its viewport in exactly this (`react-toast:173`). Not free: reachable only via `radix-ui/internal`, or by promoting `@radix-ui/react-dismissable-layer` to a direct dep (already transitive). Depending on an entry point named "internal" is a fair reason to keep what's here and just correct the comment.
+
+Modal dialogs and the cart sheet are unaffected either way (DialogContentModal preventDefaults onFocusOutside), so the primary fix holds.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f3-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- F4 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/e2e/pack-review.spec.ts" data-line="168">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F4 · Nothing realistic checks the half of the fix that rewrites the address bar</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-info">low</span>
+          <span class="badge badge-ghost">does not block</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          If the part that writes the tab into the address bar quietly stopped working, no test anywhere
+          would notice.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          A future refactor touches the dashboard, the address-bar write stops happening, everything stays
+          green, and the "tab survives a reload" behaviour is gone without anyone noticing until a rep
+          reports it again.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          Two browser tests were widened to tolerate the new address, but they were widened in a way that
+          accepts <em>both</em> the old and the new form — and the check they use stops at the first
+          match, which is the old form, before the rewrite even lands. So they can never observe it. The
+          one test that does observe it has to switch off a safety in the test harness that the real app
+          doesn't have, so it's checking behaviour under a setup that differs from production.
+        </p>
+        <p class="mt-2">
+          <strong>Why this is low and not medium:</strong> the actual reported bug — the breadcrumb losing
+          the tab — is fixed by the in-memory half alone and is well covered. What's untested is the bonus
+          of also surviving a reload. Worth noting only because one of those two widened tests walks the
+          exact path the bug was reported on, so it's the natural place to assert the tab rather than
+          shrug at it.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">The dashboard's address, after arriving there from a pack.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: the spec and quality reviewers; verified by me, including the "stops at first match" detail that makes it airtight.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f4-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f4-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f4-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f4-comment" class="textarea textarea-bordered draft">This can't observe the canonicalisation it was widened for: the group is optional and `toHaveURL` returns on first match, so it matches the bare `/` before the write lands and never re-checks. Combined with page.test.tsx needing `resetUrlUpdateQueueOnMount={false}` — an opt-out the shipped react-router adapter doesn't share — nothing running against the real adapter would fail if the mount write silently stopped.
+
+Low stakes: the reported bug is fixed by the session memory alone and is well covered, so what's untested is the reload-survival bonus. Flagging it because this spec walks the exact reported path, which makes it the natural place to assert the tab rather than tolerate it.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f4-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- F5 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/src/pages/home/page.test.tsx" data-line="44">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F5 · A test safety was switched off for a whole file, not just the new tests</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-info">low</span>
+          <span class="badge badge-ghost">does not block</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          Nothing today — the whole suite is green. This is a trap laid for later: the dashboard's test
+          file can now start failing intermittently, in tests nobody touched, for reasons that won't point
+          back here.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          Whenever a future test happens to finish at the wrong moment. The symptom would be a dashboard
+          test failing on a search or page-number value it never set — the kind of flake people re-run
+          rather than diagnose.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          The address-bar library queues its writes in one shared place for the entire test process. Its
+          test harness clears that queue between tests precisely so one test can't leave a pending write
+          for the next one. The PR needed that clearing off for its new tests — reasonably — but switched
+          it off in the shared setup helper, so it's also off for the roughly two hundred lines of
+          existing dashboard tests above, which drive search terms, sorting and page numbers through that
+          same queue. Moving the switch onto just the new block closes it.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">Nowhere — this is test infrastructure only.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: the regression reviewer; verified by me in the library's test-harness source. I ran the full suite: 1990/1990 pass as-is.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f5-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f5-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f5-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f5-comment" class="textarea textarea-bordered draft">This sits on the shared renderPage helper, so it also disables queue isolation for the ~200 lines of pre-existing dashboard tests above — the ones that click into Packs and drive PacksSection's q/sort/page. NuqsTestingAdapter calls resetQueues() in its render body because the throttle/debounce queues are module singletons; flushes are scheduled off a macrotask, so a test ending right after queuing can leave an entry the next test's first flush applies. Self-healing for `tab` (same key overwrites), riskier for q/page.
+
+Scoping the opt-out to the new describe block removes it. Green today (1990/1990), so this is a hazard rather than a failure.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f5-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- F6 ---------- -->
+  <section class="card card-border mb-6 bg-base-100" data-file="frontend/src/components/atoms/Toaster.test.tsx" data-line="37">
+    <div class="card-body gap-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="card-title text-lg">F6 · The one detail the comment calls load-bearing is the one nothing tests</h3>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <span class="badge badge-info">low</span>
+          <span class="badge badge-ghost">does not block</span>
+        </div>
+      </div>
+
+      <div class="alert alert-info alert-soft text-sm">
+        <span>Also from the late-returning reviewer.</span>
+      </div>
+
+      <div>
+        <div class="rowlabel">What breaks</div>
+        <p class="mt-1">
+          Swipe-to-dismiss on toasts could be silently deleted by a one-word change, and every test would
+          stay green.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">When</div>
+        <p class="mt-1">
+          A future maintainer reads the new code, decides the interception should happen earlier (a very
+          natural instinct — it's the more common way to write this), makes that change, ships it. Toasts
+          stop being swipeable away on a tablet. Nothing catches it.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Why</div>
+        <p class="mt-1">
+          The comment explicitly says the timing of the interception is deliberate, because the toast
+          library's own swipe handling has to run first. That's a real invariant. But the two new tests
+          only check whether the click reached the page level — which stays true either way. And the
+          browser test clicks the toast's little "×", which the toast library deliberately ignores for
+          swipe purposes, so it doesn't exercise the path either. One assertion that a press on the toast
+          <em>body</em> still starts a swipe would pin it.
+        </p>
+      </div>
+
+      <div>
+        <div class="rowlabel">Where in the product</div>
+        <p class="mt-1">Swiping a toast away — the primary dismiss gesture on tablet, which is the floor this product supports.</p>
+      </div>
+
+      <p class="text-xs opacity-60">Found by: the adversarial reviewer; verified by me in the toast library's source — it bails out of swipe handling for button targets before it ever starts.</p>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f6-decision" value="inline" class="radio radio-sm" checked><span>Comment inline <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f6-decision" value="summary" class="radio radio-sm"><span>Raise in summary</span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="f6-decision" value="drop" class="radio radio-sm"><span>Drop</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <div class="rowlabel mb-1">The message that goes out under your name — edit freely</div>
+        <textarea name="f6-comment" class="textarea textarea-bordered draft">The docstring calls the bubble phase load-bearing ("sonner's own swipe-to-dismiss `pointerdown` must run first"), but nothing pins it. Both these tests only assert whether a document-level listener fired, which stays true if you flip `onPointerDown` to `onPointerDownCapture` — and that flip kills swipe-to-dismiss, because a capture-phase stop never reaches sonner's handler on the toast itself.
+
+The OverAModalDialog story doesn't cover it either: it clicks the close button, and sonner early-returns for button targets before `setSwiping(true)` (`sonner/dist/index.mjs:688`).
+
+One assertion that a pointerdown on the toast *body* still reaches sonner — e.g. `data-swiping="true"` after pointerdown + move — would close it. Matters more than usual here given the tablet floor, where swipe is the primary dismiss gesture.</textarea>
+      </div>
+
+      <div>
+        <div class="rowlabel mb-1">Or tell me the real problem is something else</div>
+        <input type="text" name="f6-note" class="input input-bordered w-full" placeholder="optional — overrides the draft above">
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- NITS ---------- -->
+  <section class="card card-border mb-8 bg-base-100">
+    <div class="card-body gap-4">
+      <details>
+        <summary class="cursor-pointer text-base font-semibold">6 nits — mention as one line, or skip?</summary>
+        <ul class="mt-4 list-disc space-y-2 pl-5 text-sm">
+          <li>Switching tab writes the address bar twice instead of once. Harmless — but the reason it isn't three times is a build-time optimiser silently papering over the fact that this code reads a value that can change out from under it. Fragile in a way that won't be obvious later.</li>
+          <li>On Safari the second write is delayed by up to a third of a second, so switching tab and immediately opening a pack can leave a stray tab marker on the pack's address. Cosmetic, but it rides along on any link shared from there.</li>
+          <li>A mistyped tab in a shared address (wrong capitalisation, a typo) silently falls back to whatever tab that browser last used and rewrites the address to match, rather than falling back to the default.</li>
+          <li>The fix is pointer-only: with a dialog open, someone using the keyboard or a screen reader can <em>hear</em> the toast but still can't reach or dismiss it. Pre-existing, not caused here — but the PR states the problem as solved.</li>
+          <li>The new file names its starting-value constant differently from the two files it was modelled on, and it's the only page-level hook in the repo that reaches sideways into a components folder.</li>
+          <li>Third near-identical copy of the same "remember this for the session" boilerplate, comment template included. The README now names the pattern but there's still no single place it lives. And the two halves of the toast fix sit in different files with neither mentioning the other.</li>
+        </ul>
+      </details>
+
+      <div class="divider my-0"></div>
+
+      <fieldset>
+        <legend class="rowlabel mb-2">Decision — one control for the whole set</legend>
+        <div class="flex flex-wrap gap-x-6 gap-y-2">
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="nits-decision" value="mention" class="radio radio-sm" checked><span>Mention as one batched line <span class="opacity-60">(recommended)</span></span></label>
+          <label class="label cursor-pointer gap-2 py-0"><input type="radio" name="nits-decision" value="skip" class="radio radio-sm"><span>Skip entirely</span></label>
+        </div>
+      </fieldset>
+    </div>
+  </section>
+
+  <!-- ============ CONTEXT ============ -->
+  <h2 class="mb-4 text-xl font-bold">Context</h2>
+
+  <div class="grid gap-6 md:grid-cols-2">
+    <div class="card card-border bg-base-100">
+      <div class="card-body">
+        <h3 class="card-title text-base">Tests &amp; CI</h3>
+        <p class="text-sm">Everything green, verified locally and not just taken from CI.</p>
+        <ul class="mt-1 space-y-1 text-sm">
+          <li><span class="badge badge-success badge-sm badge-soft">pass</span> 1990 unit tests</li>
+          <li><span class="badge badge-success badge-sm badge-soft">pass</span> 287 browser component tests</li>
+          <li><span class="badge badge-success badge-sm badge-soft">pass</span> formatting check</li>
+          <li><span class="badge badge-success badge-sm badge-soft">pass</span> all 15 CI checks incl. end-to-end</li>
+        </ul>
+        <p class="mt-2 text-sm">New coverage added: 2 unit tests for the toast, 4 for the tab memory, 5 at page level, and one browser test that is the only real guard on the toast's clickability half.</p>
+      </div>
+    </div>
+
+    <div class="card card-border bg-base-100">
+      <div class="card-body">
+        <h3 class="card-title text-base">Against the work order</h3>
+        <p class="text-sm">
+          Both reported bugs are fixed and the second one was correctly investigated rather than guessed
+          at — the work order admitted it didn't know the repro, and the PR pins it down.
+        </p>
+        <p class="mt-2 text-sm">
+          One instruction is not met: <em>"without letting it block interaction with the overlay beneath
+          it."</em> That is F1. The PR is upfront about it and asks for it to be looked at by hand — it
+          just calls it unavoidable, which is the part I disagree with.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------- DROPPED ---------- -->
+  <section class="card card-border mt-6 bg-base-100">
+    <div class="card-body">
+      <details>
+        <summary class="cursor-pointer text-base font-semibold">8 things I checked and threw out — including one reviewer's "blocker"</summary>
+        <div class="mt-4 space-y-4 text-sm">
+          <div>
+            <div class="font-semibold">"Screen-reader users can't reach the toast under a modal"</div>
+            <p class="opacity-80">Simply false. The library that hides the rest of the page from screen readers makes a specific exception for live announcement regions, which is exactly what the toast area is. No accessibility defect.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"The tab fix should have reused the existing come-back-to-where-you-were mechanism" — called a blocker by one reviewer</div>
+            <p class="opacity-80">The author already considered and rejected this, with a good reason: going dashboard → pack → edit → back to the pack loses the trail, so the tab would be lost again. The reviewer's counter-example (landing on a remembered tab after logging in) can't happen — signing in reloads the whole app, which clears the memory. Rejected.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"Making the toast solid creates a click-hijacking risk"</div>
+            <p class="opacity-80">Backwards. The <em>old</em> behaviour was the risky one: an opaque toast visually covering a confirm button while the click went straight through to it. This PR is an improvement on that axis. It's the reason F1 is a trade-off rather than a pure regression.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"The address-bar write could land on the wrong page"</div>
+            <p class="opacity-80">Would need a page change within a single tick of arriving. Not reachable by a human.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"The new README row contradicts the coding rules file"</div>
+            <p class="opacity-80">It does, but that contradiction predates this PR — the README already listed more categories than the rules file.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"The README table formatting is broken"</div>
+            <p class="opacity-80">It isn't; the formatter is happy and the columns are consistent. The diff just renders it oddly.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"Stacked or hidden toasts become clickable" / "the toast corner becomes a click shield"</div>
+            <p class="opacity-80">Neither. The library's own rule for hidden toasts is more specific and still wins, and the container around the toasts has no height of its own.</p>
+          </div>
+          <div>
+            <div class="font-semibold">"Keyboard users still can't reach the toast under a modal"</div>
+            <p class="opacity-80">Real and confirmed — the dialog's focus trap yanks focus back, so the toast is unreachable by Tab and by the toast library's own keyboard shortcut. But it predates this PR. Demoted to a nit line rather than dropped outright, because the PR presents the problem as solved and it's solved only for the mouse.</p>
+          </div>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ---------- JUDGES ---------- -->
+  <section class="card card-border mt-6 bg-base-100">
+    <div class="card-body">
+      <h3 class="card-title text-base">Reviewer panel</h3>
+      <div class="overflow-x-auto">
+        <table class="table table-sm table-zebra">
+          <thead><tr><th>Reviewer</th><th>Verdict</th><th>What survived my check</th></tr></thead>
+          <tbody>
+            <tr><td>Regression</td><td><span class="badge badge-error badge-sm badge-soft">fail</span></td><td>F1 — confirmed, same evidence I reached independently. Also F5.</td></tr>
+            <tr><td>Design</td><td><span class="badge badge-error badge-sm badge-soft">fail</span></td><td>F3 confirmed. Its "blocker" rejected — see dropped list.</td></tr>
+            <tr><td>Spec</td><td><span class="badge badge-error badge-sm badge-soft">fail</span></td><td>F1 as a flagged deviation, plus F4.</td></tr>
+            <tr><td>Quality</td><td><span class="badge badge-error badge-sm badge-soft">fail</span></td><td>F2 confirmed. Its overlap finding rejected as above.</td></tr>
+            <tr><td>Security</td><td><span class="badge badge-success badge-sm badge-soft">pass</span></td><td>Nothing above low. Its most useful contribution was inverting the click-hijacking concern.</td></tr>
+            <tr><td>Adversarial</td><td><span class="badge badge-error badge-sm badge-soft">fail</span></td><td>Landed last and earned its keep: F3's inversion and F6, neither of which the other five saw.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-2 text-xs opacity-60">I did not drive the app by hand in a browser — F1's geometry comes from the cart's layout code, the toast library's constants and the overlay library's source, not a screenshot. The adversarial reviewer did drive a real browser and confirmed the F3 mechanics there.</p>
+    </div>
+  </section>
+
+  <!-- ============ VERDICT ============ -->
+  <section class="card mt-8 bg-base-300">
+    <div class="card-body gap-5">
+      <h2 class="card-title text-xl">Your call</h2>
+      <p class="text-sm">
+        This is what the author acts on. Nothing goes to GitHub until you submit here, and only what you
+        approved above goes out.
+      </p>
+
+      <div>
+        <label class="rowlabel mb-2 block" for="verdict">Recommendation to the author</label>
+        <select id="verdict" name="verdict" class="select select-bordered w-full">
+          <option value="request-changes" selected>Request changes — F1 is a real regression with a small fix (recommended)</option>
+          <option value="approve-with-comments">Approve with comments — land it, fix F1 as follow-up</option>
+          <option value="comment">Comment only — no approval either way</option>
+          <option value="approve">Approve — nothing here should hold it up</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="rowlabel mb-2 block" for="verdictNote">Anything to add to the summary</label>
+        <textarea id="verdictNote" name="verdict-note" class="textarea textarea-bordered w-full" rows="3" placeholder="optional"></textarea>
+      </div>
+
+      <div id="formError" class="alert alert-error hidden" role="alert"><span id="formErrorText"></span></div>
+
+      <div class="card-actions justify-end">
+        <button type="submit" class="btn btn-primary btn-lg">Queue these decisions</button>
+      </div>
+      <p class="text-xs opacity-60">Queues one prompt back to me. Press <strong>Send to Agent</strong> (or Send &amp; End) in the Lavish bar to deliver it.</p>
+    </div>
+  </section>
+
+  </form>
+</div>
+
+<script>
+(function () {
+  var FINDINGS = [
+    { id: "f1", title: "Toast eats clicks on the cart's buttons", file: "frontend/src/index.css", line: 454 },
+    { id: "f2", title: "Docs say the opposite of what the code does", file: "frontend/README.md", line: 219 },
+    { id: "f3", title: "Docstring records the trade-off backwards; DismissableLayer.Branch covers both channels", file: "frontend/src/components/atoms/Toaster.tsx", line: 19 },
+    { id: "f4", title: "Address-bar rewrite is effectively untested", file: "frontend/e2e/pack-review.spec.ts", line: 168 },
+    { id: "f5", title: "Test queue isolation disabled file-wide", file: "frontend/src/pages/home/page.test.tsx", line: 44 },
+    { id: "f6", title: "Bubble-phase invariant has no test", file: "frontend/src/components/atoms/Toaster.test.tsx", line: 37 }
+  ];
+
+  var form = document.getElementById("reviewForm");
+  var errBox = document.getElementById("formError");
+  var errText = document.getElementById("formErrorText");
+
+  function fail(message) {
+    errText.textContent = message;
+    errBox.classList.remove("hidden");
+    errBox.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    errBox.classList.add("hidden");
+
+    var data = new FormData(form);
+    var lines = [];
+    var problems = [];
+    var posting = 0;
+
+    FINDINGS.forEach(function (f) {
+      var decision = data.get(f.id + "-decision");
+      if (!decision) {
+        problems.push(f.id.toUpperCase() + " has no decision selected");
+        return;
+      }
+      var body = (data.get(f.id + "-comment") || "").trim();
+      var note = (data.get(f.id + "-note") || "").trim();
+
+      if (decision !== "drop" && !body && !note) {
+        problems.push(f.id.toUpperCase() + " is set to “" + decision + "” but its message is empty");
+        return;
+      }
+      if (decision !== "drop") posting++;
+
+      var label = decision === "inline"
+        ? "POST INLINE at " + f.file + ":" + f.line
+        : decision === "summary"
+          ? "FOLD INTO THE SUMMARY"
+          : "DROP — say nothing, log it to temp/review-log.md";
+
+      lines.push(
+        "### " + f.id.toUpperCase() + " — " + f.title + "\n" +
+        label +
+        (decision !== "drop" ? "\nApproved text:\n" + body : "") +
+        (note ? "\nRibhav's override — this wins over the text above:\n" + note : "")
+      );
+    });
+
+    var nits = data.get("nits-decision");
+    if (!nits) problems.push("The nits set has no decision selected");
+
+    var verdict = data.get("verdict");
+    if (!verdict) problems.push("No recommendation selected");
+
+    if (problems.length) {
+      fail("Nothing was sent. Fix these first: " + problems.join("; ") + ".");
+      return;
+    }
+
+    var verdictNote = (data.get("verdict-note") || "").trim();
+
+    var prompt =
+      "Captain's decisions on the PR #297 review. Post exactly this and nothing else.\n\n" +
+      lines.join("\n\n") + "\n\n" +
+      "### Nits\n" + (nits === "mention"
+        ? "Mention them as ONE batched line in the summary. Never one comment each."
+        : "Skip entirely — do not mention them at all.") + "\n\n" +
+      "### Submit as\n" + verdict.toUpperCase().replace(/-/g, " ") +
+      (verdictNote ? "\n\nAdd to the summary body:\n" + verdictNote : "") + "\n\n" +
+      "Post " + posting + " comment(s). Do not post anything not listed above. " +
+      "Do not touch the branch. Then append the second status line to " +
+      "state/pr-297-toast-and-dashboard-tab.status.";
+
+    if (window.lavish && typeof window.lavish.queuePrompt === "function") {
+      window.lavish.queuePrompt(prompt, {
+        tag: "review-decisions",
+        text: "PR #297 — " + verdict + ", " + posting + " comment(s), nits: " + nits,
+        element: form,
+        data: { verdict: verdict, nits: nits, posting: posting }
+      });
+      errText.textContent = "";
+      errBox.classList.add("hidden");
+      var btn = form.querySelector('button[type="submit"]');
+      btn.textContent = "Queued — press Send to Agent";
+      btn.classList.remove("btn-primary");
+      btn.classList.add("btn-success");
+    } else {
+      fail("Lavish isn't available on this page, so nothing was queued. Reopen via lavish-axi.");
+    }
+  });
+})();
+</script>
+</body>
+</html>
