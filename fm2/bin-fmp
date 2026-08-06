@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# fmp - open (or re-attach to) a project's control panel.
+#
+#   fmp <project>   create/attach the project's tmux session and start firstmate
+#   fmp             list the projects it can see
+#
+# One session per project:
+#
+#   session fm-<project>
+#     control   left: firstmate (cwd = the harness repo)   right: a shell in the project
+#     workers   ship task panes                            (created by `fm ship`)
+#     reviews   review panes                               (created by `fm review`)
+#
+# firstmate's pane sits in the harness repo, not the project, because the Stop
+# hook resolves through $CLAUDE_PROJECT_DIR and that must be the harness checkout.
+# The project is where the right-hand shell opens, and what `fm --project` points
+# at.
+#
+# Unlike the version this replaces there are no per-project homes. fm2 keeps one
+# home (~/.fm2) and every task records its own project, so a project is just a
+# directory.
+#
+# Overrides:
+#   FM_REPO          the harness checkout
+#   FM_PROJECTS      where projects live      (default ~/Desktop/everything)
+#   FMP_CLAUDE_CMD   how firstmate is started
+#   FMP_NO_ATTACH=1  build the panel and leave it detached, printing its name
+
+set -eu
+
+FM_REPO="${FM_REPO:-/Users/ribhav/Desktop/everything/coding_harness}"
+FM_PROJECTS="${FM_PROJECTS:-/Users/ribhav/Desktop/everything}"
+FMP_CLAUDE_CMD="${FMP_CLAUDE_CMD:-claude --dangerously-skip-permissions --effort max}"
+
+die() { printf 'fmp: %s\n' "$*" >&2; exit 1; }
+
+# A project is a git checkout directly under FM_PROJECTS. Worktrees are siblings
+# named <repo>-<something>, so they are skipped: they are task scratch, never a
+# thing to open a control panel on.
+list_projects() {
+  [ -d "$FM_PROJECTS" ] || return 0
+  for d in "$FM_PROJECTS"/*/; do
+    [ -d "$d/.git" ] || continue
+    name=$(basename "$d")
+    case "$name" in *-pr-*|*-wo-*) continue ;; esac
+    printf '  %s\n' "$name"
+  done
+}
+
+[ -d "$FM_REPO" ] || die "the harness is not at $FM_REPO (set FM_REPO)"
+command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux)"
+
+if [ $# -eq 0 ]; then
+  printf 'usage: fmp <project>\n\nprojects:\n'
+  list_projects
+  exit 0
+fi
+
+PROJECT=$1
+case "$PROJECT" in
+  ''|*[!A-Za-z0-9._-]*) die "unsafe project name '$PROJECT'" ;;
+esac
+
+PROJ_DIR="$FM_PROJECTS/$PROJECT"
+if [ ! -d "$PROJ_DIR/.git" ]; then
+  printf 'fmp: no git checkout at %s\n\nprojects:\n' "$PROJ_DIR" >&2
+  list_projects >&2
+  exit 1
+fi
+PROJ_DIR=$(cd "$PROJ_DIR" && pwd -P)
+
+SES="fm-$PROJECT"
+
+attach() {
+  if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$SES"; else tmux attach-session -t "$SES"; fi
+}
+
+# Already running: go there. Never rebuild a live session - task panes and their
+# worktrees live in it.
+if tmux has-session -t "=$SES" 2>/dev/null; then
+  attach
+  exit 0
+fi
+
+# ~/.tmux.conf sets destroy-unattached on, which fires the moment a session has
+# no client - including the instant `new-session -d` creates one. A session built
+# detached is therefore destroyed before its first window exists.
+#
+# The global has to come off to get the session created at all: a per-session
+# option cannot be set on a session that does not exist yet, and it will not
+# exist for long enough. But the global stays off only across the create - not
+# across the whole build - because while it is off every OTHER detached session
+# loses the same protection.
+tmux set-option -g destroy-unattached off >/dev/null 2>&1 || true
+tmux new-session -d -s "$SES" -n control -c "$FM_REPO"
+tmux set-option -t "$SES" destroy-unattached off >/dev/null 2>&1 || true
+tmux set-option -g destroy-unattached on >/dev/null 2>&1 || true
+
+# From here the session is protected by its own setting, not the global one. The
+# trap unsets it, handing the session back to the global rule at exactly the
+# moment attach returns and it loses its client.
+trap 'tmux set-option -t "$SES" -u destroy-unattached >/dev/null 2>&1 || true' EXIT INT TERM HUP
+
+# Number from 1 even on a machine whose tmux config does not say so. Every call
+# is failure-tolerant; none of it is worth aborting a launch over.
+tmux set-option -t "$SES" base-index 1 >/dev/null 2>&1 || true
+tmux set-window-option -g pane-base-index 1 >/dev/null 2>&1 || true
+if [ "$(tmux list-windows -t "$SES" -F '#{window_index}' 2>/dev/null | head -1)" = 0 ]; then
+  tmux move-window -s "$SES:0" -t "$SES:1" >/dev/null 2>&1 || true
+fi
+
+# Window names are load-bearing: `fm` routes reviews to "reviews" and everything
+# else to "workers" by name, so automatic-rename is pinned off.
+for win in control workers reviews; do
+  [ "$win" = control ] || tmux new-window -d -t "$SES:" -n "$win" -c "$FM_REPO"
+  tmux set-window-option -t "$SES:$win" automatic-rename off 2>/dev/null || true
+  tmux set-window-option -t "$SES:$win" allow-rename off 2>/dev/null || true
+done
+
+# control: firstmate on the left, a project shell on the right.
+tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
+
+LEFT=$(tmux list-panes -t "$SES:control" -F '#{pane_id}' | head -1)
+tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+
+tmux select-window -t "$SES:control"
+tmux select-pane -t "$LEFT"
+
+# A build with nothing to attach to keeps its own protection, so the panel is
+# still there to switch to later. Without this the trap would hand it straight
+# back to the global rule and destroy everything just built.
+if [ -n "${FMP_NO_ATTACH:-}" ]; then
+  trap - EXIT INT TERM HUP
+  printf '%s\n' "$SES"
+  exit 0
+fi
+
+# Not restored here: the session is still unattached, and handing it back to the
+# global rule now would destroy it on the spot. The trap does it after attach
+# returns - exactly when it loses its client and should die.
+attach
