@@ -155,6 +155,48 @@ test('a task whose commits are on no remote refuses to close', async () => {
   assert.ok(problems.some((p) => /no remote/.test(p)), problems.join('; '));
 });
 
+// An adopted worktree is the captain's, not the harness's. The refusals that
+// protect a task's own worktree are exactly wrong for one that outlives its
+// session: nothing is stranded by closing, because closing removes nothing.
+
+test('an adopted worktree is never blamed for the work sitting in it', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  const wt = join(dirname(project), 'thing-mine');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'mine', wt], { stdio: 'ignore' });
+  writeFileSync(join(wt, 'README.md'), '# a week of uncommitted work\n');
+
+  // The same worktree, judged both ways.
+  assert.ok(unlandedWork({ worktree: wt }).length, 'a task worktree should still refuse');
+  assert.deepEqual(
+    unlandedWork({ worktree: wt, adopted: true }),
+    [],
+    'an adopted worktree refused to close over changes that were in no danger',
+  );
+});
+
+test('closing an adopted task takes the session down and leaves the worktree', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const { closeTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+
+  const wt = join(dirname(project), 'thing-keepme');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'keepme', wt], { stdio: 'ignore' });
+  writeFileSync(join(wt, 'README.md'), '# must survive teardown\n');
+
+  // A pane id that does not resolve: kill-pane fails and is swallowed, which is
+  // the same path a pane the captain already closed by hand takes.
+  saveTask({ id: 'keepme', project, worktree: wt, pane: '%99999', kind: 'adopted', adopted: true });
+  closeTask('keepme');
+
+  assert.ok(existsSync(wt), 'closing an adopted task destroyed the captain\'s worktree');
+  assert.ok(existsSync(join(wt, 'README.md')), 'the uncommitted work went with the session');
+  assert.equal(loadTask('keepme'), null, 'the task record outlived the close');
+});
+
 // A review worktree sits on a detached PR head with no branch of its own. Asking
 // git for unpushed commits across --branches counts the whole repository against
 // it, which refused every close for work that was not the task's.

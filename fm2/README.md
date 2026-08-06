@@ -28,6 +28,7 @@ Nothing else can interrupt. Not idleness, not staleness, not a heartbeat.
 ```sh
 fm review <pr> [--project <dir>]   open a cold review on a PR
 fm ship <id> --spec <text|@file>   put a worker on a task
+fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -44,10 +45,23 @@ PR approved, did the comment land), from `report.md`, or from the pane. v1's own
 rule was to confirm the forge rather than trust a worker's claim — which was an
 admission the bookkeeping was never the truth.
 
+## Ship makes the worktree; attach borrows one
+
+`ship` is for work that does not exist yet, so it cuts the branch and the
+worktree to hold it, and closing destroys both. `attach` is for work that does —
+a branch the captain has had open for a week. It creates nothing, so closing
+takes down the session and leaves the worktree exactly as it was found. The
+record carries `adopted` and teardown reads it; getting that backwards deletes
+real work and calls it cleanup.
+
+Without `--spec` an attached session comes up idle, which is what a branch you
+want to sit down with looks like.
+
 ## What refuses
 
 - **Unlanded work.** Uncommitted changes, or commits on no remote. `fm close`
-  refuses and says which.
+  refuses and says which. An adopted worktree is exempt: closing removes
+  nothing, so nothing can be stranded.
 - **A review with no report.** Its findings would go with the worktree.
 - **The primary checkout.** A task never runs in it; asserted before an agent exists.
 

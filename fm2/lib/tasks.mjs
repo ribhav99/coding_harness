@@ -89,10 +89,13 @@ function openPane(window, cwd, briefPath, id, settingsFile) {
   // shell asked for the pane. Without them the hook fires and writes its report
   // into the wrong home, which looks exactly like the hook not firing at all.
   const env = `FM2_TASK=${JSON.stringify(id)} FM2_HOME=${JSON.stringify(homeDir())}`;
+  // No brief means no opening prompt: the session comes up idle, waiting for
+  // whoever opens the pane. An adopted worktree has no task to be handed, and
+  // passing an empty string instead would start a turn on nothing.
   const command =
     `${env} claude --dangerously-skip-permissions --effort max ` +
-    `--settings ${JSON.stringify(settingsFile)} ` +
-    `"$(cat ${JSON.stringify(briefPath)})"`;
+    `--settings ${JSON.stringify(settingsFile)}` +
+    (briefPath ? ` "$(cat ${JSON.stringify(briefPath)})"` : '');
   let session = sessionName();
   if (!session) {
     session = 'fm';
@@ -139,6 +142,11 @@ function acceptTrustPrompt(pane, { attempts = 12, waitMs = 1000 } = {}) {
     }
     // The brief is being worked, so no dialog is coming.
     if (/esc to interrupt|✻|⏺/i.test(screen)) return false;
+    // Or the session came up idle - a folder Claude Code already trusts, which
+    // is the common case for an adopted worktree the captain has worked in.
+    // Without this the loop burns its full budget waiting for a prompt that was
+    // never going to appear, once per pane.
+    if (/\? for shortcuts/i.test(screen)) return false;
   }
   return false;
 }
@@ -185,6 +193,60 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
   });
 }
 
+// --- adoption ----------------------------------------------------------------
+
+// A session on a worktree the captain already has.
+//
+// Every rail in spawnTask assumes the worktree is the harness's own: it creates
+// it, and closing destroys it. A branch the captain has had open for a week is
+// the opposite kind of thing. It exists, it may hold uncommitted work, and it
+// must still be there afterwards - so adoption is its own path rather than a
+// flag on spawn, and the record carries `adopted` so teardown can tell them
+// apart. Getting that backwards would delete real work on `fm close`.
+export function adoptTask({ id, project, worktree, window = 'workers', brief = null, env = {} }) {
+  if (loadTask(id)) throw new Error(`task "${id}" already exists`);
+  const wt = resolve(worktree);
+  if (!existsSync(wt)) throw new Error(`no worktree at ${wt}`);
+  assertIsolated(project, wt);
+
+  // It must be a worktree of THIS project. Attaching to a checkout of something
+  // else would put the pane in a panel it has nothing to do with, and `fm status`
+  // would then read it against the wrong repository.
+  const known = git(project, ['worktree', 'list', '--porcelain'])
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => resolve(line.slice('worktree '.length)));
+  if (!known.includes(wt)) throw new Error(`${wt} is not a worktree of ${resolve(project)}`);
+
+  let briefPath = null;
+  if (brief) {
+    briefPath = join(dir('briefs', id), 'brief.md');
+    writeFileSync(briefPath, brief);
+  }
+  const settingsFile = writeWorkerSettings(id);
+
+  // Nothing to roll back. The worktree was not ours to make, so a launch that
+  // fails leaves it exactly as it was found - which is the whole point.
+  const pane = openPane(window, wt, briefPath, id, settingsFile);
+  acceptTrustPrompt(pane);
+
+  let branch = null;
+  try { branch = git(wt, ['rev-parse', '--abbrev-ref', 'HEAD']); } catch { /* detached, or worse */ }
+
+  return saveTask({
+    id,
+    project: resolve(project),
+    worktree: wt,
+    pane,
+    brief: briefPath,
+    kind: 'adopted',
+    adopted: true,
+    branch,
+    created_at: new Date().toISOString(),
+    ...env,
+  });
+}
+
 // --- teardown ----------------------------------------------------------------
 
 // Unlanded work is work that exists nowhere but this worktree. Uncommitted
@@ -193,6 +255,10 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
 export function unlandedWork(task) {
   const wt = task.worktree;
   if (!existsSync(wt)) return [];
+  // An adopted worktree outlives its session, so closing strands nothing: the
+  // changes are exactly where the captain left them. Refusing here would be
+  // refusing to put a pane away over work that is in no danger.
+  if (task.adopted) return [];
   const problems = [];
   const dirty = git(wt, ['status', '--porcelain']).split('\n').filter((l) => l.trim() && !l.startsWith('??'));
   if (dirty.length) problems.push(`${dirty.length} uncommitted change(s)`);
@@ -236,7 +302,12 @@ export function closeTask(id, { force = false } = {}) {
   }
 
   try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
-  try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }
+  // Closing an adopted task takes the session down and nothing else. The
+  // worktree and its branch were the captain's before this and remain theirs
+  // after; `--force` here would remove a week of work and call it teardown.
+  if (!task.adopted) {
+    try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }
+  }
   removeTask(id);
   return task;
 }

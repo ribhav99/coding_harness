@@ -3,6 +3,7 @@
 //
 //   fm review <pr> [--project <dir>]   open a cold review on a PR
 //   fm ship <id> --spec <text|@file>   put a worker on a task
+//   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -17,7 +18,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount } from './lib/forge.mjs';
 
@@ -113,6 +114,33 @@ if (command === 'ship') {
   process.exit(0);
 }
 
+// --- attach ------------------------------------------------------------------
+// A session on a branch the captain already has open. `ship` is for work that
+// does not exist yet and makes the worktree to hold it; `attach` is for work
+// that does. Without --spec the session comes up idle, which is what a branch
+// you want to sit down with looks like.
+
+if (command === 'attach') {
+  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>]');
+  const worktree = resolve(target);
+  const project = resolve(arg('--project', process.cwd()));
+  // Named for the worktree, minus the project prefix the convention already puts
+  // there: bnl-packpilot-wo-213 is simply wo-213.
+  const base = worktree.split('/').pop();
+  const prefix = `${project.split('/').pop()}-`;
+  const id = arg('--id', base.startsWith(prefix) ? base.slice(prefix.length) : base);
+  let spec = arg('--spec');
+  if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
+  let task;
+  try {
+    task = adoptTask({ id, project, worktree, brief: spec ? SHIP_BRIEF(spec, id) : null });
+  } catch (err) {
+    die(err.message);
+  }
+  process.stdout.write(`${task.id}\t${task.pane}\t${task.branch ?? 'detached'}\t${task.worktree}\n`);
+  process.exit(0);
+}
+
 // --- handoff -----------------------------------------------------------------
 // The automatic chain: a ship task that opened a PR reviews its own work once,
 // then is closed and replaced by a session that never saw it written.
@@ -194,7 +222,10 @@ if (command === 'status') {
         forge = ` | PR ${task.pr} ${s.prState}/${s.decision ?? '-'}`;
       } catch { forge = ` | PR ${task.pr} unreadable`; }
     }
-    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${forge}\n`);
+    // An adopted task has no PR of its own to read state from, so the branch it
+    // sits on is the only thing that says which one it is.
+    const where = task.adopted && task.branch ? ` | ${task.branch}` : '';
+    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}\n`);
   }
   const n = count();
   if (n) process.stdout.write(`\n${n} unread report(s) — fm read\n`);
@@ -246,4 +277,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|handoff|read|status|close|announce|caps');
+die('usage: fm review|ship|attach|handoff|read|status|close|announce|caps');

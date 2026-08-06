@@ -23,6 +23,7 @@ Nothing else interrupts you. A quiet worker is quiet; if you want to know, look.
 ```
 fm review <pr> --project <dir>   a cold review: fresh session at the PR head
 fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
+fm attach <worktree>             a session on a branch you already have
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm close <id>                    take a task down; it refuses to strand work
