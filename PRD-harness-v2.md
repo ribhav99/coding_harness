@@ -72,9 +72,22 @@ specific message; it is the completion handoff (B3); or the worker asked a quest
 and cannot proceed. Never to silence an alarm, ask for status, or nudge an idle pane.
 
 ### B3 — Code is reviewed by a session that did not write it
-An implementation session that opens a PR reviews its own work once, reports, and is
-then closed. A fresh session opens on the PR and reads it cold. The swap is one
-operation so it cannot half-happen.
+This chain runs **automatically**, with no captain input at any step. The captain hears
+about it once, at the end.
+
+1. An implementation session finishes and reports its PR.
+2. That report alone triggers the handoff — the harness instructs that session, once,
+   to review its own work. This is cheap and catches the obvious before a cold reader
+   spends context on it. It is one of only three messages a worker may ever receive
+   (B2).
+3. The session reports its self-review outcome and any fixes it pushed.
+4. That session is closed and its worktree removed.
+5. A fresh session opens on the PR, at the PR's head, and reads it cold.
+
+Steps 4 and 5 are a single operation, so the swap cannot half-happen and leave the work
+with no session at all. The session that wrote the code is the worst reviewer of it —
+it is anchored on its own choices — which is the entire reason the review moves to a
+session that never saw them.
 
 ### B4 — Reviews post nothing until the captain approves it, finding by finding
 A review produces a verdict and per-finding draft comments. Nothing reaches the forge
@@ -149,17 +162,50 @@ Consequence accepted deliberately: a crashed worker is not detected automaticall
 is detected when the captain asks, or when they notice the review never arrived. This
 is the trade B7 asks for, and it is the single largest source of removed complexity.
 
-### 4.3 Task lifecycle
+### 4.3 Task lifecycles
+
+Two lifecycles. They join at the handoff, and after that point there is only one path.
+
+**Ship — implement a task and get it reviewed.** Every arrow is automatic; the captain
+is not consulted between them and hears nothing until the review lands.
 
 ```
-  spawn <pr-number>        fetch the PR head, create a worktree at it,
-                           write the brief, open a pane, record one meta file
-  <the session works>      appends `done: <verdict>` when its report exists
-  <captain decides>        in the session's own pane, or on its review page
-  <session posts>          appends `done: POSTED - <outcome>, <what went up>`
-  announce                 reply in the thread that requested it   (if Slack)
-  close                    on approval: tear down after checking nothing unlanded
+  ship <task>              worktree on a fresh branch, brief, pane, one meta file
+     |
+     |  session implements, pushes, opens a PR
+     v
+  `done: PR <url>`         the ONLY trigger in this lifecycle
+     |
+     |  handoff step 1: harness tells that session, once, to review its own work
+     v
+  `done: self-review <outcome>`
+     |
+     |  handoff step 2+3: close the session, remove its worktree, and open a
+     |  fresh session at the PR head - ONE operation, cannot half-happen
+     v
+  [ becomes a review task, below ]
 ```
+
+**Review — read a PR cold and land the captain's decisions.**
+
+```
+  review <pr-number>       fetch the PR head, worktree at it, brief, pane, meta
+     |
+     |  session reads cold, writes its report
+     v
+  `done: <verdict>`        captain hears 2-3 lines (B1)
+     |
+     |  captain decides, finding by finding, in the pane or on the review page
+     v
+  `done: POSTED - <outcome>, <what went up, what was dropped>`
+     |
+     +--> announce in the thread that requested it            (if Slack, B5)
+     +--> record the outcome on the work order                (if a tracker, §5)
+     +--> if approved: close, after checking nothing unlanded (B6, §4.4)
+```
+
+A review that requested changes stays open: the author's response comes back to the
+session that already read the code.
 
 One status vocabulary, three verbs, no more:
 
@@ -191,7 +237,7 @@ These are kept because each one caught a real mistake in the last two days:
 | 13 skills | 2: review workflow, recovery |
 | 57 test files, 27.7k lines | ~8 files covering the rails in 4.4 and the notify trigger |
 
-## 5. Slack is optional
+## 5. Optional integrations: Slack, and the work-order tracker
 
 Captain's constraint: this runs on a second machine with no Slack. Slack is a
 capability check at startup, not a dependency:
@@ -205,6 +251,27 @@ capability check at startup, not a dependency:
 
 No code path other than B5 may require Slack. The same applies to any forge
 integration beyond `gh`.
+
+### Work-order traceability
+
+When a PR closes out a work order — merged, or dropped deliberately — the outcome is
+recorded on that work order so the loop is closed where the work was specified. Same
+conditional shape as Slack: **if a work-order tracker is reachable**, comment and set
+the status; otherwise skip silently and tell the captain instead.
+
+This is called out because it failed in v1 for a mechanical reason worth designing
+around. The Software Factory integration was configured for the project's own
+directory, so worker sessions could read work orders while the supervisor could not
+reach it at all — and the supervisor is the one that knows a PR just closed. Whatever
+the tracker, the component that observes the outcome must be the component that can
+write it, or the write has to be routed to a session that can.
+
+### Capability detection is one place
+
+Slack, the work-order tracker, and the forge are each resolved once at startup into a
+simple available/unavailable answer, and every conditional step reads that answer. No
+step probes for its own dependency at the moment it needs it, and no step fails midway
+because something it assumed was present is not.
 
 ## 6. Open decision — the review surface
 
