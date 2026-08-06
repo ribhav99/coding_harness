@@ -104,10 +104,12 @@ this step is skipped silently and the outcome is reported to the captain instead
 ### B6 — An approved PR closes its review session
 Nothing left to do. The report outlives the session.
 
-### B7 — Notify only on a real report
+### B7 — One trigger: a worker stopped
 The captain's own words: *"you can't continuously get stop hooks when nothing is going
-on just because it seemed idle."* A worker filing an outcome interrupts. Nothing else
-does — not idleness, not a turn ending, not a poll restarting, not a heartbeat.
+on just because it seemed idle"* and *"we should just have stop hooks. that's all.
+nothing else."* A worker stopping is the only thing that reaches the captain. Not
+idleness, not staleness, not a heartbeat, not a background process noticing something.
+Nothing may poke an idle worker into taking a turn it did not need to take.
 
 ### B8 — Reproducible from the repo alone
 A second machine clones and runs identically. Nothing load-bearing lives outside the
@@ -137,30 +139,58 @@ Cut entirely, with the reason each was cut:
 Three things, and nothing else:
 
 ```
-  a task           = a tmux pane + a worktree + a brief + one status file
-  a notification   = the captain's session is woken when a status file gains a line
+  a task           = a tmux pane + a worktree + a brief
+  a notification   = a worker's Stop hook, carrying that worker's own last words
   a review surface = one page the captain reads and decides on   (section 6)
 ```
 
-No watcher loop. No wake queue. No daemon. No polling of any kind.
+No watcher loop. No wake queue. No daemon. No polling. **No status files.**
 
-### 4.2 Notification: replace polling with a file watch
+### 4.2 Notification: stop hooks, and nothing else
 
-v1 polls every 15s, classifies what changed, and decides whether to interrupt.
-v2 does not poll. The single trigger is: **a task's status file gained a line.**
+There is one trigger in the whole system: **a worker stopped.**
 
-Implementation: one `fswatch`/`kqueue` watch on the state directory, filtered to
-`*.status` writes. On a write, append the new line to a notify queue and wake the
-captain's session through the existing Stop-hook mechanism, which the captain
-confirmed is the right delivery path.
+A worker running autonomously does not end a turn until it has nothing left to do. So
+its Stop hook firing already means the thing every other mechanism was trying to
+infer — this worker finished a piece of work and is waiting. That is the signal. It
+needs no file, no verb, and no cooperation from the worker.
 
-Everything v1 spent code on — is the pane busy, has it been idle too long, is this a
-wedge, has this been surfaced before — disappears, because none of it is a trigger any
-more. A worker that goes quiet is quiet. If the captain wants to know, they ask.
+```
+  worker's Stop hook fires
+      -> reads the last assistant message from its own transcript_path
+         (Claude Code supplies transcript_path in the hook payload - verified)
+      -> hands that text to the supervisor and wakes it
+```
 
-Consequence accepted deliberately: a crashed worker is not detected automatically. It
-is detected when the captain asks, or when they notice the review never arrived. This
-is the trade B7 asks for, and it is the single largest source of removed complexity.
+**Why this is better than the status file it replaces.** v1 required every worker to
+remember to write `done: <summary>` at the right moment, and briefs had to nag about it
+twice. Workers forgot. One review session ran to completion and wrote nothing, so its
+cleanup was refused and it had to be asked for a report after the fact. Under v2 there
+is nothing to forget: a worker that stops has reported, because stopping *is* the
+report and its own final message is the content.
+
+**Why this does not reproduce the noise storm.** The storm was manufactured, not
+inherent. Review pages held a listener process that was reaped roughly every 30
+minutes; each reap fed the session input, the session did one trivial thing and ended a
+turn, and that turn-end was a wake. Hundreds of turn-ends, none of them work. Remove
+the thing that pokes idle sessions and a Stop means what it says. This is a hard
+constraint on section 6: **nothing may feed a worker input except the captain, the
+handoff, and a worker's own tools.** Any design that pokes an idle session is
+disqualified, because it re-manufactures the storm.
+
+**State lives in the world, not in bookkeeping.** v1 maintained a status vocabulary,
+a precedence order between verbs, and per-task surfaced-markers to reconstruct what was
+already known. v2 keeps none of it. When the supervisor needs to know where something
+stands it reads the thing itself: the forge for whether a PR is approved or a comment
+landed, `report.md` for what a review concluded, the pane for what a session is doing.
+Those are authoritative anyway — v1's own rule was to confirm the forge rather than
+trust a worker's claim, which is an admission that the bookkeeping was never the truth.
+
+Consequence accepted deliberately: a crashed worker is not detected automatically. A
+crash is a session that stopped, which looks like a session that finished, and only
+reading it tells them apart. It surfaces when the captain asks or notices a review
+never arrived. This is the trade B7 asks for and the single largest source of removed
+complexity.
 
 ### 4.3 Task lifecycles
 
@@ -170,15 +200,15 @@ Two lifecycles. They join at the handoff, and after that point there is only one
 is not consulted between them and hears nothing until the review lands.
 
 ```
-  ship <task>              worktree on a fresh branch, brief, pane, one meta file
+  ship <task>              worktree on a fresh branch, brief, pane
      |
-     |  session implements, pushes, opens a PR
+     |  session implements, pushes, opens a PR, and stops
      v
-  `done: PR <url>`         the ONLY trigger in this lifecycle
+  STOP                     its last message says what it built and where the PR is
      |
-     |  handoff step 1: harness tells that session, once, to review its own work
+     |  handoff step 1: supervisor tells that session, once, to review its own work
      v
-  `done: self-review <outcome>`
+  STOP                     its last message is the self-review outcome
      |
      |  handoff step 2+3: close the session, remove its worktree, and open a
      |  fresh session at the PR head - ONE operation, cannot half-happen
@@ -189,43 +219,49 @@ is not consulted between them and hears nothing until the review lands.
 **Review — read a PR cold and land the captain's decisions.**
 
 ```
-  review <pr-number>       fetch the PR head, worktree at it, brief, pane, meta
+  review <pr-number>       fetch the PR head, worktree at it, brief, pane
      |
-     |  session reads cold, writes its report
+     |  session reads cold, writes report.md, and stops
      v
-  `done: <verdict>`        captain hears 2-3 lines (B1)
+  STOP                     its last message is the verdict; captain hears 2-3 lines (B1)
      |
      |  captain decides, finding by finding, in the pane or on the review page
+     |  session posts what was approved, and stops
      v
-  `done: POSTED - <outcome>, <what went up, what was dropped>`
+  STOP                     its last message says what went up and what was dropped
      |
-     +--> announce in the thread that requested it            (if Slack, B5)
-     +--> record the outcome on the work order                (if a tracker, §5)
-     +--> if approved: close, after checking nothing unlanded (B6, §4.4)
+     +--> read the forge to confirm what actually landed          (§4.4)
+     +--> announce in the thread that requested it                (if Slack, §5)
+     +--> record the outcome on the issue or work order           (if a tracker, §5)
+     +--> if approved: close, after checking nothing unlanded      (B6, §4.4)
 ```
+
+The only durable artifact either lifecycle writes is `report.md`, because it is a
+deliverable the captain reads, not bookkeeping. Everything else is the pane, the
+worktree, and the forge.
 
 A review that requested changes stays open: the author's response comes back to the
 session that already read the code.
 
-One status vocabulary, three verbs, no more:
-
-- `done:` — an outcome the captain should know about.
-- `blocked:` — cannot proceed without the captain.
-- everything else is not a status line and is not written.
-
-`working:`, `paused:`, `resolved:`, `needs-decision:`, `pending-decision:` all go. v1
-had five verbs and a precedence order between them to answer questions v2 no longer
-asks.
+**There is no status vocabulary.** v1 had five verbs — `done:`, `working:`, `paused:`,
+`blocked:`, `needs-decision:` — plus a precedence order between them, a rule for which
+verbs carried state, and per-task markers recording which had already been surfaced.
+All of it existed to answer "what is this task doing", which v2 answers by looking at
+the task. A worker needing the captain says so in its own words and stops; that is a
+stop like any other, and the supervisor reads why.
 
 ### 4.4 Safety rails kept
 
 These are kept because each one caught a real mistake in the last two days:
 
-- **Never tear down unlanded work.** A single owner runs the check; a refusal stops
-  the operation. Caught a review with no durable report yesterday.
-- **A review session must leave a report before it can be discarded.** Same incident.
-- **Confirm forge state before announcing.** Caught a review that reported
-  request-changes when a plain comment had landed.
+- **Never tear down unlanded work.** One owner runs the check; a refusal stops the
+  operation and nothing is forced.
+- **A review session must leave `report.md` before it can be discarded.** Caught a
+  review yesterday that had run to completion and written nothing durable; without the
+  refusal its findings would have gone with the worktree.
+- **Confirm the forge before announcing or closing.** Caught a review that believed it
+  had requested changes when a plain comment had landed, and it matters more in v2 than
+  in v1: with the bookkeeping gone, the forge is not a cross-check, it *is* the record.
 - **Isolation assertion on spawn.** A task never runs in the primary checkout.
 
 ### 4.5 Scale
@@ -237,27 +273,45 @@ These are kept because each one caught a real mistake in the last two days:
 | 13 skills | 2: review workflow, recovery |
 | 57 test files, 27.7k lines | ~8 files covering the rails in 4.4 and the notify trigger |
 
-## 5. Optional integrations: Slack, and the work-order tracker
+## 5. Optional integrations: everything outside the repo is conditional
 
-Captain's constraint: this runs on a second machine with no Slack. Slack is a
-capability check at startup, not a dependency:
+Nothing outside git and the forge may be assumed present. The captain runs this on a
+work machine with Slack and a home machine without it, against projects that track work
+three different ways. Every such dependency is resolved once into available or not, and
+every step that uses one is skipped cleanly when it is not.
+
+### Slack — only if a Slack connection exists
 
 ```
-  if a Slack connection is configured:
-      announcements go to the thread that requested the review
+  if a Slack connection exists:
+      announce the outcome in the thread that requested the review   (B5)
   otherwise:
-      the outcome is reported to the captain and nothing else changes
+      skip it silently and report the outcome to the captain instead
 ```
 
-No code path other than B5 may require Slack. The same applies to any forge
-integration beyond `gh`.
+No code path other than B5 may touch Slack, and B5 is never a blocker: a review whose
+outcome could not be announced is still a completed review. On a machine with no Slack
+the captain should see no difference except that nothing is posted.
 
-### Work-order traceability
+### The tracker differs per project
 
-When a PR closes out a work order — merged, or dropped deliberately — the outcome is
-recorded on that work order so the loop is closed where the work was specified. Same
-conditional shape as Slack: **if a work-order tracker is reachable**, comment and set
-the status; otherwise skip silently and tell the captain instead.
+There is no single tracker. Each project declares which one it uses, and some use none:
+
+```
+  tracker = none | github-issues | work-orders
+```
+
+It matters in both directions, so it cannot be an afterthought bolted onto the end:
+
+- **Inbound** — a brief points the worker at where the task is specified. A GitHub
+  issue number for one project, a work-order id for another, and for `none` the brief
+  carries the task itself.
+- **Outbound** — when a PR closes out that item, the outcome is recorded where the work
+  was specified, so the loop closes there. A comment and a status change on the work
+  order; a comment and a close on the GitHub issue; nothing at all for `none`.
+
+Resolution is per project, not per machine and not global, because the same captain
+runs both kinds side by side.
 
 This is called out because it failed in v1 for a mechanical reason worth designing
 around. The Software Factory integration was configured for the project's own
