@@ -191,9 +191,13 @@ export function unlandedWork(task) {
   const dirty = git(wt, ['status', '--porcelain']).split('\n').filter((l) => l.trim() && !l.startsWith('??'));
   if (dirty.length) problems.push(`${dirty.length} uncommitted change(s)`);
   try {
-    const unpushed = git(wt, ['log', '--oneline', '--branches', '--not', '--remotes']).split('\n').filter(Boolean);
+    // HEAD, not --branches. A review worktree sits on a detached PR head with no
+    // branch of its own, and --branches would count every unpushed commit in the
+    // whole repository against it - refusing every close for work that is not
+    // this task's and is not even in this worktree.
+    const unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes']).split('\n').filter(Boolean);
     if (unpushed.length) problems.push(`${unpushed.length} commit(s) on no remote`);
-  } catch { /* detached with no branch: nothing local to strand */ }
+  } catch { /* no commits reachable, or no remotes: nothing to strand */ }
   return problems;
 }
 

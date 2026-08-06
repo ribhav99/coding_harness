@@ -40,13 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-turnend-guard.sh --claude"
-          },
-          {
-            "type": "command",
-            "command": "exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-claude-stop-autoarm.sh",
-            "asyncRewake": true,
-            "timeout": 28800
+            "command": "exec node \"$CLAUDE_PROJECT_DIR\"/../fm2/hooks/supervisor-stop.mjs"
           }
         ]
       }

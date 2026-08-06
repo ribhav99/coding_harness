@@ -21,9 +21,30 @@
 // contract belongs to skills/coding/full-review.md. This file decides only how a
 // decision is collected.
 
+// Two modes, and the default is never in doubt.
+//
+// On someone else's branch a fix is not yours to make, and the captain's rule is
+// blunt: review sessions do not touch review branches. On their own projects,
+// where they are the only developer, applying an approved fix is the point. So
+// the page carries the choice - but "comment" is chosen by the renderer, not
+// supplied by the review, so a review cannot hand the captain a page that is
+// already set to change their code.
+const MODES = [
+  ['comment', 'Comments only — the branch is not touched'],
+  ['change', 'Apply the fixes I approve'],
+];
+export const DEFAULT_MODE = 'comment';
+
 const DECISIONS = [
   ['inline', 'Comment inline'],
   ['summary', 'Raise in summary'],
+  ['drop', 'Drop'],
+];
+
+// What a decision means when the captain has allowed changes.
+const CHANGE_DECISIONS = [
+  ['fix', 'Fix it'],
+  ['inline', 'Comment only'],
   ['drop', 'Drop'],
 ];
 
@@ -115,8 +136,11 @@ function renderFinding(finding, index) {
   ${foundBy}
   <div class="decision">
     <div class="decision-head">Decision</div>
-    <div class="choices">
+    <div class="choices mode-comment">
 ${radioGroup(`${id}-decision`, DECISIONS, finding.default ?? 'inline')}
+    </div>
+    <div class="choices mode-change" hidden>
+${radioGroup(`${id}-change`, CHANGE_DECISIONS, 'fix')}
     </div>
     <label class="draft-label" for="${escapeHtml(id)}-comment">The comment that goes out under your name — edit it</label>
     ${anchor}
@@ -184,6 +208,14 @@ export function renderPage(spec, { id, decided = null } = {}) {
   </header>
   ${banner}
   <form id="decisions" data-review="${escapeHtml(id)}" novalidate>
+    <section class="mode">
+      <h2>What may this review do to the branch?</h2>
+      <div class="choices">
+${radioGroup('mode', MODES, DEFAULT_MODE)}
+      </div>
+      <p class="mode-note" id="modeNote">Nothing will be committed or pushed. Findings become comments you approve.</p>
+    </section>
+
     <section class="verdict">
       <h2>Verdict</h2>
       ${rec.why ? `<p class="rec-why">${escapeHtml(rec.why)}</p>` : ''}

@@ -132,3 +132,7 @@ button#send:disabled { opacity: .5; cursor: default; }
 .sent-done .finding, .sent-done .verdict, .sent-done .nits { opacity: .55; }
 
 :target { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: var(--radius); }
+
+.mode { margin-top: 32px; }
+.mode-note { font-size: 13px; color: var(--ink-dim); margin-top: 10px; }
+.mode-note.warn { color: var(--bad); }

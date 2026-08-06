@@ -73,6 +73,49 @@ test('content is escaped, so a finding cannot inject markup', () => {
 
 const { validate } = await import(join(ROOT, 'server.mjs'));
 
+// The captain's rule: review sessions do not touch review branches. On their own
+// projects, where they are the only developer, applying an approved fix is the
+// point - so the page offers both, and the safe one is what you get without
+// choosing. The default is set by the renderer, so a review cannot hand over a
+// page already primed to edit the captain's code.
+test('the page defaults to comments, and a review cannot change that', () => {
+  const html = renderPage(SPEC, { id: 'pr-1' });
+  const modeComment = html.match(/<input[^>]*name="mode"[^>]*value="comment"[^>]*>/)[0];
+  const modeChange = html.match(/<input[^>]*name="mode"[^>]*value="change"[^>]*>/)[0];
+  assert.match(modeComment, /checked/, 'the page did not default to comments-only');
+  assert.ok(!/checked/.test(modeChange), 'the page defaulted to changing the branch');
+
+  // Even when the review asks for it, in every way a spec could.
+  const pushy = renderPage({ ...SPEC, mode: 'change', default_mode: 'change' }, { id: 'pr-1' });
+  const pushyChange = pushy.match(/<input[^>]*name="mode"[^>]*value="change"[^>]*>/)[0];
+  assert.ok(!/checked/.test(pushyChange), 'a spec talked the page into defaulting to changes');
+});
+
+test('a fix needs no comment text, but anything being said still does', () => {
+  const inChangeMode = validate(SPEC, {
+    mode: 'change',
+    verdict: 'approve',
+    findings: { f1: { decision: 'fix', comment: '' }, f2: { decision: 'drop', comment: '' } },
+  });
+  assert.deepEqual(inChangeMode, [], 'a fix was refused for having no comment');
+
+  const stillNeedsWords = validate(SPEC, {
+    mode: 'change',
+    verdict: 'approve',
+    findings: { f1: { decision: 'inline', comment: '' }, f2: { decision: 'drop' } },
+  });
+  assert.ok(stillNeedsWords.some((p) => /empty comment/.test(p)), stillNeedsWords.join('; '));
+});
+
+test('an unknown mode is refused rather than guessed at', () => {
+  const problems = validate(SPEC, {
+    mode: 'rewrite-everything',
+    verdict: 'approve',
+    findings: { f1: { decision: 'drop' }, f2: { decision: 'drop' } },
+  });
+  assert.ok(problems.some((p) => /unknown mode/.test(p)), problems.join('; '));
+});
+
 test('a payload with no verdict is refused', () => {
   const problems = validate(SPEC, { findings: { f1: { decision: 'drop' }, f2: { decision: 'drop' } } });
   assert.ok(problems.some((p) => /verdict/.test(p)), problems.join('; '));

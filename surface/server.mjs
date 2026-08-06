@@ -80,6 +80,11 @@ function validate(spec, payload) {
   const problems = [];
   if (!payload || typeof payload !== 'object') return ['the payload was not an object'];
   if (!payload.verdict) problems.push('no verdict was chosen');
+  // An absent or unknown mode is comments. The dangerous option is never the
+  // one you get by default, or by sending a malformed payload.
+  if (payload.mode && payload.mode !== 'comment' && payload.mode !== 'change') {
+    problems.push(`unknown mode "${payload.mode}"`);
+  }
 
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
   const decided = payload.findings && typeof payload.findings === 'object' ? payload.findings : {};
@@ -90,7 +95,7 @@ function validate(spec, payload) {
       problems.push(`finding ${id} has no decision`);
       return;
     }
-    if (choice.decision !== 'drop' && !String(choice.comment ?? '').trim()) {
+    if (choice.decision !== 'drop' && choice.decision !== 'fix' && !String(choice.comment ?? '').trim()) {
       problems.push(`finding ${id} is set to "${choice.decision}" with an empty comment`);
     }
   });
@@ -157,7 +162,7 @@ const server = createServer(async (req, res) => {
     const problems = validate(spec, payload);
     if (problems.length) return json(res, 422, { error: problems.join('; '), problems });
 
-    const record = { ...payload, submitted_at: new Date().toISOString() };
+    const record = { mode: 'comment', ...payload, submitted_at: new Date().toISOString() };
     const written = writeDecisions(entry, record);
 
     // Decisions are on disk before the reviewer is woken. If the wake fails the

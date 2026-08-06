@@ -155,6 +155,41 @@ test('a task whose commits are on no remote refuses to close', async () => {
   assert.ok(problems.some((p) => /no remote/.test(p)), problems.join('; '));
 });
 
+// A review worktree sits on a detached PR head with no branch of its own. Asking
+// git for unpushed commits across --branches counts the whole repository against
+// it, which refused every close for work that was not the task's.
+test("a detached review worktree is not blamed for the repo's other branches", async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  // A real project has a remote, and its main line is on it.
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g('remote', 'add', 'origin', origin);
+  g('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g('fetch', '-q', 'origin');
+
+  // An unrelated branch carrying an unpushed commit, exactly like a busy repo.
+  g('checkout', '-q', '-b', 'someone-elses-work');
+  writeFileSync(join(project, 'theirs.txt'), 'not mine\n');
+  g('add', '-A');
+  g('commit', '-qm', 'theirs');
+  g('checkout', '-q', '-');
+
+  // The review worktree: detached at a commit the remote already has.
+  const head = execFileSync('git', ['-C', project, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const wt = join(dirname(project), 'thing-pr-9');
+  g('worktree', 'add', '-q', '--detach', wt, head);
+
+  assert.deepEqual(
+    unlandedWork({ worktree: wt }),
+    [],
+    "a clean review worktree was blamed for another branch's unpushed commits",
+  );
+});
+
 test('a review with no report refuses to close; a ship task is not asked for one', async () => {
   const home = freshHome();
   const { missingReport } = await import(join(ROOT, 'lib/tasks.mjs'));

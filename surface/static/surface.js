@@ -25,17 +25,45 @@
     );
   }
 
+  // Which set of per-finding options is live depends on the mode. Both sets are
+  // in the form; only the active one is read, so a stale hidden choice can never
+  // reach the reviewer.
+  function currentMode() {
+    return new FormData(form).get('mode') || 'comment';
+  }
+
+  function applyMode() {
+    const change = currentMode() === 'change';
+    for (const el of document.querySelectorAll('.mode-comment')) el.hidden = change;
+    for (const el of document.querySelectorAll('.mode-change')) el.hidden = !change;
+    const note = document.getElementById('modeNote');
+    if (note) {
+      note.textContent = change
+        ? 'Approved fixes will be applied to the branch and committed. Nothing is pushed.'
+        : 'Nothing will be committed or pushed. Findings become comments you approve.';
+      note.classList.toggle('warn', change);
+    }
+    if (button) button.textContent = change ? 'Send to reviewer (will change the branch)' : 'Send to reviewer';
+  }
+
+  for (const el of document.querySelectorAll('input[name="mode"]')) {
+    el.addEventListener('change', applyMode);
+  }
+  applyMode();
+
   function collect() {
     const data = new FormData(form);
+    const mode = currentMode();
     const findings = {};
     for (const id of findingIds()) {
       findings[id] = {
-        decision: data.get(id + '-decision'),
+        decision: data.get(id + (mode === 'change' ? '-change' : '-decision')),
         // .value via FormData, never a DOM text read.
         comment: (data.get(id + '-comment') || '').trim(),
       };
     }
     return {
+      mode,
       verdict: data.get('verdict'),
       findings,
       nits: data.get('nits-decision'),
@@ -53,7 +81,7 @@
         continue;
       }
       // A finding being raised has to carry words. Dropping one does not.
-      if (choice.decision !== 'drop' && !choice.comment) {
+      if (choice.decision !== 'drop' && choice.decision !== 'fix' && !choice.comment) {
         found.push({
           text: 'Finding ' + id + ' is set to "' + choice.decision + '" but its comment is empty.',
           anchor: 'card-' + id,

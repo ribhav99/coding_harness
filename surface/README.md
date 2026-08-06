@@ -86,7 +86,22 @@ and specifically do not write forms.
 ```
 
 `verdict` is `approve | approve-with-comments | request-changes | needs-discussion`.
-Per-finding `decision` is `inline | summary | drop`. Nits are `batched | all | skip`.
+Nits are `batched | all | skip`.
+
+## Comments, or changes
+
+The page carries one control above everything else: may this review touch the
+branch?
+
+- **Comments only** — the default, always. Findings become comments the captain
+  approves; nothing is committed or pushed. Per-finding options are
+  `inline | summary | drop`.
+- **Apply the fixes I approve** — for the captain's own projects, where they are
+  the only developer. Per-finding options become `fix | inline | drop`.
+
+The default is set by the renderer, not the spec, so a review cannot hand over a
+page already primed to edit someone's code. An absent or unrecognised mode in a
+submitted payload is treated as comments, and an unknown one is refused outright.
 
 What belongs on a page — the prose, the severity, whether a finding blocks merge —
 is owned by `skills/coding/full-review.md`, not by this component. This renders
