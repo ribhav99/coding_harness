@@ -35,6 +35,18 @@ const MODES = [
 ];
 export const DEFAULT_MODE = 'comment';
 
+// Comments-only is the safe default on someone else's work, and the wrong one on
+// your own: the reason to review your own PR is usually to fix it. The per-finding
+// "Fix it" choices are hidden until this question is answered, so a captain who
+// opened their own review, marked six findings and pressed send got six comments
+// and no fixes — the page never showed them the option they thought they picked.
+//
+// Whose PR it is comes from the spec, because only the reviewer can know: it has
+// the forge and this renderer does not.
+export function defaultModeFor(spec) {
+  return spec && spec.own_pr === true ? 'change' : DEFAULT_MODE;
+}
+
 const DECISIONS = [
   ['inline', 'Comment inline'],
   ['summary', 'Raise in summary'],
@@ -101,7 +113,7 @@ function severityBadge(finding) {
 
 // One card. The prose fields are optional and omitted entirely when absent, so a
 // short finding does not render a run of empty headings.
-function renderFinding(finding, index) {
+function renderFinding(finding, index, ownPr = false) {
   const id = findingId(finding, index);
   const prose = [
     ['What breaks', finding.what_breaks],
@@ -136,10 +148,10 @@ function renderFinding(finding, index) {
   ${foundBy}
   <div class="decision">
     <div class="decision-head">Decision</div>
-    <div class="choices mode-comment">
+    <div class="choices mode-comment"${ownPr ? ' hidden' : ''}>
 ${radioGroup(`${id}-decision`, DECISIONS, finding.default ?? 'inline')}
     </div>
-    <div class="choices mode-change" hidden>
+    <div class="choices mode-change"${ownPr ? '' : ' hidden'}>
 ${radioGroup(`${id}-change`, CHANGE_DECISIONS, 'fix')}
     </div>
     <label class="draft-label" for="${escapeHtml(id)}-comment">The comment that goes out under your name — edit it</label>
@@ -184,7 +196,8 @@ function renderEvidence(spec) {
 
 export function renderPage(spec, { id, decided = null } = {}) {
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
-  const cards = findings.map((f, i) => renderFinding(f, i)).join('\n');
+  const ownPr = defaultModeFor(spec) === 'change';
+  const cards = findings.map((f, i) => renderFinding(f, i, ownPr)).join('\n');
   const rec = spec.recommendation ?? {};
 
   const banner = decided
@@ -211,7 +224,7 @@ export function renderPage(spec, { id, decided = null } = {}) {
     <section class="mode">
       <h2>What may this review do to the branch?</h2>
       <div class="choices">
-${radioGroup('mode', MODES, DEFAULT_MODE)}
+${radioGroup('mode', MODES, defaultModeFor(spec))}
       </div>
       <p class="mode-note" id="modeNote">Nothing will be committed or pushed. Findings become comments you approve.</p>
     </section>

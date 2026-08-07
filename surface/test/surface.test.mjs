@@ -76,9 +76,13 @@ const { validate } = await import(join(ROOT, 'server.mjs'));
 // The captain's rule: review sessions do not touch review branches. On their own
 // projects, where they are the only developer, applying an approved fix is the
 // point - so the page offers both, and the safe one is what you get without
-// choosing. The default is set by the renderer, so a review cannot hand over a
-// page already primed to edit the captain's code.
-test('the page defaults to comments, and a review cannot change that', () => {
+// choosing.
+//
+// `own_pr` is the ONE sanctioned way that default moves, and it only ever moves
+// it on the captain's own work. Everything else a spec might say - `mode`,
+// `default_mode`, anything invented later - is ignored, so a review of someone
+// else's branch cannot hand over a page primed to edit it.
+test('only own_pr moves the default; no other spec field can', () => {
   const html = renderPage(SPEC, { id: 'pr-1' });
   const modeComment = html.match(/<input[^>]*name="mode"[^>]*value="comment"[^>]*>/)[0];
   const modeChange = html.match(/<input[^>]*name="mode"[^>]*value="change"[^>]*>/)[0];
@@ -86,7 +90,7 @@ test('the page defaults to comments, and a review cannot change that', () => {
   assert.ok(!/checked/.test(modeChange), 'the page defaulted to changing the branch');
 
   // Even when the review asks for it, in every way a spec could.
-  const pushy = renderPage({ ...SPEC, mode: 'change', default_mode: 'change' }, { id: 'pr-1' });
+  const pushy = renderPage({ ...SPEC, mode: 'change', default_mode: 'change', own_pr: 'yes' }, { id: 'pr-1' });
   const pushyChange = pushy.match(/<input[^>]*name="mode"[^>]*value="change"[^>]*>/)[0];
   assert.ok(!/checked/.test(pushyChange), 'a spec talked the page into defaulting to changes');
 });
@@ -348,4 +352,29 @@ test('a closed review refuses a send and says it is closed', async (t) => {
   const page = await fetch(`${base}/r/pr-77`);
   assert.equal(page.status, 410);
   assert.match(await page.text(), /closed/);
+});
+
+// Comments-only is the right default on someone else's work and the wrong one on
+// your own. The per-finding "Fix it" choices are hidden behind the branch
+// question, so a captain reviewing their own PR marked six findings, pressed
+// send, and got six comments — the page never showed them the option they
+// thought they had picked.
+
+test('a review of your own PR opens on apply-fixes, with the Fix choices showing', async () => {
+  const { renderPage } = await import(join(ROOT, 'lib/render.mjs'));
+
+  const mine = renderPage({ ...SPEC, own_pr: true }, { id: 'pr-1' });
+  assert.match(mine, /id="mode-change"[^>]*checked/, 'your own PR did not default to apply-fixes');
+  assert.match(mine, /class="choices mode-change">/, 'the Fix choices were still hidden on your own PR');
+  assert.match(mine, /class="choices mode-comment" hidden/, 'the comment-only choices were left showing too');
+
+  // Anyone else's work is untouched by this: the dangerous option is still never
+  // the one you get without asking.
+  const theirs = renderPage({ ...SPEC, own_pr: false }, { id: 'pr-1' });
+  assert.match(theirs, /id="mode-comment"[^>]*checked/, "someone else's PR defaulted to changing their branch");
+  assert.match(theirs, /class="choices mode-change" hidden/, 'the Fix choices were offered on someone else\'s branch');
+
+  // An absent flag is the safe reading, not a crash.
+  const silent = renderPage(SPEC, { id: 'pr-1' });
+  assert.match(silent, /id="mode-comment"[^>]*checked/, 'a spec that said nothing was treated as your own PR');
 });

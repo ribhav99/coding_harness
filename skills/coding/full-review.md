@@ -142,6 +142,11 @@ Throughout the rest of this skill, `<spec>` means that path:
   "id": "pr-<n>",
   "title": "PR #<n> review — <what it changes, in a few words>",
   "pr": "<the PR url>",
+  "own_pr": true,                  // true when the PR's author is the authenticated
+                                   // account — i.e. author mode. It defaults the
+                                   // page to "apply the fixes I approve", which is
+                                   // what reviewing your own work is usually for.
+                                   // Omit or false on anyone else's PR.
   "summary": "2-3 sentences: what this branch changes for someone using the product, and your overall read.",
   "recommendation": { "value": "request-changes", "why": "one line" },
   "findings": [
