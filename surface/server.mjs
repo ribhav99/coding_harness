@@ -102,6 +102,20 @@ function validate(spec, payload) {
   return problems;
 }
 
+// A review whose spec has gone from disk is a review that was closed: the
+// worktree went with the session that held it. That is a final state, not a
+// transient failure, and it must not read like one — the captain types decisions
+// into a page that can never accept them, and "unreadable" invites a retry.
+// Where the durable record went is part of the answer, because the page they are
+// looking at is not it.
+function closedMessage(id) {
+  return (
+    `the review "${id}" has been closed — its worktree went with the session that held it, ` +
+    'so nothing more can be sent to it. Its findings, verdict and evidence are in the report ' +
+    `at ~/.fm2/briefs/${id}/report.md, and anything it already posted is on the pull request.`
+  );
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const path = url.pathname;
@@ -128,7 +142,7 @@ const server = createServer(async (req, res) => {
     const id = decodeURIComponent(pageMatch[1]);
     const entry = lookup(id);
     if (!entry) return send(res, 404, 'text/plain', `no review registered as "${id}"`);
-    if (!existsSync(entry.spec)) return send(res, 410, 'text/plain', `the review "${id}" no longer exists on disk`);
+    if (!existsSync(entry.spec)) return send(res, 410, 'text/plain', closedMessage(id));
     let spec;
     try {
       spec = readSpec(entry);
@@ -151,6 +165,11 @@ const server = createServer(async (req, res) => {
     } catch (err) {
       return json(res, 400, { error: `could not read the decisions: ${err.message}` });
     }
+
+    // Checked before the spec is read, because a closed review and a corrupt one
+    // need opposite responses: one is final and the other is worth retrying, and
+    // an ENOENT surfaced as "unreadable" reads as the second.
+    if (!existsSync(entry.spec)) return json(res, 410, { error: closedMessage(id) });
 
     let spec;
     try {

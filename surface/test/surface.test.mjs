@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -287,4 +287,65 @@ test('a page for an unknown review says so instead of rendering blank', async (t
   const res = await fetch(`${base}/r/nope`);
   assert.equal(res.status, 404);
   assert.match(await res.text(), /no review registered/);
+});
+
+// A review is closed by taking its session down, and the worktree - spec and all
+// - goes with it. The page in the captain's browser does not know that, and they
+// find out by typing a round of decisions into it and pressing send. What comes
+// back has to say the review is over, not that something could not be read: one
+// is final, the other invites a retry that can never work.
+
+test('a closed review refuses a send and says it is closed', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-closed-'));
+  const work = mkdtempSync(join(tmpdir(), 'surface-closed-work-'));
+  mkdirSync(join(work, 'pr-77'), { recursive: true });
+  const specPath = join(work, 'pr-77', 'review.json');
+  // The id comes from the spec when it declares one, so say it here rather than
+  // inheriting the fixture's and registering under a name this test never uses.
+  writeFileSync(specPath, JSON.stringify({ ...SPEC, id: 'pr-77' }));
+
+  const port = 4407;
+  process.env.SURFACE_HOME = home;
+  const { register } = await import(`${join(ROOT, 'lib/store.mjs')}?home=${encodeURIComponent(home)}`);
+  register(specPath, { pane: null });
+
+  const { spawn } = await import('node:child_process');
+  const server = spawn(process.execPath, [join(ROOT, 'server.mjs')], {
+    env: { ...process.env, SURFACE_HOME: home, SURFACE_PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => server.kill('SIGKILL'));
+
+  const base = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) });
+      if (r.ok) break;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // The session is closed: the worktree, and the spec inside it, are gone.
+  rmSync(join(work, 'pr-77'), { recursive: true, force: true });
+
+  const sent = await fetch(`${base}/api/pr-77/decisions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      verdict: 'approve',
+      findings: { f1: { decision: 'inline', comment: 'say this' }, f2: { decision: 'drop', comment: '' } },
+      nits: 'batched',
+      message: '',
+    }),
+  });
+  assert.equal(sent.status, 410, 'a closed review answered a send with something retryable');
+  const body = await sent.json();
+  assert.match(body.error, /closed/, 'the refusal did not say the review was closed');
+  assert.doesNotMatch(body.error, /ENOENT/, 'the refusal leaked a filesystem error at the captain');
+  assert.match(body.error, /report\.md/, 'the refusal did not say where the durable record went');
+
+  // The page itself answers the same way, so an open tab is not a mystery.
+  const page = await fetch(`${base}/r/pr-77`);
+  assert.equal(page.status, 410);
+  assert.match(await page.text(), /closed/);
 });
