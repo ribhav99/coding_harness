@@ -1,47 +1,31 @@
-// Whether the supervisor is between turns, and which pane it is sitting in.
+// Where the supervisor is, so a worker that stops can reach it.
 //
-// This exists because reading the screen cannot answer it. A pane running Claude
-// Code looks much the same working as idle until you start matching spinner
-// glyphs and elapsed-time footers, and those change with the client. A wrong
-// guess is not a missed nudge — it types a line into a turn that was still
-// running.
+// This is a location, not a state. An earlier version recorded whether the
+// supervisor was idle and only knocked when it was — which meant deciding, on
+// the supervisor's behalf, that a report arriving mid-turn was not worth
+// mentioning. That is the supervisor's call to make, not this file's. A worker
+// stopping is the trigger; every one of them gets through.
 //
-// The hooks already know precisely. Stop fires the instant a turn ends and
-// UserPromptSubmit the instant one begins, so between them the answer is
-// recorded rather than inferred. The marker's presence IS the idle state.
+// Written by the supervisor's own hooks because nothing else knows: a tmux pane
+// inherits the server's environment rather than the shell that asked for it, so
+// the pane id has to be captured where it is actually visible.
 
-import { existsSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { home, dir } from './config.mjs';
+import { dir } from './config.mjs';
 
 function markerFile() {
-  return join(dir(), 'supervisor-idle.json');
+  return join(dir(), 'supervisor-pane.json');
 }
 
-// Called when a turn ends with nothing left unread. The pane travels with it
-// because nothing else knows where the supervisor lives: the watcher is a
-// separate process, and a tmux pane inherits the server's environment rather
-// than the shell that asked for it.
-export function markIdle(pane) {
+export function recordSupervisor(pane) {
   if (!pane) return null;
   const record = { pane, at: new Date().toISOString() };
   writeFileSync(markerFile(), JSON.stringify(record, null, 2));
   return record;
 }
 
-// Called when a turn begins, and by the watcher the moment it nudges. That
-// second caller is what stops a queue that stays unread from being nudged over
-// and over: one wake per idle period, and the next Stop arms it again.
-export function markBusy() {
-  const f = markerFile();
-  if (existsSync(f)) {
-    try { rmSync(f); } catch { /* already gone */ }
-    return true;
-  }
-  return false;
-}
-
-export function idlePane() {
+export function supervisorPane() {
   const f = markerFile();
   if (!existsSync(f)) return null;
   try {

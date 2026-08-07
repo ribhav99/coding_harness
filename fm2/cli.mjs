@@ -12,7 +12,8 @@
 //   fm caps                            what this machine can reach
 //
 // There is no poll, no watcher, no daemon, and no status file. A worker stopping
-// is the only trigger; `fm read` is how its words reach you.
+// is the only trigger; it knocks on the supervisor's pane as it goes, and
+// `fm read` is how its words reach you.
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -278,31 +279,9 @@ if (command === 'announce') {
   process.exit(0);
 }
 
-// --- watch ---------------------------------------------------------------
-// The supervisor's Stop hook is a block, not a bell: it only fires when the
-// supervisor tries to end a turn, so a report arriving while it is already idle
-// reaches nobody. This wakes it for exactly that case and stays silent for every
-// other one.
-
-if (command === 'watch') {
-  const interval = Number(arg('--interval', '60')) * 1000;
-  const { watchLoop } = await import('./lib/watch.mjs');
-  process.stdout.write(`watching ${dir('notify')} (backstop every ${interval / 1000}s)\n`);
-  const stop = watchLoop({
-    intervalMs: interval,
-    log: (msg) => process.stdout.write(`${new Date().toISOString()} ${msg}\n`),
-  });
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stop(); process.exit(0); });
-}
-
 if (command === 'caps') {
   process.stdout.write(`${JSON.stringify(capabilities({ refresh: true }), null, 2)}\n`);
   process.exit(0);
 }
 
-// Every other command exits inside its own block, so reaching here means the
-// command was not recognised - except `watch`, which is the one command that
-// stays running and therefore never exits on its own.
-if (command !== 'watch') {
-  die('usage: fm review|ship|attach|handoff|read|status|close|announce|watch|caps');
-}
+die('usage: fm review|ship|attach|handoff|read|status|close|announce|caps');

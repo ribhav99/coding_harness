@@ -56,88 +56,73 @@ test('reading a report archives it rather than deleting it', async () => {
   assert.ok(existsSync(archived), 'a read report was destroyed instead of archived');
 });
 
-// --- waking a supervisor that has already stopped ----------------------------
-// The Stop hook is a block, not a bell. A report landing while the supervisor is
-// already idle reached nobody until this existed, and the two conditions it
-// waits on are both recorded facts - never a guess about what a pane looks like.
+// --- telling the supervisor a worker stopped ---------------------------------
+// The supervisor's Stop hook can only block a turn that is ending, so it cannot
+// reach one already sitting between turns - which is where a report is most
+// likely to land. The worker knocks as it goes, unconditionally: whether a stop
+// is worth acting on is the supervisor's judgement, not the hook's.
 
-test('a report wakes the supervisor only when it is actually between turns', async () => {
+test('a stopping worker knocks on the supervisor, whatever it is doing', async () => {
   const home = freshHome();
-  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
-  const { markIdle, markBusy, idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
-  const { tick } = await import(join(ROOT, 'lib/watch.mjs'));
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  const { knock } = await import(join(ROOT, 'lib/knock.mjs'));
 
   const sent = [];
-  const send = async (pane, line) => { sent.push({ pane, line }); return { woke: true }; };
+  const send = async (args) => { sent.push(args); return true; };
 
-  // Idle, but nothing has been said: silence is the whole contract.
-  markIdle('%7');
-  assert.equal((await tick({ send })).woke, false, 'woke the supervisor with nothing to tell it');
-  assert.equal(sent.length, 0);
+  recordSupervisor('%3');
+  const first = await knock('pr-9', { send });
+  assert.equal(first.knocked, true);
+  assert.equal(sent[0][2], '%3', 'the knock went to the wrong pane');
+  assert.match(sent[0][4], /pr-9/, 'the knock did not name the task that stopped');
+  assert.match(sent[0][4], /fm read/);
 
-  // Mid-turn with reports waiting: its own Stop hook will surface these, and a
-  // nudge here would be a duplicate of a message it is already about to get.
-  markBusy();
-  record({ task: 'pr-1', text: 'done' });
-  assert.equal((await tick({ send })).woke, false, 'typed into a turn that was still running');
-  assert.equal(sent.length, 0);
-
-  // Both true at once - the only case that reaches anyone.
-  markIdle('%7');
-  const woke = await tick({ send });
-  assert.equal(woke.woke, true, 'a report landed on an idle supervisor and went unread');
-  assert.equal(sent[0].pane, '%7');
-  assert.match(sent[0].line, /fm read/);
+  // No state says "already told them" - every stop is its own knock, because
+  // every stop is its own report.
+  const second = await knock('pr-9', { send });
+  assert.equal(second.knocked, true, 'a second stop went unannounced');
 });
 
-test('an unread queue is not nudged twice for the same idle period', async () => {
+test('a knock with nowhere to go is not an error', async () => {
   const home = freshHome();
-  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
-  const { markIdle, idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
-  const { tick } = await import(join(ROOT, 'lib/watch.mjs'));
+  const { knock } = await import(join(ROOT, 'lib/knock.mjs'));
+  const { supervisorPane } = await import(join(ROOT, 'lib/presence.mjs'));
 
-  const sent = [];
-  const send = async (pane, line) => { sent.push(pane); return { woke: true }; };
+  assert.equal(supervisorPane(), null);
+  const result = await knock('pr-1', { send: async () => true });
+  assert.equal(result.knocked, false, 'knocked at a door it had no address for');
 
-  record({ task: 'pr-2', text: 'done' });
-  markIdle('%9');
-
-  await tick({ send });
-  await tick({ send });
-  await tick({ send });
-
-  assert.equal(sent.length, 1, 'the supervisor was nudged repeatedly for one unread report');
-  assert.equal(idlePane(), null, 'the marker survived the wake and would re-fire');
+  // A dead pane is the same: the report is on disk either way, and a worker's
+  // turn must never fail over the supervisor's bookkeeping.
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  recordSupervisor('%404');
+  const dead = await knock('pr-1', { send: async () => false });
+  assert.equal(dead.knocked, false);
 });
 
-test('the stop hook arms the wake only when it lets the turn end', async () => {
+test('the supervisor records where it lives every time it stops', async () => {
   const home = freshHome();
-  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
-  const { idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
+  const { supervisorPane } = await import(join(ROOT, 'lib/presence.mjs'));
   const hook = join(ROOT, 'hooks/supervisor-stop.mjs');
 
-  const run = () => {
+  const run = (pane) => {
     try {
       execFileSync('node', [hook], {
         input: '{}',
-        env: { ...process.env, FM2_HOME: home, TMUX_PANE: '%3' },
+        env: { ...process.env, FM2_HOME: home, TMUX_PANE: pane },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       return 0;
-    } catch (err) {
-      return err.status;
-    }
+    } catch (err) { return err.status; }
   };
 
-  // Turn ends cleanly: the supervisor is now unreachable, so the wake is armed.
-  assert.equal(run(), 0);
-  assert.equal(idlePane(), '%3', 'a supervisor that went idle left nowhere to knock');
+  assert.equal(run('%3'), 0);
+  assert.equal(supervisorPane(), '%3');
 
-  // Reports waiting: the hook blocks instead, so the turn continues and there is
-  // no idle period to arm.
-  record({ task: 'pr-3', text: 'something' });
-  assert.equal(run(), 2, 'the hook stopped blocking on unread reports');
-  assert.equal(idlePane(), null, 'a blocked turn was marked idle and would be nudged mid-turn');
+  // A restarted supervisor lands in a new pane, and a stale id knocks on
+  // somebody else's door - so it is rewritten on every stop, not just the first.
+  assert.equal(run('%77'), 0);
+  assert.equal(supervisorPane(), '%77', 'a moved supervisor kept its old address');
 });
 
 // --- the supervisor hook: the only thing that may interrupt ------------------

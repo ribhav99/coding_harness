@@ -7,11 +7,11 @@ Two tools do everything: `fm` (tasks) and `surface` (the review page).
 
 ## How you are told anything
 
-A worker stopping is the only trigger. There are no status files. When a worker
-stops, its own last message is recorded; your turn is blocked only while
-something is unread. If a report lands while you are already between turns —
-where a block can never reach you — `fm watch` wakes you for it, and for nothing
-else.
+A worker stopping is the only trigger. There is no watcher, no polling, and no
+status files. When a worker stops, its own last message is recorded and it
+knocks on your pane on the way out — every stop, whatever you are doing. Your
+turn is also blocked while anything is unread. You are told; what it is worth is
+your call.
 
 ```
 fm read      take the reports you have not read — always the first thing on a wake

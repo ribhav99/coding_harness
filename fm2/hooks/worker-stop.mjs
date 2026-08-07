@@ -9,6 +9,7 @@
 // the supervisor's bookkeeping, and a broken hook must not strand a session.
 
 import { record, lastAssistantMessage } from '../lib/notify.mjs';
+import { knock } from '../lib/knock.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -24,6 +25,14 @@ try {
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
   if (text) record({ task, text, cwd: payload.cwd ?? null });
+  // Then say so, here, at the one moment it is known to have happened.
+  //
+  // The supervisor's own Stop hook can only block a turn that is ending, so it
+  // never reaches a supervisor already sitting between turns - which is where a
+  // report is most likely to land. Knocking is not conditional on the supervisor
+  // looking busy or idle: whether a stop is worth acting on is the supervisor's
+  // judgement, and this hook's job is only to make sure it gets to make it.
+  await knock(task);
 } catch {
   // Deliberately silent. There is nothing a worker can do about this, and
   // failing here would make a reporting bug look like a work bug.

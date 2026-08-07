@@ -16,7 +16,7 @@ the last message it produced, and that message *is* the report — in the worker
 own words.
 
 ```
-  worker stops -> its own last message is recorded
+  worker stops -> its own last message is recorded, and it knocks
   supervisor tries to end a turn -> blocked, but only if something is unread
   fm read -> takes the reports; the turn proceeds
 ```
@@ -35,33 +35,29 @@ fm read                            take the reports you have not read
 fm status                          what is alive, and what the forge says
 fm close <id> [--force]            take a task down, refusing to strand work
 fm announce <id>                   the outcome, confirmed on the forge
-fm watch [--interval <s>]          wake the supervisor for a report it cannot see
 fm caps                            what this machine can reach
 ```
 
-## The one poll, and why it earns its place
+## The knock
 
-The Stop hook is a block, not a bell: it fires when the supervisor *tries to end
-a turn*, so a report landing while the supervisor is already idle reaches nobody
-until something unrelated makes it run. Five reports once sat unread for the
-better part of an hour that way, with the hooks working perfectly the whole time.
+The supervisor's Stop hook is a block, not a bell. It fires when the supervisor
+*tries to end a turn*, so it cannot reach one already sitting between turns —
+which is exactly where a report is most likely to land. Five reports once sat
+unread for the better part of an hour that way, with every hook working
+perfectly the whole time.
 
-`fm watch` closes that gap and nothing else. It wakes on the edge where two
-recorded facts are both true — a report exists on disk, and the supervisor's own
-hooks say it is between turns — and is silent otherwise. It infers nothing: v1
-polled to guess whether a worker was stuck or a pane had gone stale, and this
-never asks either question. The marker is cleared as it sends, so an unread queue
-is nudged once per idle period rather than once per check.
+So the worker knocks on its way out. Its Stop hook already runs at the one moment
+the stop is known to have happened; it records the report and then says so, to
+the pane the supervisor's own hooks wrote down.
 
-`fmp` starts one detached per machine. `fs.watch` on the queue is the trigger;
-the interval is a backstop for an event the filesystem does not report.
+It is unconditional on purpose. A version of this knocked only when the
+supervisor looked idle, which quietly decided on the supervisor's behalf that a
+mid-turn report was not worth mentioning. Whether a stop deserves any action is
+the supervisor's judgement — the hook's job is only to make sure it gets to make
+it. Every stop is its own knock, because every stop is its own report.
 
-## State is read, not recorded
-
-There is no status vocabulary. Where something stands comes from the forge (is the
-PR approved, did the comment land), from `report.md`, or from the pane. v1's own
-rule was to confirm the forge rather than trust a worker's claim — which was an
-admission the bookkeeping was never the truth.
+Nothing polls and nothing watches. A worker stopping was always the only trigger;
+this just carries it the last step.
 
 ## Ship makes the worktree; attach borrows one
 

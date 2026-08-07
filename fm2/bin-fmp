@@ -132,18 +132,6 @@ tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
 tmux select-window -t "$SES:control"
 tmux select-pane -t "$LEFT"
 
-# The wake. firstmate's Stop hook is a block, not a bell: it fires when firstmate
-# tries to end a turn, so a report landing while it is already idle reaches
-# nobody until something unrelated makes it run. `fm watch` covers exactly that
-# gap and is silent otherwise.
-#
-# Detached rather than in a pane, because it is infrastructure and there is
-# nothing to watch it do. One per machine, not one per panel - the home and the
-# queue are shared, so a second would race the first for the same reports.
-if ! pgrep -f 'cli\.mjs watch' >/dev/null 2>&1; then
-  nohup node "$FM_REPO/fm2/cli.mjs" watch >>"${FM2_HOME:-$HOME/.fm2}/watch.log" 2>&1 &
-fi
-
 # A build with nothing to attach to keeps its own protection, so the panel is
 # still there to switch to later. Without this the trap would hand it straight
 # back to the global rule and destroy everything just built.
