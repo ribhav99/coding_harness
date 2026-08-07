@@ -56,6 +56,12 @@ Then STOP. Do not poll and do not wait. When the captain sends their decisions t
 server wakes you; read them with \`surface read .review/review.json\`, act on exactly
 what they approved, and stop again.
 
+Two fields in those decisions are easy to swap, and swapping them changes the
+outcome. \`verdict\` is the captain's call on the PR and the review you post -
+an approve-with-comments verdict means you submit an APPROVE. \`mode\` only says
+whether you may touch the branch, never what to post. Neither one downgrades the
+other: post the verdict you were given.
+
 You never write a status line. Stopping IS your report - your last message before you
 stop is what reaches the captain, so make it two or three lines saying what you
 concluded and what, if anything, you need.`;

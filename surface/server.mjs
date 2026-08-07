@@ -162,7 +162,20 @@ const server = createServer(async (req, res) => {
     const problems = validate(spec, payload);
     if (problems.length) return json(res, 422, { error: problems.join('; '), problems });
 
-    const record = { mode: 'comment', ...payload, submitted_at: new Date().toISOString() };
+    // `_fields` travels with the decisions because the reviewer reads this file
+    // long after its brief, often across a compaction, and the two names are
+    // close enough to swap: a reviewer once read `mode: comment` as "post a
+    // COMMENTED review" and withheld an approval the captain had given in
+    // `verdict`. The file has to say which is which at the point it is read.
+    const record = {
+      _fields: {
+        mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
+        verdict: 'the captain\'s call on the PR, and the review action to post.',
+      },
+      mode: 'comment',
+      ...payload,
+      submitted_at: new Date().toISOString(),
+    };
     const written = writeDecisions(entry, record);
 
     // Decisions are on disk before the reviewer is woken. If the wake fails the
