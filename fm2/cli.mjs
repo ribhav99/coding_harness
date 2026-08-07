@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
-import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount } from './lib/forge.mjs';
+import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch } from './lib/forge.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -195,7 +195,14 @@ if (command === 'handoff') {
 
   // Stage two and three are one operation, so the swap cannot half-happen and
   // leave the work with no session at all.
-  const number = task.pr ?? die(`"${id}" has no PR recorded; nothing to review`);
+  // A review task carries its PR number; a ship task never does, because the
+  // worker is the one that opened it. So ask the forge what the branch has open
+  // before giving up - the whole point of the chain is that a finished ship task
+  // becomes a cold review without the captain doing it by hand.
+  const number =
+    task.pr ??
+    prForBranch(task.repo ?? repoOf(task.project), task.branch ?? id) ??
+    die(`"${id}" has no PR recorded, and its branch has none open; nothing to review`);
   let closed;
   try {
     closed = closeTask(id);

@@ -22,6 +22,25 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
   }
 }
 
+// The PR a branch has open, if any.
+//
+// A ship task opens its own PR, so nothing in the harness ever learns the
+// number - the worker knows it and the task record does not. That broke the
+// automatic chain at its last step: `handoff --stage swap` needs a number to
+// open the cold review on, and died on a task that had done everything right.
+// Asking the forge which PR the branch has is better than recording it anyway,
+// because a worker that opened a PR and then had it closed and reopened would
+// leave the record wrong, and the forge is never wrong about this.
+export function prForBranch(repo, branch) {
+  if (!branch) return null;
+  try {
+    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'open', '--json', 'number']));
+    return rows.length ? rows[0].number : null;
+  } catch {
+    return null;
+  }
+}
+
 // What actually landed, as opposed to what a worker says it did.
 export function reviewState(repo, number) {
   const data = pr(repo, number, ['state', 'reviewDecision', 'reviews']);
