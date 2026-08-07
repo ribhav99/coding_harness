@@ -18,8 +18,13 @@
 import { execFile } from 'node:child_process';
 import { supervisorPane } from './presence.mjs';
 
+// The fact, and nothing after it. An earlier version added "its report is
+// waiting, `fm read` takes it", which is both a standing instruction the
+// supervisor already has and a nudge toward acting - on a message whose entire
+// point is that acting is optional. What a stop is worth is decided by looking,
+// not by what the knock says about it.
 export const knockLine = (task) =>
-  `${task} stopped. Its report is waiting - \`fm read\` takes it.`;
+  `${task} stopped. Look at the session to decide next steps, or ignore.`;
 
 function sendKeys(args) {
   return new Promise((resolve) => {

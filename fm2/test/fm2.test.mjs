@@ -75,7 +75,11 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
   assert.equal(first.knocked, true);
   assert.equal(sent[0][2], '%3', 'the knock went to the wrong pane');
   assert.match(sent[0][4], /pr-9/, 'the knock did not name the task that stopped');
-  assert.match(sent[0][4], /fm read/);
+  // The fact and the option to ignore it, and nothing that tells the supervisor
+  // what the stop was worth.
+  assert.match(sent[0][4], /stopped/);
+  assert.match(sent[0][4], /or ignore/);
+  assert.doesNotMatch(sent[0][4], /fm read/, 'the knock went back to prescribing an action');
 
   // No state says "already told them" - every stop is its own knock, because
   // every stop is its own report.
