@@ -2,7 +2,7 @@
 // fm - the whole harness.
 //
 //   fm review <pr> [--project <dir>]   open a cold review on a PR
-//   fm ship <id> --spec <text|@file>   put a worker on a task
+//   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
@@ -132,11 +132,14 @@ if (command === 'review') {
 // --- ship --------------------------------------------------------------------
 
 if (command === 'ship') {
-  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file>');
+  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>]');
   const project = resolve(arg('--project', process.cwd()));
   let spec = arg('--spec') ?? die('a ship task needs --spec');
   if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
-  const task = spawnTask({ id, project, brief: SHIP_BRIEF(spec, id), window: 'workers' });
+  // A window per batch, when the captain wants one. `fm` creates it on demand, so
+  // naming one that does not exist yet is how you get it.
+  const window = arg('--window', 'workers');
+  const task = spawnTask({ id, project, brief: SHIP_BRIEF(spec, id), window });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
   process.exit(0);
 }
@@ -148,7 +151,7 @@ if (command === 'ship') {
 // you want to sit down with looks like.
 
 if (command === 'attach') {
-  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>]');
+  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>]');
   const worktree = resolve(target);
   const project = resolve(arg('--project', process.cwd()));
   // Named for the worktree, minus the project prefix the convention already puts
@@ -158,9 +161,10 @@ if (command === 'attach') {
   const id = arg('--id', base.startsWith(prefix) ? base.slice(prefix.length) : base);
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
+  const window = arg('--window', 'workers');
   let task;
   try {
-    task = adoptTask({ id, project, worktree, brief: spec ? SHIP_BRIEF(spec, id) : null });
+    task = adoptTask({ id, project, worktree, window, brief: spec ? SHIP_BRIEF(spec, id) : null });
   } catch (err) {
     die(err.message);
   }
