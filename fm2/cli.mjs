@@ -63,6 +63,11 @@ an approve-with-comments verdict means you submit an APPROVE. \`mode\` only says
 whether you may touch the branch, never what to post. Neither one downgrades the
 other: post the verdict you were given.
 
+Approval is the only review state that carries meaning here. A COMMENT event and
+a REQUEST_CHANGES event are read the same way, because the back-and-forth happens
+in chat rather than through the forge - so never ask which of those two to use,
+and never escalate between them. Getting an APPROVE right does matter.
+
 You never write a status line. Stopping IS your report - your last message before you
 stop is what reaches the captain, so make it two or three lines saying what you
 concluded and what, if anything, you need.`;
