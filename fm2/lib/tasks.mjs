@@ -83,6 +83,17 @@ function sessionName() {
   return null;
 }
 
+// A window `fm` creates is routed to by NAME, so anything that renames it breaks
+// the routing - a shell setting the title is enough. fmp used to pin this when it
+// pre-created the windows; it no longer does, because a window created empty
+// comes with a shell nobody wanted, so pinning belongs wherever the window is
+// actually made.
+function pinWindowName(target) {
+  for (const opt of ['automatic-rename', 'allow-rename']) {
+    try { tmux(['set-window-option', '-t', target, opt, 'off']); } catch { /* not worth failing a launch */ }
+  }
+}
+
 function openPane(window, cwd, briefPath, id, settingsFile) {
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
@@ -106,6 +117,7 @@ function openPane(window, cwd, briefPath, id, settingsFile) {
     // dies before the next line can list it. Same reason as in bin-fmp.
     tmux(['new-session', '-d', '-s', session, '-n', window, '-c', cwd, command,
       ';', 'set-option', '-t', session, 'destroy-unattached', 'off']);
+    pinWindowName(`${session}:${window}`);
     return tmux(['list-panes', '-t', `${session}:${window}`, '-F', '#{pane_id}']).split('\n')[0];
   }
   // Address the window by INDEX, not name. Names are not unique - a session can
@@ -117,7 +129,11 @@ function openPane(window, cwd, briefPath, id, settingsFile) {
     .map((line) => line.split('\t'))
     .filter(([, name]) => name === window);
   if (windows.length === 0) {
+    // Created WITH the command, so the window's first pane is the task itself.
+    // Making it empty and splitting into it is what left a stray shell in every
+    // workers and reviews window the panel ever built.
     const created = tmux(['new-window', '-d', '-P', '-F', '#{window_index}', '-t', session, '-n', window, '-c', cwd, command]);
+    pinWindowName(`${session}:${created}`);
     return tmux(['list-panes', '-t', `${session}:${created}`, '-F', '#{pane_id}']).split('\n').pop();
   }
   const target = `${session}:${windows[0][0]}`;

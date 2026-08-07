@@ -115,13 +115,16 @@ if [ "$(tmux list-windows -t "$SES" -F '#{window_index}' 2>/dev/null | head -1)"
   tmux move-window -s "$SES:0" -t "$SES:1" >/dev/null 2>&1 || true
 fi
 
-# Window names are load-bearing: `fm` routes reviews to "reviews" and everything
-# else to "workers" by name, so automatic-rename is pinned off.
-for win in control workers reviews; do
-  [ "$win" = control ] || tmux new-window -d -t "$SES:" -n "$win" -c "$FM_REPO"
-  tmux set-window-option -t "$SES:$win" automatic-rename off 2>/dev/null || true
-  tmux set-window-option -t "$SES:$win" allow-rename off 2>/dev/null || true
-done
+# Only control is built here. workers and reviews used to be created empty, which
+# is where the panel's two stray shells came from: a window made with no command
+# gets one, sitting in the harness repo, and every task then split BESIDE it
+# rather than into it. They were never load-bearing - `fm` creates either window
+# on demand when the first task needs it, and pins the same options there.
+#
+# Window names still are load-bearing: `fm` routes reviews to "reviews" and
+# everything else to "workers" by name.
+tmux set-window-option -t "$SES:control" automatic-rename off 2>/dev/null || true
+tmux set-window-option -t "$SES:control" allow-rename off 2>/dev/null || true
 
 # control: firstmate on the left, a project shell on the right.
 tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
