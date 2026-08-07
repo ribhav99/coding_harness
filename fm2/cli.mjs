@@ -278,9 +278,31 @@ if (command === 'announce') {
   process.exit(0);
 }
 
+// --- watch ---------------------------------------------------------------
+// The supervisor's Stop hook is a block, not a bell: it only fires when the
+// supervisor tries to end a turn, so a report arriving while it is already idle
+// reaches nobody. This wakes it for exactly that case and stays silent for every
+// other one.
+
+if (command === 'watch') {
+  const interval = Number(arg('--interval', '60')) * 1000;
+  const { watchLoop } = await import('./lib/watch.mjs');
+  process.stdout.write(`watching ${dir('notify')} (backstop every ${interval / 1000}s)\n`);
+  const stop = watchLoop({
+    intervalMs: interval,
+    log: (msg) => process.stdout.write(`${new Date().toISOString()} ${msg}\n`),
+  });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stop(); process.exit(0); });
+}
+
 if (command === 'caps') {
   process.stdout.write(`${JSON.stringify(capabilities({ refresh: true }), null, 2)}\n`);
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|handoff|read|status|close|announce|caps');
+// Every other command exits inside its own block, so reaching here means the
+// command was not recognised - except `watch`, which is the one command that
+// stays running and therefore never exits on its own.
+if (command !== 'watch') {
+  die('usage: fm review|ship|attach|handoff|read|status|close|announce|watch|caps');
+}

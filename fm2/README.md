@@ -35,8 +35,26 @@ fm read                            take the reports you have not read
 fm status                          what is alive, and what the forge says
 fm close <id> [--force]            take a task down, refusing to strand work
 fm announce <id>                   the outcome, confirmed on the forge
+fm watch [--interval <s>]          wake the supervisor for a report it cannot see
 fm caps                            what this machine can reach
 ```
+
+## The one poll, and why it earns its place
+
+The Stop hook is a block, not a bell: it fires when the supervisor *tries to end
+a turn*, so a report landing while the supervisor is already idle reaches nobody
+until something unrelated makes it run. Five reports once sat unread for the
+better part of an hour that way, with the hooks working perfectly the whole time.
+
+`fm watch` closes that gap and nothing else. It wakes on the edge where two
+recorded facts are both true — a report exists on disk, and the supervisor's own
+hooks say it is between turns — and is silent otherwise. It infers nothing: v1
+polled to guess whether a worker was stuck or a pane had gone stale, and this
+never asks either question. The marker is cleared as it sends, so an unread queue
+is nudged once per idle period rather than once per check.
+
+`fmp` starts one detached per machine. `fs.watch` on the queue is the trigger;
+the interval is a backstop for an event the filesystem does not report.
 
 ## State is read, not recorded
 

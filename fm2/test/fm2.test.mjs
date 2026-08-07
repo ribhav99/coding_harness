@@ -56,6 +56,90 @@ test('reading a report archives it rather than deleting it', async () => {
   assert.ok(existsSync(archived), 'a read report was destroyed instead of archived');
 });
 
+// --- waking a supervisor that has already stopped ----------------------------
+// The Stop hook is a block, not a bell. A report landing while the supervisor is
+// already idle reached nobody until this existed, and the two conditions it
+// waits on are both recorded facts - never a guess about what a pane looks like.
+
+test('a report wakes the supervisor only when it is actually between turns', async () => {
+  const home = freshHome();
+  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { markIdle, markBusy, idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
+  const { tick } = await import(join(ROOT, 'lib/watch.mjs'));
+
+  const sent = [];
+  const send = async (pane, line) => { sent.push({ pane, line }); return { woke: true }; };
+
+  // Idle, but nothing has been said: silence is the whole contract.
+  markIdle('%7');
+  assert.equal((await tick({ send })).woke, false, 'woke the supervisor with nothing to tell it');
+  assert.equal(sent.length, 0);
+
+  // Mid-turn with reports waiting: its own Stop hook will surface these, and a
+  // nudge here would be a duplicate of a message it is already about to get.
+  markBusy();
+  record({ task: 'pr-1', text: 'done' });
+  assert.equal((await tick({ send })).woke, false, 'typed into a turn that was still running');
+  assert.equal(sent.length, 0);
+
+  // Both true at once - the only case that reaches anyone.
+  markIdle('%7');
+  const woke = await tick({ send });
+  assert.equal(woke.woke, true, 'a report landed on an idle supervisor and went unread');
+  assert.equal(sent[0].pane, '%7');
+  assert.match(sent[0].line, /fm read/);
+});
+
+test('an unread queue is not nudged twice for the same idle period', async () => {
+  const home = freshHome();
+  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { markIdle, idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
+  const { tick } = await import(join(ROOT, 'lib/watch.mjs'));
+
+  const sent = [];
+  const send = async (pane, line) => { sent.push(pane); return { woke: true }; };
+
+  record({ task: 'pr-2', text: 'done' });
+  markIdle('%9');
+
+  await tick({ send });
+  await tick({ send });
+  await tick({ send });
+
+  assert.equal(sent.length, 1, 'the supervisor was nudged repeatedly for one unread report');
+  assert.equal(idlePane(), null, 'the marker survived the wake and would re-fire');
+});
+
+test('the stop hook arms the wake only when it lets the turn end', async () => {
+  const home = freshHome();
+  const { record } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { idlePane } = await import(join(ROOT, 'lib/presence.mjs'));
+  const hook = join(ROOT, 'hooks/supervisor-stop.mjs');
+
+  const run = () => {
+    try {
+      execFileSync('node', [hook], {
+        input: '{}',
+        env: { ...process.env, FM2_HOME: home, TMUX_PANE: '%3' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return 0;
+    } catch (err) {
+      return err.status;
+    }
+  };
+
+  // Turn ends cleanly: the supervisor is now unreachable, so the wake is armed.
+  assert.equal(run(), 0);
+  assert.equal(idlePane(), '%3', 'a supervisor that went idle left nowhere to knock');
+
+  // Reports waiting: the hook blocks instead, so the turn continues and there is
+  // no idle period to arm.
+  record({ task: 'pr-3', text: 'something' });
+  assert.equal(run(), 2, 'the hook stopped blocking on unread reports');
+  assert.equal(idlePane(), null, 'a blocked turn was marked idle and would be nudged mid-turn');
+});
+
 // --- the supervisor hook: the only thing that may interrupt ------------------
 
 function runHook(hook, payload, env = {}) {

@@ -10,6 +10,7 @@
 // got right; what it got wrong was everything it was willing to block for.
 
 import { pending } from '../lib/notify.mjs';
+import { markIdle, markBusy } from '../lib/presence.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -24,7 +25,21 @@ try {
   process.exit(0);
 }
 
-if (items.length === 0) process.exit(0);
+// Nothing unread, so the turn ends and the supervisor is now unreachable until
+// something makes it run again. Record that, and where, so a report arriving in
+// the gap has somewhere to knock. This is the only moment that can be known for
+// certain, which is why it is written here rather than guessed at from outside.
+if (items.length === 0) {
+  try { markIdle(process.env.TMUX_PANE); } catch { /* never hold up a turn for bookkeeping */ }
+  process.exit(0);
+}
+
+// Reports are waiting, so the turn is about to be forced to continue and the
+// supervisor is not idle. Clearing here is load-bearing: the marker left by the
+// LAST clean stop is still on disk, and blocking does not go through
+// UserPromptSubmit, so nothing else would take it down. Left in place it says
+// "idle" for the whole handling turn, and the watcher types into it.
+try { markBusy(); } catch { /* bookkeeping never holds up a turn */ }
 
 const lines = items.map((item) => {
   const first = String(item.text || '').split('\n').find((l) => l.trim()) || '(no text)';
