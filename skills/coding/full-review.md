@@ -1,6 +1,6 @@
 ---
 name: full-review
-description: Meta-reviewer that spawns all coding-loop review judges as parallel sub-agents, performs its own independent code review, cross-checks the PRD, then presents every judgment call in an interactive HTML surface where you decide each one. On your own branch it applies the fixes you approve; on someone else's it drafts the inline comments and the approve/request-changes recommendation instead, and never touches their branch.
+description: Meta-reviewer that spawns all coding-loop review judges as parallel sub-agents, performs its own independent code review, cross-checks the PRD, then presents every judgment call in an interactive HTML surface where you decide each one. On your own branch it applies the fixes you approve; on someone else's it drafts the inline comments and the approve/request-changes recommendation, and touches their branch only when you explicitly ask for fixes.
 ---
 
 # Full Review
@@ -11,7 +11,7 @@ The user never reads a wall of markdown. They read an HTML page, click through d
 
 ## Two modes
 
-The review itself is identical in both modes — same judges, same independent pass, same verification. What changes is **what the user is deciding at the end**, because on someone else's branch a fix is not yours to make.
+The review itself is identical in both modes — same judges, same independent pass, same verification. What changes is **what the user is deciding at the end**, because on someone else's branch a fix is not yours to make *by default*.
 
 | | **Author mode** — their own branch | **Reviewer mode** — someone else's branch |
 |---|---|---|
@@ -19,9 +19,24 @@ The review itself is identical in both modes — same judges, same independent p
 | Decisions | Fix / Comment / Defer / Drop | Comment inline / Raise in summary / Drop |
 | Mechanical bucket | Applied automatically in its own commit | Never applied — offered as optional nits |
 | Ending | Two commits on the branch | One PR review: inline comments + a summary carrying the recommendation |
-| Never | — | Never commit, never push, never rewrite their branch |
+| Never | — | Never commit, never push, never rewrite their branch — unless they asked (below) |
 
 Establish the mode in step 1 and carry it through. When you cannot establish authorship confidently, **use reviewer mode** — proposing a comment on your own branch costs a moment, and silently rewriting someone else's costs their trust.
+
+### When the user asks for fixes on someone else's branch
+
+Reviewer mode's "never touch it" is a default, not a prohibition. If the decisions
+come back with `mode: change`, the user has looked at the findings and asked for
+them applied — commit and push **to the PR's own branch**.
+
+Do not invent a side branch to hold them. A fix the author has to find and
+cherry-pick is a fix that did not land, and landing it is the thing that was
+asked for. Push plainly: no force, no rebase, no rewriting anything of theirs —
+if it will not fast-forward, stop and say so rather than forcing it.
+
+Findings the user approved but that you judge unsafe to apply — a schema
+migration where the repo allows one per PR, a behavioural choice that is the
+author's call — stay as comments, and you say which and why.
 
 ## Procedure
 

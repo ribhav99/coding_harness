@@ -42,9 +42,9 @@ You did not write this code and have not seen it before. That is the point: read
 
 Run the \`full-review\` skill against that PR and follow it to completion.
 
-You are in an isolated git worktree checked out at the PR's head. Do not push to the
-PR's branch and do not merge it. Post NOTHING to the forge until the captain has
-approved it finding by finding.
+You are in an isolated git worktree checked out at the PR's head. Do not merge it, and
+leave its branch alone unless the captain's decisions ask otherwise. Post NOTHING to
+the forge until the captain has approved it finding by finding.
 
 Write your outcome to ${reportPath}: the verdict, every finding you are confident in,
 and the evidence for each. That report is the deliverable that survives this session.
@@ -65,9 +65,17 @@ what they approved, and stop again.
 
 Two fields in those decisions are easy to swap, and swapping them changes the
 outcome. \`verdict\` is the captain's call on the PR and the review you post -
-an approve-with-comments verdict means you submit an APPROVE. \`mode\` only says
-whether you may touch the branch, never what to post. Neither one downgrades the
-other: post the verdict you were given.
+an approve-with-comments verdict means you submit an APPROVE. \`mode\` says what
+you may do to the code, never what to post. Neither one downgrades the other:
+post the verdict you were given.
+
+\`mode: comment\` is the default and means exactly that - inline comments, and the
+branch untouched. \`mode: change\` means the captain read the findings and asked
+for them applied, so commit and push them TO THE PR'S OWN BRANCH. Do not invent a
+side branch: a fix the author has to go and cherry-pick is a fix that did not
+land, and landing it is what was asked for. Push plainly - no force, no rebase,
+nothing of theirs rewritten - and if it will not fast-forward, stop and say so.
+Anything you judge unsafe to apply stays a comment, and you say which and why.
 
 Approval is the only review state that carries meaning here. A COMMENT event and
 a REQUEST_CHANGES event are read the same way, because the back-and-forth happens

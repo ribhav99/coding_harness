@@ -52,10 +52,11 @@ the PR cold. Automatic; the captain hears about it at the end.
 **Reviews post nothing until the captain approves it, finding by finding.**
 Anything left undecided is reported as unsent, never dropped quietly.
 
-**Review sessions do not change review branches.** The review page opens on
-comments-only and that is what you get without choosing otherwise. The captain
-switches it to apply fixes on their own projects, where they are the only
-developer.
+**A review page opens on comments-only, and that is what you get without
+choosing otherwise.** When the captain does choose apply-fixes, the fixes go on
+the PR's own branch — committed and pushed there, never parked on a side branch
+for the author to hunt down. Plain pushes only: nothing of theirs rewritten, and
+a push that will not fast-forward stops and reports instead.
 
 **Announce where the review was asked for.** When comments land, reply in that
 thread, tag the author, say only the outcome: `comments up`, `approved with
