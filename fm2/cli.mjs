@@ -35,7 +35,7 @@ function arg(flag, fallback = null) {
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const REVIEW_BRIEF = (prUrl, id, reportPath) => `You are an autonomous worker. Work on your own; do not wait for a human.
+const REVIEW_BRIEF = (prUrl, id, reportPath, specPath) => `You are an autonomous worker. Work on your own; do not wait for a human.
 
 Review pull request ${prUrl}.
 You did not write this code and have not seen it before. That is the point: read it cold.
@@ -49,12 +49,18 @@ approved it finding by finding.
 Write your outcome to ${reportPath}: the verdict, every finding you are confident in,
 and the evidence for each. That report is the deliverable that survives this session.
 
+Write your review spec to ${specPath} — NOT to .review/ inside the worktree. The
+project's own pre-push gate formats and lints everything it finds in its tree, and
+the harness's scaffolding is not the project's to check: left there it fails the
+author's gate on files that have nothing to do with their code. Your decisions
+file lands beside the spec, so both stay out of their way.
+
 When your review exists, open it for the captain:
 
-    surface open .review/review.json
+    surface open ${specPath}
 
 Then STOP. Do not poll and do not wait. When the captain sends their decisions the
-server wakes you; read them with \`surface read .review/review.json\`, act on exactly
+server wakes you; read them with \`surface read ${specPath}\`, act on exactly
 what they approved, and stop again.
 
 Two fields in those decisions are easy to swap, and swapping them changes the
@@ -102,10 +108,11 @@ if (command === 'review') {
   fetchPrHead(project, number, ref);
 
   const reportPath = join(dir('briefs', id), 'report.md');
+  const specPath = join(dir('briefs', id), 'review.json');
   const task = spawnTask({
     id,
     project,
-    brief: REVIEW_BRIEF(meta.url, id, reportPath),
+    brief: REVIEW_BRIEF(meta.url, id, reportPath, specPath),
     baseRef: ref,
     window: 'reviews',
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
@@ -190,10 +197,11 @@ if (command === 'handoff') {
   const ref = `refs/fm2/${reviewId}`;
   fetchPrHead(project, number, ref);
   const reportPath = join(dir('briefs', reviewId), 'report.md');
+  const specPath = join(dir('briefs', reviewId), 'review.json');
   const review = spawnTask({
     id: reviewId,
     project,
-    brief: REVIEW_BRIEF(meta.url, reviewId, reportPath),
+    brief: REVIEW_BRIEF(meta.url, reviewId, reportPath, specPath),
     baseRef: ref,
     window: 'reviews',
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },

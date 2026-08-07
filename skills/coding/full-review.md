@@ -114,7 +114,13 @@ review therefore looks identical — same layout, same decision controls, same v
 options — so the user builds muscle memory instead of re-learning the page, and no
 review can hand-roll a form that collects the wrong thing.
 
-Write the spec to `.review/review.json` in your worktree:
+Write the spec where your brief tells you to. If it names a path, use that and
+nothing else — it is deliberately outside the worktree, because the project's own
+pre-push gate formats and lints everything it finds in its tree and will fail the
+author's push on scaffolding that is not theirs. Absent any instruction, use
+`.review/review.json` in your worktree.
+
+Throughout the rest of this skill, `<spec>` means that path:
 
 ```json
 {
@@ -197,7 +203,7 @@ The one permitted exception is in reviewer mode: if the comment you are about to
 ### 7. Open the page, then STOP
 
 ```
-surface open .review/review.json
+surface open <spec>
 ```
 
 It registers the review, starts the server if it is not already up, opens the page,
@@ -211,7 +217,7 @@ When the user hits send, the server writes their decisions and types one line in
 pane, which wakes you. Read them with:
 
 ```
-surface read .review/review.json
+surface read <spec>
 ```
 
 That prints their verdict, their per-finding decision and the exact comment text they
