@@ -10,6 +10,7 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask, removeTask, allTasks, projectConfig, dir, home as homeDir } from './config.mjs';
+import { syncSkills } from './skills.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -209,6 +210,9 @@ function acceptTrustPrompt(pane, { attempts = 12, waitMs = 1000 } = {}) {
 
 export function spawnTask({ id, project, brief, baseRef = null, window = 'workers', env = {} }) {
   if (loadTask(id)) throw new Error(`task "${id}" already exists`);
+  // Before anything is launched: a worker told to run a skill must resolve it to
+  // THIS checkout, not to whatever an old symlink still points at.
+  syncSkills();
   const wt = worktreePath(project, id);
   assertIsolated(project, wt);
   if (existsSync(wt)) throw new Error(`worktree already exists: ${wt}`);
@@ -282,6 +286,7 @@ export function lastSessionFor(cwd, root = join(homedir(), '.claude', 'projects'
 // apart. Getting that backwards would delete real work on `fm close`.
 export function adoptTask({ id, project, worktree, window = 'workers', brief = null, resume = null, env = {} }) {
   if (loadTask(id)) throw new Error(`task "${id}" already exists`);
+  syncSkills();
   const wt = resolve(worktree);
   if (!existsSync(wt)) throw new Error(`no worktree at ${wt}`);
   assertIsolated(project, wt);

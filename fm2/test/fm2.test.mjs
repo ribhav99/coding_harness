@@ -368,3 +368,35 @@ test('a project declares its own tracker, and none is the default', async () => 
   assert.equal(cfg.tracker, 'github-issues');
   assert.equal(cfg.review_channel, 'C123');
 });
+
+// The skills live in this repo, which is the point of the repo — but a worker
+// runs in some other project's worktree, so it can only find them in
+// ~/.claude/skills. That link was made by hand, so it went stale the moment the
+// checkout moved: a review told to "run the full-review skill" resolved it to an
+// abandoned checkout and improvised instead of reviewing.
+
+test('every launch relinks the skills to this checkout', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fm2-skills-'));
+  const { syncSkills, repoSkills } = await import(join(ROOT, 'lib/skills.mjs'));
+
+  const found = repoSkills();
+  assert.ok(found.length > 10, `expected this repo to carry skills, found ${found.length}`);
+
+  // First run creates them all.
+  const made = syncSkills({ root });
+  assert.equal(made.length, found.length, 'a fresh machine did not get every skill');
+  const full = join(root, 'full-review', 'SKILL.md');
+  assert.ok(existsSync(full), 'full-review, the one a review actually runs, is missing');
+  assert.match(readFileSync(full, 'utf8'), /Full Review/);
+
+  // Second run is silent: nothing to repair, nothing rewritten.
+  assert.deepEqual(syncSkills({ root }), [], 'a correct link was relinked anyway');
+
+  // A link left pointing at an abandoned checkout is repaired, not trusted.
+  const stale = mkdtempSync(join(tmpdir(), 'fm2-oldcheckout-'));
+  writeFileSync(join(stale, 'full-review.md'), '# an old copy\n');
+  execFileSync('ln', ['-sfn', join(stale, 'full-review.md'), full]);
+  const repaired = syncSkills({ root });
+  assert.ok(repaired.includes('full-review'), 'a stale skill link survived a launch');
+  assert.match(readFileSync(full, 'utf8'), /Full Review/, 'the stale copy is still what resolves');
+});

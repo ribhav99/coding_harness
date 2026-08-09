@@ -61,16 +61,31 @@ command_link "$REPO/surface/bin-surface" surface
 
 # Claude Code discovers a skill as <name>/SKILL.md, so the link is the file
 # inside a directory named for the skill - not the directory itself.
+# Skills go through the same code fm uses at every launch, so there is one
+# implementation and it cannot drift from what a worker actually gets.
 printf '\nskills:\n'
-count=0
-for md in "$REPO"/skills/*/*.md; do
-  [ -e "$md" ] || continue
-  name=$(basename "$md" .md)
-  case "$name" in _*) continue ;; esac
-  link "$md" "$SKILLS/$name/SKILL.md" "$name"
-  count=$((count + 1))
-done
-printf '  %d skill(s)\n' "$count"
+if [ "$CHECK" = 1 ]; then
+  node -e '
+    const { repoSkills, skillsRoot } = await import(process.argv[1] + "/fm2/lib/skills.mjs");
+    const { realpathSync, lstatSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    let stale = 0;
+    for (const [name, target] of repoSkills(process.argv[1])) {
+      const link = join(skillsRoot(), name, "SKILL.md");
+      let cur = null;
+      try { if (lstatSync(link).isSymbolicLink()) cur = realpathSync(link); } catch {}
+      if (cur !== realpathSync(target)) { console.log(`  TODO  ${name} -> ${cur ?? "missing"}`); stale++; }
+    }
+    console.log(`  ${stale === 0 ? "ok    all" : stale + " stale of"} ${repoSkills(process.argv[1]).length} skill(s)`);
+  ' "$REPO"
+else
+  node -e '
+    const { syncSkills, repoSkills } = await import(process.argv[1] + "/fm2/lib/skills.mjs");
+    const fixed = syncSkills({ repo: process.argv[1] });
+    for (const n of fixed) console.log(`  ok    ${n}`);
+    console.log(`  ${repoSkills(process.argv[1]).length} skill(s), ${fixed.length} relinked`);
+  ' "$REPO"
+fi
 
 printf '\nthis machine can reach:\n'
 for cmd in git tmux node gh; do
