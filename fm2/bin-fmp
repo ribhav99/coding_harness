@@ -28,8 +28,18 @@
 
 set -eu
 
-FM_REPO="${FM_REPO:-/Users/ribhav/Desktop/everything/coding_harness}"
-FM_PROJECTS="${FM_PROJECTS:-/Users/ribhav/Desktop/everything}"
+# Derived from where this script actually is, not written down. A hardcoded path
+# is right on exactly one machine, and wrong in a way that is hard to see: a stale
+# PATH symlink keeps running an old checkout, so a `git pull` appears to change
+# nothing and the panel opens on the directory you thought you had moved away from.
+# `readlink -f` resolves the symlink, so FM_REPO is always the checkout this file
+# lives in, whichever one that is.
+#
+# Projects sit beside the harness, which is the convention the captain already
+# uses: worktrees are siblings, and so is every other checkout.
+FMP_SELF=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+FM_REPO="${FM_REPO:-$(dirname "$FMP_SELF")}"
+FM_PROJECTS="${FM_PROJECTS:-$(dirname "$FM_REPO")}"
 FMP_CLAUDE_CMD="${FMP_CLAUDE_CMD:-claude --dangerously-skip-permissions --effort max}"
 
 die() { printf 'fmp: %s\n' "$*" >&2; exit 1; }
