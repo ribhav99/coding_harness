@@ -88,6 +88,19 @@ attach() {
 # Already running: go there. Never rebuild a live session - task panes and their
 # worktrees live in it.
 if tmux has-session -t "=$SES" 2>/dev/null; then
+  # But say so if it was built against a different checkout. A panel outlives the
+  # repo it was started from: move the harness, or clone it somewhere else on a
+  # second machine, and `fmp` still finds the old session and takes you to panes
+  # sitting in the old directory. Nothing is broken and nothing says anything,
+  # so a `git pull` looks like it changed nothing at all. This is the one place
+  # that can tell, and it costs a warning, not a refusal - the session may hold
+  # live work, so it is never rebuilt out from under the captain.
+  live=$(tmux list-panes -t "$SES:control" -F '#{pane_current_path}' 2>/dev/null | head -1 || true)
+  if [ -n "$live" ] && [ "$live" != "$FM_REPO" ]; then
+    printf 'fmp: this panel was built from %s, not %s\n' "$live" "$FM_REPO" >&2
+    printf '     attaching to it anyway - it may hold live work.\n' >&2
+    printf '     to rebuild against this checkout: tmux kill-session -t %s && fmp %s\n' "$SES" "$PROJECT" >&2
+  fi
   attach
   exit 0
 fi
