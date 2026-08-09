@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# install - point this machine at this checkout.
+#
+#   ./install            do it
+#   ./install --check    say what is wrong, change nothing
+#
+# Everything the harness needs beyond the repo itself is a symlink or a
+# capability, and every one of them is absolute: a second machine that clones to
+# a different path keeps running whatever the old links point at. That failure is
+# silent - `git pull` appears to change nothing, and the panel opens on a
+# directory you thought you had left behind - so this resolves every link from
+# where this file actually is, and is safe to re-run whenever the checkout moves.
+#
+# What it does NOT do, because neither belongs in a repo:
+#   - MCP servers (~/.claude.json) - they carry project ids and auth
+#   - `gh auth login` - interactive
+
+set -eu
+
+REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+BIN="${FM_BIN:-/opt/homebrew/bin}"
+SKILLS="$HOME/.claude/skills"
+CHECK=0
+[ "${1:-}" = "--check" ] && CHECK=1
+
+ok()   { printf '  ok    %s\n' "$*"; }
+todo() { printf '  TODO  %s\n' "$*"; }
+warn() { printf '  warn  %s\n' "$*"; }
+
+link() { # link <target> <linkname> [label]
+  local target=$1 name=$2 label=${3:-$(basename "$2")}
+  if [ "$(readlink -f "$name" 2>/dev/null)" = "$(readlink -f "$target")" ]; then
+    ok "$label"
+    return
+  fi
+  if [ "$CHECK" = 1 ]; then
+    todo "$label -> $target"
+    return
+  fi
+  mkdir -p "$(dirname "$name")"
+  ln -sfn "$target" "$name"
+  ok "$label -> $target"
+}
+
+# A command already on PATH is relinked where it already lives, not duplicated
+# into $BIN. These end up split across bin directories on a real machine - fm in
+# one, fmp in another - and installing a second copy elsewhere leaves whichever
+# PATH finds first winning, which is the same silent-stale-symlink problem this
+# script exists to end.
+command_link() { # command_link <target> <name>
+  local target=$1 name=$2 existing
+  existing=$(command -v "$name" 2>/dev/null || true)
+  link "$target" "${existing:-$BIN/$name}" "$name"
+}
+
+printf 'harness at %s\n\ncommands:\n' "$REPO"
+[ -d "$BIN" ] || { warn "$BIN does not exist - set FM_BIN to a directory on your PATH"; exit 1; }
+command_link "$REPO/fm2/bin-fm"          fm
+command_link "$REPO/fm2/bin-fmp"         fmp
+command_link "$REPO/surface/bin-surface" surface
+
+# Claude Code discovers a skill as <name>/SKILL.md, so the link is the file
+# inside a directory named for the skill - not the directory itself.
+printf '\nskills:\n'
+count=0
+for md in "$REPO"/skills/*/*.md; do
+  [ -e "$md" ] || continue
+  name=$(basename "$md" .md)
+  case "$name" in _*) continue ;; esac
+  link "$md" "$SKILLS/$name/SKILL.md" "$name"
+  count=$((count + 1))
+done
+printf '  %d skill(s)\n' "$count"
+
+printf '\nthis machine can reach:\n'
+for cmd in git tmux node gh; do
+  if command -v "$cmd" >/dev/null 2>&1; then ok "$cmd"; else todo "$cmd is not installed"; fi
+done
+if command -v gh >/dev/null 2>&1; then
+  if gh auth status >/dev/null 2>&1; then ok 'gh is authenticated'; else todo 'gh auth login'; fi
+fi
+
+printf '\nnot handled here (per machine, never in the repo):\n'
+printf '  - the Software Factory MCP server, in the global mcpServers of ~/.claude.json\n'
+printf '  - anything a project needs to build; the harness only launches sessions\n'
+
+printf '\nsupervisor hooks come with the repo (.claude/settings.json, via $CLAUDE_PROJECT_DIR).\n'
+printf 'run firstmate from this checkout so they resolve.\n'

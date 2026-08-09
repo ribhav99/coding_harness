@@ -4,6 +4,11 @@ The harness. One CLI, no watcher, no daemon, no polling, no status files.
 
 `node fm2/cli.mjs` is the whole install. No dependencies.
 
+On a new machine, `./install` from the repo root points that machine at this
+checkout — the commands, the 30 skills, and a check of what git/tmux/node/gh can
+reach. `./install --check` says what is wrong without changing anything. Re-run
+it whenever the checkout moves.
+
 ## The one idea
 
 **A worker stopping is the only trigger.** A worker running autonomously does not
