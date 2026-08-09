@@ -9,7 +9,7 @@ import { existsSync, writeFileSync, mkdirSync, readFileSync, readdirSync, statSy
 import { join, dirname, basename, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { saveTask, loadTask, removeTask, projectConfig, dir, home as homeDir } from './config.mjs';
+import { saveTask, loadTask, removeTask, allTasks, projectConfig, dir, home as homeDir } from './config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -95,6 +95,26 @@ function pinWindowName(target) {
   }
 }
 
+// The panel builds workers and reviews up front, and an empty window cannot
+// exist in tmux - it gets a shell. So a window holding one shell and nothing else
+// is a placeholder waiting for its first task, and the task should REPLACE it
+// rather than split beside it. Splitting beside it is what left one stray pane
+// sitting in every window the panel ever built.
+//
+// Guarded twice, because respawning kills whatever is in the pane: it must be a
+// bare shell, and it must not be a pane some task already owns.
+function placeholderPane(target) {
+  const panes = tmux(['list-panes', '-t', target, '-F', '#{pane_id}\t#{pane_current_command}'])
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => line.split('\t'));
+  if (panes.length !== 1) return null;
+  const [pane, command] = panes[0];
+  if (!/^-?(zsh|bash|sh|fish|ksh|tcsh|csh)$/.test(command)) return null;
+  if (allTasks().some((task) => task.pane === pane)) return null;
+  return pane;
+}
+
 function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
@@ -142,6 +162,11 @@ function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
     return tmux(['list-panes', '-t', `${session}:${created}`, '-F', '#{pane_id}']).split('\n').pop();
   }
   const target = `${session}:${windows[0][0]}`;
+  const placeholder = placeholderPane(target);
+  if (placeholder) {
+    tmux(['respawn-pane', '-k', '-t', placeholder, '-c', cwd, command]);
+    return placeholder;
+  }
   const pane = tmux(['split-window', '-d', '-P', '-F', '#{pane_id}', '-t', target, '-c', cwd, command]);
   try { tmux(['select-layout', '-t', target, 'tiled']); } catch { /* single pane */ }
   return pane;

@@ -8,8 +8,10 @@
 #
 #   session fm-<project>
 #     control   left: firstmate (cwd = the harness repo)   right: a shell in the project
-#     workers   ship task panes                            (created by `fm ship`)
-#     reviews   review panes                               (created by `fm review`)
+#     workers   ship task panes                            (`fm ship` fills it)
+#     reviews   review panes                               (`fm review` fills it)
+#
+# All three exist from the moment the panel does, empty or not.
 #
 # firstmate's pane sits in the harness repo, not the project, because the Stop
 # hook resolves through $CLAUDE_PROJECT_DIR and that must be the harness checkout.
@@ -138,16 +140,23 @@ if [ "$(tmux list-windows -t "$SES" -F '#{window_index}' 2>/dev/null | head -1)"
   tmux move-window -s "$SES:0" -t "$SES:1" >/dev/null 2>&1 || true
 fi
 
-# Only control is built here. workers and reviews used to be created empty, which
-# is where the panel's two stray shells came from: a window made with no command
-# gets one, sitting in the harness repo, and every task then split BESIDE it
-# rather than into it. They were never load-bearing - `fm` creates either window
-# on demand when the first task needs it, and pins the same options there.
+# The panel always has all three windows, empty or not. The shape is the point:
+# the captain looks at the same panel every time, and a tab that only appears once
+# there is something in it is a tab you cannot go and check.
 #
-# Window names still are load-bearing: `fm` routes reviews to "reviews" and
-# everything else to "workers" by name.
-tmux set-window-option -t "$SES:control" automatic-rename off 2>/dev/null || true
-tmux set-window-option -t "$SES:control" allow-rename off 2>/dev/null || true
+# An empty tmux window is impossible - it gets a shell. That shell is why this was
+# once cut back to control alone: every task split BESIDE it, leaving one stray
+# pane in each window forever. `fm` now takes a placeholder shell OVER instead of
+# splitting beside it, so the first task replaces it and the window only ever
+# holds what it says it does.
+#
+# Window names are load-bearing: `fm` routes reviews to "reviews" and everything
+# else to "workers" by name, so nothing may rename them.
+for win in control workers reviews; do
+  [ "$win" = control ] || tmux new-window -d -t "$SES" -n "$win" -c "$PROJ_DIR"
+  tmux set-window-option -t "$SES:$win" automatic-rename off 2>/dev/null || true
+  tmux set-window-option -t "$SES:$win" allow-rename off 2>/dev/null || true
+done
 
 # control: firstmate on the left, a project shell on the right.
 tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
