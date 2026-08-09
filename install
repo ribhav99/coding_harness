@@ -80,7 +80,43 @@ if command -v gh >/dev/null 2>&1; then
   if gh auth status >/dev/null 2>&1; then ok 'gh is authenticated'; else todo 'gh auth login'; fi
 fi
 
-printf '\nnot handled here (per machine, never in the repo):\n'
+# The failure that prompted this: a v1 env var still exported in a shell rc,
+# pointing at an old checkout. Nothing current reads FM_ROOT, but FM_REPO and
+# FM_PROJECTS ARE read, and an export of either silently overrides everything
+# this script just did — the links would be right and the panel would still open
+# somewhere else.
+printf '\nshell config:\n'
+stale=0
+for rc in "$HOME/.zshrc" "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+  [ -f "$rc" ] || continue
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    stale=1
+    printf '  TODO  %s: %s\n' "$(basename "$rc")" "$hit"
+  done <<EOF
+$(grep -nE '^[^#]*\b(FM_ROOT|FM_REPO|FM_PROJECTS|FM_BIN)=' "$rc" 2>/dev/null || true)
+EOF
+done
+if [ "$stale" = 0 ]; then
+  ok 'no harness paths pinned in a shell rc'
+else
+  printf '        FM_ROOT is dead (v1). FM_REPO and FM_PROJECTS override this script —\n'
+  printf '        delete them unless you mean them.\n'
+fi
+
+printf '\nother machine-local pieces:\n'
+if node -e 'const j=JSON.parse(require("fs").readFileSync(process.env.HOME+"/.claude.json","utf8"));process.exit(Object.keys(j.mcpServers||{}).length?0:1)' 2>/dev/null; then
+  ok 'a global MCP server is configured in ~/.claude.json'
+else
+  todo 'no global mcpServers in ~/.claude.json - worktrees inherit nothing project-scoped'
+fi
+if [ -f "$HOME/.tmux.conf" ]; then
+  ok "~/.tmux.conf present ($(grep -cE 'destroy-unattached|base-index' "$HOME/.tmux.conf" 2>/dev/null || echo 0) setting(s) the harness works around)"
+else
+  ok 'no ~/.tmux.conf - tmux defaults are fine'
+fi
+
+printf '\nnot handled here (per machine, never in the repo):\n' 
 printf '  - the Software Factory MCP server, in the global mcpServers of ~/.claude.json\n'
 printf '  - anything a project needs to build; the harness only launches sessions\n'
 
