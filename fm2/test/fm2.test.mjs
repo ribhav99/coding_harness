@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, utimesSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -268,6 +268,36 @@ test('closing an adopted task takes the session down and leaves the worktree', a
   assert.ok(existsSync(wt), 'closing an adopted task destroyed the captain\'s worktree');
   assert.ok(existsSync(join(wt, 'README.md')), 'the uncommitted work went with the session');
   assert.equal(loadTask('keepme'), null, 'the task record outlived the close');
+});
+
+// Reopening a branch you have worked on should carry its conversation, and the
+// id that names it is a filename under a folder derived from the cwd. Two things
+// are easy to get wrong: the encoding (underscores become dashes, same as
+// slashes), and which file wins.
+test('the last conversation in a worktree is found by cwd, newest first', async () => {
+  freshHome();
+  const { lastSessionFor } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  const root = mkdtempSync(join(tmpdir(), 'fm2-projects-'));
+  const wt = join(tmpdir(), 'fitness_agent-fm-volume_score');
+  // Underscores are dashed exactly like the separators, which is what made
+  // fitness_agent-marketing resolve to ...-fitness-agent-marketing.
+  const folder = join(root, wt.replace(/[^A-Za-z0-9]/g, '-'));
+  mkdirSync(folder, { recursive: true });
+
+  assert.equal(lastSessionFor(wt, root), null, 'an empty folder claimed a conversation');
+
+  const older = join(folder, '11111111-1111-1111-1111-111111111111.jsonl');
+  const newer = join(folder, '22222222-2222-2222-2222-222222222222.jsonl');
+  writeFileSync(older, '{}\n');
+  writeFileSync(newer, '{}\n');
+  utimesSync(older, new Date(1e9), new Date(1e9));
+  utimesSync(newer, new Date(2e9), new Date(2e9));
+
+  assert.equal(lastSessionFor(wt, root), '22222222-2222-2222-2222-222222222222');
+  // A worktree nobody has opened has nothing to resume, and saying so is how
+  // `fm attach --resume` refuses instead of coming up cold and looking resumed.
+  assert.equal(lastSessionFor(join(tmpdir(), 'never-opened'), root), null);
 });
 
 // A review worktree sits on a detached PR head with no branch of its own. Asking

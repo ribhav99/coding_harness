@@ -5,8 +5,9 @@
 // in the two days before this was written, and each refusal is loud.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask, removeTask, projectConfig, dir, home as homeDir } from './config.mjs';
 
@@ -94,7 +95,7 @@ function pinWindowName(target) {
   }
 }
 
-function openPane(window, cwd, briefPath, id, settingsFile) {
+function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
   // shell asked for the pane. Without them the hook fires and writes its report
@@ -103,9 +104,13 @@ function openPane(window, cwd, briefPath, id, settingsFile) {
   // No brief means no opening prompt: the session comes up idle, waiting for
   // whoever opens the pane. An adopted worktree has no task to be handed, and
   // passing an empty string instead would start a turn on nothing.
+  // Resuming picks the conversation back up where it stopped, so the pane comes
+  // up holding everything that was already said in this worktree rather than
+  // cold. It is a launch flag, not a message: nothing is sent to the worker.
   const command =
     `${env} claude --dangerously-skip-permissions --effort max ` +
     `--settings ${JSON.stringify(settingsFile)}` +
+    (resume ? ` --resume ${JSON.stringify(resume)}` : '') +
     (briefPath ? ` "$(cat ${JSON.stringify(briefPath)})"` : '');
   let session = sessionName();
   if (!session) {
@@ -211,6 +216,27 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
 
 // --- adoption ----------------------------------------------------------------
 
+// The last conversation held in a directory, or null.
+//
+// Claude Code files a session's transcript under ~/.claude/projects, in a folder
+// named for the cwd with every non-alphanumeric character turned into a dash,
+// and the transcript's filename IS the session id `--resume` wants.
+//
+// Newest wins, and the reason matters: a session that comes up and never takes a
+// turn writes nothing here at all. So opening an idle pane on a worktree does
+// not bury the chat that came before it - the newest file is still the last real
+// conversation. The one case where newest is not what you want is a pane that IS
+// mid-conversation right now, which resuming would fork rather than join.
+export function lastSessionFor(cwd, root = join(homedir(), '.claude', 'projects')) {
+  const folder = join(root, resolve(cwd).replace(/[^A-Za-z0-9]/g, '-'));
+  if (!existsSync(folder)) return null;
+  const newest = readdirSync(folder)
+    .filter((f) => f.endsWith('.jsonl'))
+    .map((f) => ({ f, at: statSync(join(folder, f)).mtimeMs }))
+    .sort((a, b) => b.at - a.at)[0];
+  return newest ? basename(newest.f, '.jsonl') : null;
+}
+
 // A session on a worktree the captain already has.
 //
 // Every rail in spawnTask assumes the worktree is the harness's own: it creates
@@ -219,7 +245,7 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
 // must still be there afterwards - so adoption is its own path rather than a
 // flag on spawn, and the record carries `adopted` so teardown can tell them
 // apart. Getting that backwards would delete real work on `fm close`.
-export function adoptTask({ id, project, worktree, window = 'workers', brief = null, env = {} }) {
+export function adoptTask({ id, project, worktree, window = 'workers', brief = null, resume = null, env = {} }) {
   if (loadTask(id)) throw new Error(`task "${id}" already exists`);
   const wt = resolve(worktree);
   if (!existsSync(wt)) throw new Error(`no worktree at ${wt}`);
@@ -243,7 +269,7 @@ export function adoptTask({ id, project, worktree, window = 'workers', brief = n
 
   // Nothing to roll back. The worktree was not ours to make, so a launch that
   // fails leaves it exactly as it was found - which is the whole point.
-  const pane = openPane(window, wt, briefPath, id, settingsFile);
+  const pane = openPane(window, wt, briefPath, id, settingsFile, resume);
   acceptTrustPrompt(pane);
 
   let branch = null;
@@ -258,6 +284,7 @@ export function adoptTask({ id, project, worktree, window = 'workers', brief = n
     kind: 'adopted',
     adopted: true,
     branch,
+    resumed: resume,
     created_at: new Date().toISOString(),
     ...env,
   });

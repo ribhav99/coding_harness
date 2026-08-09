@@ -4,6 +4,7 @@
 //   fm review <pr> [--project <dir>]   open a cold review on a PR
 //   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
+//                        [--resume]    carrying on the last conversation held there
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -19,7 +20,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, lastSessionFor } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch } from './lib/forge.mjs';
 
@@ -149,9 +150,14 @@ if (command === 'ship') {
 // does not exist yet and makes the worktree to hold it; `attach` is for work
 // that does. Without --spec the session comes up idle, which is what a branch
 // you want to sit down with looks like.
+//
+// And a branch that already exists usually has a conversation behind it. `--resume`
+// opens the pane on that conversation instead of a blank one, which is nearly
+// always what sitting back down with a branch means: an idle session that has to
+// be told the history again is the same session started twice.
 
 if (command === 'attach') {
-  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>]');
+  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>] [--resume [<session>]]');
   const worktree = resolve(target);
   const project = resolve(arg('--project', process.cwd()));
   // Named for the worktree, minus the project prefix the convention already puts
@@ -162,13 +168,23 @@ if (command === 'attach') {
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   const window = arg('--window', 'workers');
+  // Bare `--resume` means the last conversation in that worktree; a value names
+  // one exactly. Refusing when there is nothing to resume is deliberate: the
+  // alternative is a pane that comes up cold looking exactly like one that
+  // resumed, and the captain finds out by asking it something it cannot answer.
+  let resume = null;
+  if (process.argv.includes('--resume')) {
+    const named = arg('--resume');
+    resume = named && !named.startsWith('--') ? named : lastSessionFor(worktree);
+    if (!resume) die(`no past conversation in ${worktree} to resume`);
+  }
   let task;
   try {
-    task = adoptTask({ id, project, worktree, window, brief: spec ? SHIP_BRIEF(spec, id) : null });
+    task = adoptTask({ id, project, worktree, window, brief: spec ? SHIP_BRIEF(spec, id) : null, resume });
   } catch (err) {
     die(err.message);
   }
-  process.stdout.write(`${task.id}\t${task.pane}\t${task.branch ?? 'detached'}\t${task.worktree}\n`);
+  process.stdout.write(`${task.id}\t${task.pane}\t${task.branch ?? 'detached'}\t${task.worktree}${resume ? `\t${resume}` : ''}\n`);
   process.exit(0);
 }
 
