@@ -67,7 +67,7 @@ export function removeTask(id) {
 const DEFAULT_PROJECT = {
   tracker: 'none',           // none | github-issues | work-orders
   review_channel: null,      // slack channel id, or null
-  default_branch: 'main',
+  default_branch: null,      // declared only when the remote's answer is wrong
   worktree_parent: null,     // defaults to the project's parent directory
 };
 

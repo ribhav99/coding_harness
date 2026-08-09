@@ -3,6 +3,7 @@
 //
 //   fm review <pr> [--project <dir>]   open a cold review on a PR
 //   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
+//                        [--investigate]  an open question to think through, not ship
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 //                        [--resume]    carrying on the last conversation held there
 //   fm handoff <id>                    close a finished ship task, open its cold review
@@ -36,52 +37,26 @@ function arg(flag, fallback = null) {
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const REVIEW_BRIEF = (prUrl, id, reportPath, specPath) => `You are an autonomous worker. Work on your own; do not wait for a human.
+// Kicking off a review is invoking the review skill on the PR. Nothing else.
+//
+// This brief was once fifty lines re-deriving the skill's own rules - the modes,
+// the surface, comments-only by default, what an approve means, where fixes get
+// pushed. All of it already lives in `full-review`, which is the thing that
+// actually runs. A second copy in the launch prompt does not reinforce the skill,
+// it competes with it: the moment the skill changes, the brief is stale
+// instructions arriving first and outranking it by being in the prompt.
+//
+// What stays is only what the skill cannot know, because it belongs to the
+// harness rather than the review: where the report goes so the findings outlive
+// the session, and that stopping is how a worker reports at all.
+const REVIEW_BRIEF = (prUrl, id, reportPath, specPath) => `Run the \`full-review\` skill against ${prUrl}, and follow it to completion.
 
-Review pull request ${prUrl}.
-You did not write this code and have not seen it before. That is the point: read it cold.
+Two things the skill does not know about, because they are this harness's and not its:
 
-Run the \`full-review\` skill against that PR and follow it to completion.
-
-You are in an isolated git worktree checked out at the PR's head. Do not merge it, and
-leave its branch alone unless the captain's decisions ask otherwise. Post NOTHING to
-the forge until the captain has approved it finding by finding.
-
-Write your outcome to ${reportPath}: the verdict, every finding you are confident in,
-and the evidence for each. That report is the deliverable that survives this session.
-
-Write your review spec to ${specPath} — NOT to .review/ inside the worktree. The
-project's own pre-push gate formats and lints everything it finds in its tree, and
-the harness's scaffolding is not the project's to check: left there it fails the
-author's gate on files that have nothing to do with their code. Your decisions
-file lands beside the spec, so both stay out of their way.
-
-When your review exists, open it for the captain:
-
-    surface open ${specPath}
-
-Then STOP. Do not poll and do not wait. When the captain sends their decisions the
-server wakes you; read them with \`surface read ${specPath}\`, act on exactly
-what they approved, and stop again.
-
-Two fields in those decisions are easy to swap, and swapping them changes the
-outcome. \`verdict\` is the captain's call on the PR and the review you post -
-an approve-with-comments verdict means you submit an APPROVE. \`mode\` says what
-you may do to the code, never what to post. Neither one downgrades the other:
-post the verdict you were given.
-
-\`mode: comment\` is the default and means exactly that - inline comments, and the
-branch untouched. \`mode: change\` means the captain read the findings and asked
-for them applied, so commit and push them TO THE PR'S OWN BRANCH. Do not invent a
-side branch: a fix the author has to go and cherry-pick is a fix that did not
-land, and landing it is what was asked for. Push plainly - no force, no rebase,
-nothing of theirs rewritten - and if it will not fast-forward, stop and say so.
-Anything you judge unsafe to apply stays a comment, and you say which and why.
-
-Approval is the only review state that carries meaning here. A COMMENT event and
-a REQUEST_CHANGES event are read the same way, because the back-and-forth happens
-in chat rather than through the forge - so never ask which of those two to use,
-and never escalate between them. Getting an APPROVE right does matter.
+Keep your review's own files out of the worktree - put the spec at ${specPath} and
+write your outcome to ${reportPath}. The project's pre-push gate lints everything it
+finds in its tree and will fail the author's gate on scaffolding that is not theirs,
+and the report is what survives this session.
 
 You never write a status line. Stopping IS your report - your last message before you
 stop is what reaches the captain, so make it two or three lines saying what you
@@ -97,6 +72,28 @@ PR. Do not merge it.
 You never write a status line. Stopping IS your report - your last message before you
 stop is what reaches the captain, so end with two or three lines saying what you built
 and the PR's full URL.`;
+
+// Not every worker is shipping something. An open question - how should this
+// work, what is this costing us, is this approach even right - handed the brief
+// above gets a worker that opens a PR to look finished, which is the opposite of
+// what an unanswered question needs.
+const INVESTIGATE_BRIEF = (spec, id) => `You are a worker on an open question. Think it through. Do not implement it.
+
+${spec}
+
+You are in an isolated git worktree on your own branch. Read as widely across the project
+as the question needs, and keep whatever you produce - notes, a proposal, a throwaway
+prototype used only as evidence - inside this worktree. Do not open a PR, and do not
+change how the project works to prove a point.
+
+The captain is going to work this through WITH you, so what this first pass owes them is
+a proposal worth arguing with: what the real constraint is, the options you can actually
+see and what each costs, and which one you would pick and why. Where you are guessing,
+say you are guessing - a confident wrong answer costs more here than an open question.
+
+You never write a status line. Stopping IS your report - your last message before you
+stop is what reaches the captain, so end with two or three lines saying what you found
+and the call you would make.`;
 
 const [, , command] = process.argv;
 
@@ -133,14 +130,17 @@ if (command === 'review') {
 // --- ship --------------------------------------------------------------------
 
 if (command === 'ship') {
-  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>]');
+  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>] [--investigate]');
   const project = resolve(arg('--project', process.cwd()));
   let spec = arg('--spec') ?? die('a ship task needs --spec');
   if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   // A window per batch, when the captain wants one. `fm` creates it on demand, so
   // naming one that does not exist yet is how you get it.
   const window = arg('--window', 'workers');
-  const task = spawnTask({ id, project, brief: SHIP_BRIEF(spec, id), window });
+  // An open question gets a worker told to answer it, not one told to open a PR.
+  const investigate = process.argv.includes('--investigate');
+  const brief = investigate ? INVESTIGATE_BRIEF(spec, id) : SHIP_BRIEF(spec, id);
+  const task = spawnTask({ id, project, brief, window });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
   process.exit(0);
 }

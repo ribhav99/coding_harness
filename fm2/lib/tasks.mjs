@@ -25,12 +25,22 @@ function tmux(args) {
   return execFileSync('tmux', args, { encoding: 'utf8' }).trim();
 }
 
+// What a new task branches FROM.
+//
+// A project that declares this wins over the remote, and that order is the whole
+// point: origin/HEAD is whatever the forge was set to once, while a declared
+// branch is someone saying where work actually starts today. fitness_agent
+// develops on a release branch 14 commits ahead of the master origin/HEAD still
+// points at - honouring the remote there cuts every task from a stale base, and
+// nothing says so.
 export function defaultBranch(project) {
+  const declared = projectConfig(project).default_branch;
+  if (declared) return declared;
   try {
     const head = git(project, ['symbolic-ref', 'refs/remotes/origin/HEAD']);
     return head.split('/').pop();
   } catch {
-    return projectConfig(project).default_branch;
+    return 'main';
   }
 }
 
@@ -385,10 +395,16 @@ export function sendToPane(pane, line) {
   tmux(['send-keys', '-t', pane, 'Enter']);
 }
 
+// Asked by membership, not by addressing the pane.
+//
+// `display-message -t %77` on a pane that no longer exists does NOT fail - tmux
+// falls back to the current pane and cheerfully answers, so this returned true
+// for every dead session ever passed to it. `fm status` then reported a review
+// as alive after its window had been closed, which is the one thing status must
+// never get wrong.
 export function paneAlive(pane) {
   try {
-    tmux(['display-message', '-p', '-t', pane, 'ok']);
-    return true;
+    return tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n').includes(pane);
   } catch {
     return false;
   }
