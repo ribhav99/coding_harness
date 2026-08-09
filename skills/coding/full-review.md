@@ -23,6 +23,22 @@ The review itself is identical in both modes — same judges, same independent p
 
 Establish the mode in step 1 and carry it through. When you cannot establish authorship confidently, **use reviewer mode** — proposing a comment on your own branch costs a moment, and silently rewriting someone else's costs their trust.
 
+### Reading the decisions file
+
+Two fields are easy to swap, and swapping them changes the outcome.
+
+- **`verdict`** is the user's call on the PR *and the review event you post*. An
+  `approve-with-comments` verdict means you submit an **APPROVE**. Never downgrade
+  it because the other field looks cautious.
+- **`mode`** says what you may do to the *code*, never what to post. `comment` —
+  the default — means the branch is untouched. `change` is the section below.
+
+Approval is the only review state that carries meaning to this team: a COMMENT
+event and a REQUEST_CHANGES event are read the same way, because the
+back-and-forth happens in chat rather than through the forge. So never stop to
+ask which of those two to use, and never escalate between them. Getting an
+APPROVE right does matter — a withheld one has to be chased down by hand.
+
 ### When the user asks for fixes on someone else's branch
 
 Reviewer mode's "never touch it" is a default, not a prohibition. If the decisions
