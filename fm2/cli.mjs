@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // fm - the whole harness.
 //
-//   fm review <pr> [--project <dir>]   open a cold review on a PR
+//   fm review <pr> [--project <dir>]   open a cold review on a PR  [--window <name>]
 //   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
 //                        [--investigate]  an open question to think through, not ship
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
@@ -100,8 +100,12 @@ const [, , command] = process.argv;
 // --- review ------------------------------------------------------------------
 
 if (command === 'review') {
-  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>]');
+  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>]');
   const project = resolve(arg('--project', process.cwd()));
+  // A batch of reviews the captain wants kept apart from the day's work gets its
+  // own window, the same way `ship` batches do. Naming one that does not exist
+  // yet is how you get it.
+  const window = arg('--window', 'reviews');
   const repo = repoOf(project) ?? die(`no github remote on ${project}`);
   const caps = capabilities();
   if (!caps.gh) die('gh is not authenticated, so the PR cannot be read');
@@ -120,7 +124,7 @@ if (command === 'review') {
     project,
     brief: REVIEW_BRIEF(meta.url, id, reportPath, specPath),
     baseRef: ref,
-    window: 'reviews',
+    window,
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
   });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
