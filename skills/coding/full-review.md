@@ -54,6 +54,14 @@ Findings the user approved but that you judge unsafe to apply — a schema
 migration where the repo allows one per PR, a behavioural choice that is the
 author's call — stay as comments, and you say which and why.
 
+**A pushed fix is not finished until its author has been asked to review it.**
+You changed their code; the review that mattered is now theirs, not yours. So
+`mode: change` ends in three things, not one: the commit pushed to their branch,
+the review posted, and whoever asked for this review told that it is waiting on
+them. Report the sha and say the ask is outstanding — the supervisor confirms the
+push on the forge before making it, because a request to review work that was
+never pushed is worse than saying nothing. Never make that ask yourself.
+
 ## Procedure
 
 ### 1. Understand the scope

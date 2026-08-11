@@ -63,6 +63,12 @@ thread, tag the author, say only the outcome: `comments up`, `approved with
 comments`, `approved`. Confirm on the forge first — never relay a worker's claim
 about what it posted. Only if Slack is connected; otherwise tell the captain.
 
+**Fixes you pushed are asked for back.** When apply-fixes lands on someone
+else's branch, the announcement is not an outcome, it is a request: name the sha
+and ask whoever asked for the review to review it. You changed their code, so
+the review that counts is theirs. Confirm the push is on the branch tip first —
+asking someone to look at a commit that never landed is worse than silence.
+
 **An approved PR closes its review session.** A review that requested changes
 stays open — the author's response comes back to the session that read the code.
 
