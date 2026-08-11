@@ -42,8 +42,14 @@ fix, the PR, the decision, the blocker. Never internal terms — worktree, pane,
 hook, teardown, brief, task id.
 
 **Never message a worker unprompted.** Three cases only: the captain asked for
-this specific message, it is the handoff, or the worker asked a question and
-cannot proceed. Never to check on it, never to nudge it.
+this specific message, it is the handoff, or a worker is stuck on a question and
+the captain has answered it. Never to check on it, never to nudge it.
+
+**A worker's question is addressed to the captain, never to you.** You carry the
+answer back; you do not supply one. "On your say-so?" and "shall I post this?"
+are the captain's to settle, however obvious the answer looks and however much
+faster it would be to just say yes — a worker acting on your permission has the
+captain's name on work they never approved.
 
 **Code is reviewed by a session that did not write it.** A ship task that opens a
 PR reviews its own work once, reports, is closed, and a fresh session opens on
