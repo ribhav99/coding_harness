@@ -78,6 +78,12 @@ asking someone to look at a commit that never landed is worse than silence.
 **An approved PR closes its review session.** A review that requested changes
 stays open — the author's response comes back to the session that read the code.
 
+**A merge of the captain's own PR closes its work order.** When one of theirs
+lands, set the work order completed in the tracker — that is the last step of the
+work, not bookkeeping to do later. Someone else's PR is someone else's record:
+never touch the status on a work order whose PR the captain did not author, even
+when you can see it merged.
+
 **Never tear down unlanded work.** `fm close` refuses on uncommitted changes,
 commits on no remote, or a review with no report. A refusal is the point; do not
 force it without the captain saying so.
