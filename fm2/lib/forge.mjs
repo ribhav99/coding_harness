@@ -41,6 +41,22 @@ export function prForBranch(repo, branch) {
   }
 }
 
+// Whether a branch's work is already on the main line.
+//
+// Not answerable from git: the repo squash-merges, so a landed branch's commits
+// are nowhere in the base's history and `merge-base --is-ancestor` says no for
+// work that shipped an hour ago. The forge is the only thing that knows.
+export function branchIsMerged(repo, branch) {
+  if (!repo || !branch) return false;
+  try {
+    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number']));
+    return rows.length > 0;
+  } catch {
+    // No `gh`, no network, no answer - and an unanswered question is not a yes.
+    return false;
+  }
+}
+
 // What actually landed, as opposed to what a worker says it did.
 export function reviewState(repo, number) {
   const data = pr(repo, number, ['state', 'reviewDecision', 'reviews']);

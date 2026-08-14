@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask, removeTask, allTasks, projectConfig, dir, home as homeDir } from './config.mjs';
 import { syncSkills } from './skills.mjs';
+import { branchIsMerged, repoOf } from './forge.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -413,7 +414,12 @@ export function closeTask(id, { force = false } = {}) {
   // Closing an adopted task takes the session down and nothing else. The
   // worktree and its branch were the captain's before this and remain theirs
   // after; `--force` here would remove a week of work and call it teardown.
-  if (!task.adopted) {
+  //
+  // Unless it has landed. Once the PR is merged there is no week of work to
+  // protect - the branch is on the main line and the worktree is a stale copy of
+  // it, one of two dozen the captain then clears by hand. Merged work is the one
+  // case where taking the worktree with the session is the whole point.
+  if (!task.adopted || branchIsMerged(repoOf(task.project), task.branch)) {
     try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }
   }
   removeTask(id);
