@@ -374,6 +374,47 @@ test('a branch cut from an unpushed main is not blamed for what it inherited', a
   );
 });
 
+test('a squash-merged branch has landed, however its commits look', async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g('remote', 'add', 'origin', origin);
+  g('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g('fetch', '-q', 'origin');
+
+  // The shape a squash merge leaves behind: the branch's own commit is on no
+  // remote and never will be, because the merge rewrote it into a new one.
+  const wt = join(dirname(project), 'thing-wo-2');
+  g('worktree', 'add', '-q', '-b', 'wo-2', wt, 'HEAD');
+  writeFileSync(join(wt, 'shipped.txt'), 'this content is on main under another sha\n');
+  execFileSync('git', ['-C', wt, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', wt, 'commit', '-qm', 'the work'], { stdio: 'ignore' });
+
+  const task = { worktree: wt, project };
+  assert.deepEqual(
+    unlandedWork(task, { isMerged: () => false }),
+    ['1 commit(s) on no remote'],
+    'an unmerged branch stopped refusing, which is the rail this whole check is',
+  );
+  assert.deepEqual(
+    unlandedWork(task, { isMerged: () => true }),
+    [],
+    'a landed ship task still refused to close, so every merge leaves a worktree behind',
+  );
+
+  // Merged is not a blanket amnesty: what was never committed never landed.
+  writeFileSync(join(wt, 'shipped.txt'), 'edited after the merge, saved nowhere\n');
+  assert.deepEqual(
+    unlandedWork(task, { isMerged: () => true }),
+    ['1 uncommitted change(s)'],
+    'a merged branch was allowed to take uncommitted changes down with it',
+  );
+});
+
 test('a review with no report refuses to close; a ship task is not asked for one', async () => {
   const home = freshHome();
   const { missingReport } = await import(join(ROOT, 'lib/tasks.mjs'));

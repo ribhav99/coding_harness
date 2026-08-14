@@ -336,7 +336,7 @@ export function adoptTask({ id, project, worktree, window = 'workers', brief = n
 // Unlanded work is work that exists nowhere but this worktree. Uncommitted
 // changes, or commits no remote has. Refusing is the point: a worktree removed
 // with either is gone.
-export function unlandedWork(task) {
+export function unlandedWork(task, { isMerged = branchIsMerged } = {}) {
   const wt = task.worktree;
   if (!existsSync(wt)) return [];
   // An adopted worktree outlives its session, so closing strands nothing: the
@@ -362,6 +362,13 @@ export function unlandedWork(task) {
     // so - which must not take the whole check down with it.
     let own = '';
     try { own = git(wt, ['symbolic-ref', '-q', '--short', 'HEAD']).trim(); } catch { /* detached */ }
+
+    // A squash-merged branch keeps commits that are on no remote forever - the
+    // merge rewrote them into one new commit on the main line, so the originals
+    // are unreachable by design and this check would refuse every landed ship
+    // task for the rest of time. The content shipped; there is nothing to strand.
+    if (own && isMerged(repoOf(task.project), own)) return problems;
+
     const others = git(wt, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
       .split('\n').map((l) => l.trim()).filter((b) => b && b !== own);
     const unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes', ...others])
