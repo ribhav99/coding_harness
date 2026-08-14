@@ -384,6 +384,17 @@ export function closeTask(id, { force = false } = {}) {
     }
   }
 
+  // Closing the last task in a window takes the window with it, because tmux has
+  // no concept of an empty one. The captain navigates by tab, so a `reviews` that
+  // disappears the moment its queue empties is a tab they have to rebuild by hand
+  // to use again. Leave a placeholder shell behind instead - `openPane` already
+  // treats a lone shell as a placeholder and replaces it, so the next task lands
+  // in the same window rather than beside a stray pane.
+  try {
+    const window = tmux(['display-message', '-p', '-t', task.pane, '#{window_id}']).trim();
+    const panes = tmux(['list-panes', '-t', window, '-F', '#{pane_id}']).split('\n').filter(Boolean);
+    if (panes.length === 1) tmux(['split-window', '-d', '-t', window, '-c', task.project]);
+  } catch { /* the pane is already gone, so there is no window to keep */ }
   try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
   // Closing an adopted task takes the session down and nothing else. The
   // worktree and its branch were the captain's before this and remain theirs
