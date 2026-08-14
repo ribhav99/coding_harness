@@ -350,7 +350,21 @@ export function unlandedWork(task) {
     // branch of its own, and --branches would count every unpushed commit in the
     // whole repository against it - refusing every close for work that is not
     // this task's and is not even in this worktree.
-    const unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes']).split('\n').filter(Boolean);
+    //
+    // Every other local branch is excluded too, because a branch cut from a
+    // master that is itself ahead of its remote inherits those commits, and they
+    // are not this task's to strand - they are sitting in the real checkout,
+    // which this close does not touch. Only what is reachable from here and
+    // nowhere else dies with the worktree.
+    // Its own branch is not an escape hatch, so it is the one ref not excluded.
+    // A detached review head has none, and `symbolic-ref` exits non-zero saying
+    // so - which must not take the whole check down with it.
+    let own = '';
+    try { own = git(wt, ['symbolic-ref', '-q', '--short', 'HEAD']).trim(); } catch { /* detached */ }
+    const others = git(wt, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+      .split('\n').map((l) => l.trim()).filter((b) => b && b !== own);
+    const unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes', ...others])
+      .split('\n').filter(Boolean);
     if (unpushed.length) problems.push(`${unpushed.length} commit(s) on no remote`);
   } catch { /* no commits reachable, or no remotes: nothing to strand */ }
   return problems;

@@ -335,6 +335,45 @@ test("a detached review worktree is not blamed for the repo's other branches", a
   );
 });
 
+test('a branch cut from an unpushed main is not blamed for what it inherited', async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g('remote', 'add', 'origin', origin);
+  g('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g('fetch', '-q', 'origin');
+
+  // The captain's own checkout, ahead of its remote - the normal state of a repo
+  // being worked in. A task branched from here starts life carrying these.
+  writeFileSync(join(project, 'mine.txt'), 'not pushed yet\n');
+  g('add', '-A');
+  g('commit', '-qm', 'work in the real checkout');
+
+  const wt = join(dirname(project), 'thing-wo-1');
+  g('worktree', 'add', '-q', '-b', 'wo-1', wt, 'HEAD');
+
+  assert.deepEqual(
+    unlandedWork({ worktree: wt }),
+    [],
+    'a fresh worktree was blamed for commits sitting safely in the real checkout',
+  );
+
+  // Its own commit is a different matter: that one exists nowhere else.
+  writeFileSync(join(wt, 'task.txt'), 'only here\n');
+  execFileSync('git', ['-C', wt, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', wt, 'commit', '-qm', 'the task did this'], { stdio: 'ignore' });
+
+  assert.deepEqual(
+    unlandedWork({ worktree: wt }),
+    ['1 commit(s) on no remote'],
+    'the commit that would actually be stranded was not counted, or the inherited ones were',
+  );
+});
+
 test('a review with no report refuses to close; a ship task is not asked for one', async () => {
   const home = freshHome();
   const { missingReport } = await import(join(ROOT, 'lib/tasks.mjs'));
