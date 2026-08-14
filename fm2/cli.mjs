@@ -18,6 +18,7 @@
 // `fm read` is how its words reach you.
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
@@ -26,6 +27,19 @@ import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch } from './lib/forge.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+// What branch a worktree is on right now. Null when it has gone, or when the
+// checkout is detached - a review worktree, which never needs this.
+function branchOf(worktree) {
+  if (!worktree || !existsSync(worktree)) return null;
+  try {
+    return execFileSync('git', ['-C', worktree, 'symbolic-ref', '-q', '--short', 'HEAD'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 function die(msg, code = 1) {
   process.stderr.write(`fm: ${msg}\n`);
@@ -219,9 +233,14 @@ if (command === 'handoff') {
   // worker is the one that opened it. So ask the forge what the branch has open
   // before giving up - the whole point of the chain is that a finished ship task
   // becomes a cold review without the captain doing it by hand.
+  // The worktree is asked first, because the branch a task ENDS on is not the
+  // one it was created with: a worker that names its own branch leaves the task
+  // record pointing at nothing, and the chain then dies on a PR that is sitting
+  // right there. Same reason the PR number is asked of the forge rather than
+  // recorded - what the worker actually did beats what we wrote down.
   const number =
     task.pr ??
-    prForBranch(task.repo ?? repoOf(task.project), task.branch ?? id) ??
+    prForBranch(task.repo ?? repoOf(task.project), branchOf(task.worktree) ?? task.branch ?? id) ??
     die(`"${id}" has no PR recorded, and its branch has none open; nothing to review`);
   let closed;
   try {
