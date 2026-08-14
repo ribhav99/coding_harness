@@ -412,12 +412,21 @@ export function closeTask(id, { force = false } = {}) {
   // to use again. Leave a placeholder shell behind instead - `openPane` already
   // treats a lone shell as a placeholder and replaces it, so the next task lands
   // in the same window rather than beside a stray pane.
+  let window = null;
   try {
-    const window = tmux(['display-message', '-p', '-t', task.pane, '#{window_id}']).trim();
+    window = tmux(['display-message', '-p', '-t', task.pane, '#{window_id}']).trim();
     const panes = tmux(['list-panes', '-t', window, '-F', '#{pane_id}']).split('\n').filter(Boolean);
     if (panes.length === 1) tmux(['split-window', '-d', '-t', window, '-c', task.project]);
   } catch { /* the pane is already gone, so there is no window to keep */ }
   try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
+  // Killing a pane hands its space to whichever neighbour happens to adjoin it,
+  // so the survivors keep a shape built for a window that no longer exists - one
+  // pane spanning the full width under three, and worse as more come and go.
+  // `openPane` already tiles on the way in; tiling on the way out too is what
+  // makes the grid a property of the window rather than of its history.
+  if (window) {
+    try { tmux(['select-layout', '-t', window, 'tiled']); } catch { /* window went with the pane */ }
+  }
   // Closing an adopted task takes the session down and nothing else. The
   // worktree and its branch were the captain's before this and remain theirs
   // after; `--force` here would remove a week of work and call it teardown.
