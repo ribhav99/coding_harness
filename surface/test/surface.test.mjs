@@ -270,6 +270,32 @@ test("a review cannot bind to the supervisor's own pane", async () => {
   assert.throws(() => store.claimSupervisorPane('%2'), /already bound to review/);
 });
 
+// A reviewer writes the spec by hand, so an invented key is a plausible mistake -
+// and the page renders happily without it, which is how three findings once
+// reached nobody.
+test('a spec key the page cannot render refuses to register', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
+  const work = mkdtempSync(join(tmpdir(), 'surface-work-'));
+  mkdirSync(join(work, 'pr-d'), { recursive: true });
+  const specPath = join(work, 'pr-d', 'review.json');
+
+  process.env.SURFACE_HOME = home;
+  const store = await import(`${join(ROOT, 'lib/store.mjs')}?unread=${encodeURIComponent(home)}`);
+
+  writeFileSync(specPath, JSON.stringify({
+    ...SPEC, id: 'pr-d', extra_summary_points: ['a finding nobody would ever see'],
+  }));
+  assert.throws(
+    () => store.register(specPath, { pane: '%3' }),
+    /extra_summary_points/,
+    'a key carrying findings was accepted and would have been dropped silently',
+  );
+
+  // An empty one loses nothing, so it must not block a review from opening.
+  writeFileSync(specPath, JSON.stringify({ ...SPEC, id: 'pr-d', extra_summary_points: [] }));
+  assert.equal(store.register(specPath, { pane: '%3' }).id, 'pr-d');
+});
+
 test('a page for an unknown review says so instead of rendering blank', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
   const port = 4403;

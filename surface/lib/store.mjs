@@ -72,10 +72,43 @@ export function idFor(specPath, spec) {
   return safe || 'review';
 }
 
+// Every key the page actually reads. A spec is written by a reviewer, not by a
+// schema, so an invented key is a plausible mistake - and the failure mode is the
+// worst kind: the page renders, looks complete, and the findings in that key are
+// never seen by anyone. It happened on a real review, where three items sat in
+// `extra_summary_points` and only surfaced because the reviewer mentioned them.
+const RENDERED = new Set([
+  'id', 'title', 'pr', 'own_pr', 'summary', 'recommendation',
+  'findings', 'nits', 'tests', 'judges', 'scope',
+]);
+
+// Empty is not content: a key carrying `[]` or `""` loses nothing by being
+// dropped, and refusing over it would be noise.
+function carriesContent(value) {
+  if (value == null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
+}
+
 export function register(specPath, { pane = null } = {}) {
   const abs = resolve(specPath);
   if (!existsSync(abs)) throw new Error(`no spec at ${abs}`);
   const spec = JSON.parse(readFileSync(abs, 'utf8'));
+
+  // Loud at registration, because that is the last moment anyone is looking. The
+  // reviewer folds the content into findings or nits and re-opens; the captain
+  // never gets a page that quietly omits something.
+  const unread = Object.keys(spec).filter((k) => !RENDERED.has(k) && carriesContent(spec[k]));
+  if (unread.length) {
+    throw new Error(
+      `spec has ${unread.length} key(s) the page does not render: ${unread.join(', ')}. ` +
+        'Their content would never reach the captain. Move it into `findings` or `nits`, ' +
+        'or drop the key, then open again.',
+    );
+  }
+
   const id = idFor(abs, spec);
   const reg = loadRegistry();
   const previous = reg[id] ?? null;
