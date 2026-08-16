@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask, removeTask, allTasks, projectConfig, dir, home as homeDir } from './config.mjs';
 import { syncSkills } from './skills.mjs';
-import { branchIsMerged, repoOf } from './forge.mjs';
+import { branchIsMerged, prIsMerged, repoOf } from './forge.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -336,7 +336,7 @@ export function adoptTask({ id, project, worktree, window = 'workers', brief = n
 // Unlanded work is work that exists nowhere but this worktree. Uncommitted
 // changes, or commits no remote has. Refusing is the point: a worktree removed
 // with either is gone.
-export function unlandedWork(task, { isMerged = branchIsMerged } = {}) {
+export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsMerged } = {}) {
   const wt = task.worktree;
   if (!existsSync(wt)) return [];
   // An adopted worktree outlives its session, so closing strands nothing: the
@@ -367,7 +367,14 @@ export function unlandedWork(task, { isMerged = branchIsMerged } = {}) {
     // merge rewrote them into one new commit on the main line, so the originals
     // are unreachable by design and this check would refuse every landed ship
     // task for the rest of time. The content shipped; there is nothing to strand.
-    if (own && isMerged(repoOf(task.project), own)) return problems;
+    //
+    // Asked of the PR when there is one, because a review worktree is detached
+    // and has no branch to ask about - and a review the captain redirected into
+    // building is exactly the case that ends up holding landed work with nothing
+    // to prove it by.
+    const repo = task.repo ?? repoOf(task.project);
+    if (task.pr && mergedPr(repo, task.pr)) return problems;
+    if (own && isMerged(repo, own)) return problems;
 
     const others = git(wt, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
       .split('\n').map((l) => l.trim()).filter((b) => b && b !== own);

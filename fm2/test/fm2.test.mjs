@@ -415,6 +415,39 @@ test('a squash-merged branch has landed, however its commits look', async () => 
   );
 });
 
+// A review the captain redirects into building ends up holding the work that
+// landed - on a detached head, so there is no branch to ask the forge about.
+test('a merged review task can be put away, detached head and all', async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g('remote', 'add', 'origin', origin);
+  g('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g('fetch', '-q', 'origin');
+
+  const wt = join(dirname(project), 'thing-pr-7');
+  g('worktree', 'add', '-q', '--detach', wt, 'HEAD');
+  writeFileSync(join(wt, 'built.txt'), 'authored in a review worktree\n');
+  execFileSync('git', ['-C', wt, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', wt, 'commit', '-qm', 'the work that landed'], { stdio: 'ignore' });
+
+  const task = { worktree: wt, project, kind: 'review', pr: 7, repo: 'owner/thing' };
+  assert.deepEqual(
+    unlandedWork(task, { mergedPr: () => false }),
+    ['1 commit(s) on no remote'],
+    'an unmerged review task stopped refusing, which is the rail this check is',
+  );
+  assert.deepEqual(
+    unlandedWork(task, { mergedPr: () => true }),
+    [],
+    'a merged review task still refused - the branch check cannot help, there is no branch',
+  );
+});
+
 test('a review with no report refuses to close; a ship task is not asked for one', async () => {
   const home = freshHome();
   const { missingReport } = await import(join(ROOT, 'lib/tasks.mjs'));

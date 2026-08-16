@@ -57,6 +57,21 @@ export function branchIsMerged(repo, branch) {
   }
 }
 
+// The same question asked of a PR rather than a branch.
+//
+// A review worktree is detached, so it has no branch to ask about - and a review
+// task that the captain redirected into building ends up holding the work that
+// landed, with nothing to prove it by. It carries its PR number, which is the
+// better question anyway: the branch may have been auto-deleted on merge.
+export function prIsMerged(repo, number) {
+  if (!repo || !number) return false;
+  try {
+    return JSON.parse(gh(['pr', 'view', String(number), '--repo', repo, '--json', 'state'])).state === 'MERGED';
+  } catch {
+    return false;
+  }
+}
+
 // What actually landed, as opposed to what a worker says it did.
 export function reviewState(repo, number) {
   const data = pr(repo, number, ['state', 'reviewDecision', 'reviews']);
