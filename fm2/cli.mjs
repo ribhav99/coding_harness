@@ -238,10 +238,18 @@ if (command === 'handoff') {
   // record pointing at nothing, and the chain then dies on a PR that is sitting
   // right there. Same reason the PR number is asked of the forge rather than
   // recorded - what the worker actually did beats what we wrote down.
-  const number =
-    task.pr ??
-    prForBranch(task.repo ?? repoOf(task.project), branchOf(task.worktree) ?? task.branch ?? id) ??
-    die(`"${id}" has no PR recorded, and its branch has none open; nothing to review`);
+  let number = task.pr ?? null;
+  if (number == null) {
+    try {
+      number = prForBranch(task.repo ?? repoOf(task.project), branchOf(task.worktree) ?? task.branch ?? id);
+    } catch (err) {
+      // Distinct from the refusal below on purpose: "the forge would not say" and
+      // "there is no PR" lead the captain to opposite next moves, and only one of
+      // them is worth acting on.
+      die(`could not ask the forge what "${id}" has open: ${String(err.stderr || err.message).trim().split('\n')[0]}\nNothing changed; run this again.`);
+    }
+  }
+  if (number == null) die(`"${id}" has no PR recorded, and its branch has none open; nothing to review`);
   let closed;
   try {
     closed = closeTask(id);

@@ -513,3 +513,64 @@ test('every launch relinks the skills to this checkout', async () => {
   assert.ok(repaired.includes('full-review'), 'a stale skill link survived a launch');
   assert.match(readFileSync(full, 'utf8'), /Full Review/, 'the stale copy is still what resolves');
 });
+
+// --- a forge that will not answer -------------------------------------------
+//
+// GitHub's GraphQL endpoint 503s in bursts. `prForBranch` caught that and
+// returned null, which reads identically to "this branch has no PR" - so
+// `handoff --stage swap` told the captain a finished task had nothing to review
+// while its PR sat open and mergeable. The stall was survivable; the false
+// statement about the state of the world was not.
+
+function fakeGh(script) {
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-bin-'));
+  writeFileSync(join(bin, 'gh'), script, { mode: 0o755 });
+  return bin;
+}
+
+test('a burst of 503s is ridden out, not reported as "no PR"', async () => {
+  const { prForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?burst`);
+
+  // Fails twice, then answers - the shape the real endpoint actually had.
+  const counter = join(mkdtempSync(join(tmpdir(), 'fm2-count-')), 'n');
+  const bin = fakeGh(
+    '#!/bin/sh\n' +
+      `n=$(cat ${counter} 2>/dev/null || echo 0); echo $((n+1)) > ${counter}\n` +
+      'if [ "$n" -lt 2 ]; then echo "HTTP 503: No server is currently available" >&2; exit 1; fi\n' +
+      'echo \'[{"number":338}]\'\n',
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(prForBranch('o/r', 'wo-327'), 338, 'a recoverable forge was given up on');
+    assert.equal(readFileSync(counter, 'utf8').trim(), '3', 'the burst was not retried the way it looks');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
+test('a forge that never answers throws rather than inventing an absence', async () => {
+  const { prForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?down`);
+
+  const bin = fakeGh('#!/bin/sh\necho "HTTP 503: No server is currently available" >&2\nexit 1\n');
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.throws(() => prForBranch('o/r', 'wo-327'), /503/, 'an unanswered question came back as an answer');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
+test('a branch the forge says has nothing open is still null', async () => {
+  const { prForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?empty`);
+
+  const bin = fakeGh('#!/bin/sh\necho "[]"\n');
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(prForBranch('o/r', 'nothing-here'), null, 'a real absence stopped reading as one');
+  } finally {
+    process.env.PATH = path;
+  }
+});

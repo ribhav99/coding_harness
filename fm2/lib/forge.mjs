@@ -10,8 +10,34 @@
 
 import { execFileSync } from 'node:child_process';
 
-function gh(args) {
-  return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+// A forge that is briefly down is not an answer about the repository.
+//
+// GitHub's GraphQL endpoint 503s in bursts - four refusals and then a clean
+// reply, inside a minute. Every helper here used to read that burst as a fact:
+// `prForBranch` returned null, and `handoff --stage swap` told the captain the
+// task "has no PR recorded, and its branch has none open" about a PR that was
+// open and mergeable in the next tab. The chain stopped, and the message was
+// worse than the stall, because it was wrong.
+//
+// So ride out the burst, and if it outlasts us, let the error out. The one thing
+// never to do is hand a caller a value it cannot tell from a real answer.
+const TRANSIENT = /HTTP (429|50[0234])|timeout|TLS handshake|connection reset|unexpected EOF|no such host/i;
+
+function pause(ms) {
+  // Synchronous, because everything downstream of here is.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function gh(args, { attempts = 4 } = {}) {
+  for (let i = 0; ; i += 1) {
+    try {
+      return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    } catch (err) {
+      const text = `${err.stderr || ''}\n${err.message || ''}`;
+      if (i >= attempts - 1 || !TRANSIENT.test(text)) throw err;
+      pause(1000 * 2 ** i);
+    }
+  }
 }
 
 export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 'title', 'author', 'url', 'headRefName']) {
@@ -31,14 +57,13 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
 // Asking the forge which PR the branch has is better than recording it anyway,
 // because a worker that opened a PR and then had it closed and reopened would
 // leave the record wrong, and the forge is never wrong about this.
+// Null means asked and told none. A forge that would not answer throws, because
+// the caller's next move is to say there is nothing to review - and it must not
+// say that on the strength of a question nobody got to ask.
 export function prForBranch(repo, branch) {
-  if (!branch) return null;
-  try {
-    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'open', '--json', 'number']));
-    return rows.length ? rows[0].number : null;
-  } catch {
-    return null;
-  }
+  if (!repo || !branch) return null;
+  const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'open', '--json', 'number']));
+  return rows.length ? rows[0].number : null;
 }
 
 // Whether a branch's work is already on the main line.
