@@ -2,7 +2,7 @@
 //
 // Capabilities resolve once, here, into available-or-not. No step probes for its
 // own dependency at the moment it needs it, and no step fails halfway because
-// something it assumed was present is missing. The captain runs this on a work
+// something it assumed was present is missing. Ribhav runs this on a work
 // machine with Slack and a home machine without it, against projects that track
 // work three different ways.
 
@@ -112,7 +112,7 @@ export function capabilities({ refresh = false } = {}) {
       caps.gh = true;
     } catch { caps.gh = false; }
   }
-  // Slack is whatever the captain has wired up on this machine. A marker file is
+  // Slack is whatever Ribhav has wired up on this machine. A marker file is
   // the honest test: the supervisor writes it when it has a working connection,
   // and its absence simply means announcements are skipped and reported instead.
   caps.slack = existsSync(join(home(), 'slack-available'));

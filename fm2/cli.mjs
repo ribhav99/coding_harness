@@ -73,7 +73,7 @@ finds in its tree and will fail the author's gate on scaffolding that is not the
 and the report is what survives this session.
 
 You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches the captain, so make it two or three lines saying what you
+stop is what reaches Ribhav, so make it two or three lines saying what you
 concluded and what, if anything, you need.`;
 
 const SHIP_BRIEF = (spec, id) => `You are an autonomous worker. Work on your own; do not wait for a human.
@@ -84,7 +84,7 @@ You are in an isolated git worktree on your own branch. Implement it, push, and 
 PR. Do not merge it.
 
 You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches the captain, so end with two or three lines saying what you built
+stop is what reaches Ribhav, so end with two or three lines saying what you built
 and the PR's full URL.`;
 
 // Not every worker is shipping something. An open question - how should this
@@ -100,13 +100,13 @@ as the question needs, and keep whatever you produce - notes, a proposal, a thro
 prototype used only as evidence - inside this worktree. Do not open a PR, and do not
 change how the project works to prove a point.
 
-The captain is going to work this through WITH you, so what this first pass owes them is
+Ribhav is going to work this through WITH you, so what this first pass owes them is
 a proposal worth arguing with: what the real constraint is, the options you can actually
 see and what each costs, and which one you would pick and why. Where you are guessing,
 say you are guessing - a confident wrong answer costs more here than an open question.
 
 You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches the captain, so end with two or three lines saying what you found
+stop is what reaches Ribhav, so end with two or three lines saying what you found
 and the call you would make.`;
 
 const [, , command] = process.argv;
@@ -116,7 +116,7 @@ const [, , command] = process.argv;
 if (command === 'review') {
   const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>]');
   const project = resolve(arg('--project', process.cwd()));
-  // A batch of reviews the captain wants kept apart from the day's work gets its
+  // A batch of reviews Ribhav wants kept apart from the day's work gets its
   // own window, the same way `ship` batches do. Naming one that does not exist
   // yet is how you get it.
   const window = arg('--window', 'reviews');
@@ -152,7 +152,7 @@ if (command === 'ship') {
   const project = resolve(arg('--project', process.cwd()));
   let spec = arg('--spec') ?? die('a ship task needs --spec');
   if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
-  // A window per batch, when the captain wants one. `fm` creates it on demand, so
+  // A window per batch, when Ribhav wants one. `fm` creates it on demand, so
   // naming one that does not exist yet is how you get it.
   const window = arg('--window', 'workers');
   // An open question gets a worker told to answer it, not one told to open a PR.
@@ -164,7 +164,7 @@ if (command === 'ship') {
 }
 
 // --- attach ------------------------------------------------------------------
-// A session on a branch the captain already has open. `ship` is for work that
+// A session on a branch Ribhav already has open. `ship` is for work that
 // does not exist yet and makes the worktree to hold it; `attach` is for work
 // that does. Without --spec the session comes up idle, which is what a branch
 // you want to sit down with looks like.
@@ -189,7 +189,7 @@ if (command === 'attach') {
   // Bare `--resume` means the last conversation in that worktree; a value names
   // one exactly. Refusing when there is nothing to resume is deliberate: the
   // alternative is a pane that comes up cold looking exactly like one that
-  // resumed, and the captain finds out by asking it something it cannot answer.
+  // resumed, and Ribhav finds out by asking it something it cannot answer.
   let resume = null;
   if (process.argv.includes('--resume')) {
     const named = arg('--resume');
@@ -232,7 +232,7 @@ if (command === 'handoff') {
   // A review task carries its PR number; a ship task never does, because the
   // worker is the one that opened it. So ask the forge what the branch has open
   // before giving up - the whole point of the chain is that a finished ship task
-  // becomes a cold review without the captain doing it by hand.
+  // becomes a cold review without Ribhav doing it by hand.
   // The worktree is asked first, because the branch a task ENDS on is not the
   // one it was created with: a worker that names its own branch leaves the task
   // record pointing at nothing, and the chain then dies on a PR that is sitting
@@ -244,7 +244,7 @@ if (command === 'handoff') {
       number = prForBranch(task.repo ?? repoOf(task.project), branchOf(task.worktree) ?? task.branch ?? id);
     } catch (err) {
       // Distinct from the refusal below on purpose: "the forge would not say" and
-      // "there is no PR" lead the captain to opposite next moves, and only one of
+      // "there is no PR" lead Ribhav to opposite next moves, and only one of
       // them is worth acting on.
       die(`could not ask the forge what "${id}" has open: ${String(err.stderr || err.message).trim().split('\n')[0]}\nNothing changed; run this again.`);
     }

@@ -37,7 +37,7 @@ set -eu
 # `readlink -f` resolves the symlink, so FM_REPO is always the checkout this file
 # lives in, whichever one that is.
 #
-# Projects sit beside the harness, which is the convention the captain already
+# Projects sit beside the harness, which is the convention Ribhav already
 # uses: worktrees are siblings, and so is every other checkout.
 FMP_SELF=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 FM_REPO="${FM_REPO:-$(dirname "$FMP_SELF")}"
@@ -96,7 +96,7 @@ if tmux has-session -t "=$SES" 2>/dev/null; then
   # sitting in the old directory. Nothing is broken and nothing says anything,
   # so a `git pull` looks like it changed nothing at all. This is the one place
   # that can tell, and it costs a warning, not a refusal - the session may hold
-  # live work, so it is never rebuilt out from under the captain.
+  # live work, so it is never rebuilt out from under Ribhav.
   live=$(tmux list-panes -t "$SES:control" -F '#{pane_current_path}' 2>/dev/null | head -1 || true)
   if [ -n "$live" ] && [ "$live" != "$FM_REPO" ]; then
     printf 'fmp: this panel was built from %s, not %s\n' "$live" "$FM_REPO" >&2
@@ -141,7 +141,7 @@ if [ "$(tmux list-windows -t "$SES" -F '#{window_index}' 2>/dev/null | head -1)"
 fi
 
 # The panel always has all three windows, empty or not. The shape is the point:
-# the captain looks at the same panel every time, and a tab that only appears once
+# Ribhav looks at the same panel every time, and a tab that only appears once
 # there is something in it is a tab you cannot go and check.
 #
 # An empty tmux window is impossible - it gets a shell. That shell is why this was

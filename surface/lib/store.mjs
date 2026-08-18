@@ -57,7 +57,7 @@ export function supervisorPane() {
 // August can therefore name the pane a review opened today: `pr-146` closed on
 // the 10th and its pane died with it, and eight days later that id came back
 // around. The claim below refused to let the live review bind to its own pane,
-// so the captain's decisions had nowhere to land and the reviewer went off to
+// so Ribhav's decisions had nowhere to land and the reviewer went off to
 // improvise a workaround - which is the shape of every bug this guard exists to
 // prevent, arriving through the guard itself.
 //
@@ -102,7 +102,7 @@ export function claimSupervisorPane(pane) {
   return pane;
 }
 
-// An id has to be stable across reopens - a captain's tab from yesterday must
+// An id has to be stable across reopens - Ribhav's tab from yesterday must
 // still resolve - and safe in a URL. The spec's own id wins; otherwise the
 // containing directory names it, which is already the task id in practice.
 export function idFor(specPath, spec) {
@@ -137,13 +137,13 @@ export function register(specPath, { pane = null } = {}) {
   const spec = JSON.parse(readFileSync(abs, 'utf8'));
 
   // Loud at registration, because that is the last moment anyone is looking. The
-  // reviewer folds the content into findings or nits and re-opens; the captain
+  // reviewer folds the content into findings or nits and re-opens; Ribhav
   // never gets a page that quietly omits something.
   const unread = Object.keys(spec).filter((k) => !RENDERED.has(k) && carriesContent(spec[k]));
   if (unread.length) {
     throw new Error(
       `spec has ${unread.length} key(s) the page does not render: ${unread.join(', ')}. ` +
-        'Their content would never reach the captain. Move it into `findings` or `nits`, ' +
+        'Their content would never reach Ribhav. Move it into `findings` or `nits`, ' +
         'or drop the key, then open again.',
     );
   }
@@ -152,20 +152,20 @@ export function register(specPath, { pane = null } = {}) {
   const reg = loadRegistry();
   const previous = reg[id] ?? null;
 
-  // The pane binding decides where a captain's decisions get typed, so getting
+  // The pane binding decides where Ribhav's decisions get typed, so getting
   // it wrong types into someone else's session. Registering from the wrong
   // session is easy to do by accident - it happened during this component's own
   // testing, and the wake landed in the supervisor's chat - so a pane already
   // claimed by a different review is refused rather than quietly stolen.
   if (pane) {
-    // The supervisor's pane is the captain's chat. A review bound to it types
+    // The supervisor's pane is Ribhav's chat. A review bound to it types
     // decisions there instead of at a reviewer - which happened twice while
     // building this, because running `surface open` from the supervisor's own
     // session is the natural way to try it out.
     if (pane === supervisorPane()) {
       throw new Error(
         `pane ${pane} is the supervisor's own session; a review bound to it would ` +
-          "type the captain's decisions into their chat. Run `surface open` from the " +
+          "type Ribhav's decisions into their chat. Run `surface open` from the " +
           'review\'s session, or set SURFACE_PANE to it.',
       );
     }

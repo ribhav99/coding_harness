@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 //
 // GitHub's GraphQL endpoint 503s in bursts - four refusals and then a clean
 // reply, inside a minute. Every helper here used to read that burst as a fact:
-// `prForBranch` returned null, and `handoff --stage swap` told the captain the
+// `prForBranch` returned null, and `handoff --stage swap` told Ribhav the
 // task "has no PR recorded, and its branch has none open" about a PR that was
 // open and mergeable in the next tab. The chain stopped, and the message was
 // worse than the stall, because it was wrong.
@@ -85,7 +85,7 @@ export function branchIsMerged(repo, branch) {
 // The same question asked of a PR rather than a branch.
 //
 // A review worktree is detached, so it has no branch to ask about - and a review
-// task that the captain redirected into building ends up holding the work that
+// task that Ribhav redirected into building ends up holding the work that
 // landed, with nothing to prove it by. It carries its PR number, which is the
 // better question anyway: the branch may have been auto-deleted on merge.
 export function prIsMerged(repo, number) {
@@ -118,7 +118,7 @@ export function inlineCommentCount(repo, number) {
   }
 }
 
-// The one-line outcome the captain's vocabulary uses, derived from the forge and
+// The one-line outcome Ribhav's vocabulary uses, derived from the forge and
 // nothing else.
 export function outcomeWord(repo, number) {
   const state = reviewState(repo, number);

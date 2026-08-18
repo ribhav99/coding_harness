@@ -201,7 +201,7 @@ function acceptTrustPrompt(pane, { attempts = 12, waitMs = 1000 } = {}) {
     // The brief is being worked, so no dialog is coming.
     if (/esc to interrupt|✻|⏺/i.test(screen)) return false;
     // Or the session came up idle - a folder Claude Code already trusts, which
-    // is the common case for an adopted worktree the captain has worked in.
+    // is the common case for an adopted worktree Ribhav has worked in.
     // Without this the loop burns its full budget waiting for a prompt that was
     // never going to appear, once per pane.
     if (/\? for shortcuts/i.test(screen)) return false;
@@ -229,7 +229,7 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
   writeFileSync(briefPath, brief);
   const settingsFile = writeWorkerSettings(id);
 
-  // One pane per task in a named window, so the captain can watch a row of them.
+  // One pane per task in a named window, so Ribhav can watch a row of them.
   // Everything from here can fail, and a half-made task is worse than none: it
   // leaves a worktree nobody owns and a branch nobody will finish. So the rest
   // rolls back.
@@ -277,10 +277,10 @@ export function lastSessionFor(cwd, root = join(homedir(), '.claude', 'projects'
   return newest ? basename(newest.f, '.jsonl') : null;
 }
 
-// A session on a worktree the captain already has.
+// A session on a worktree Ribhav already has.
 //
 // Every rail in spawnTask assumes the worktree is the harness's own: it creates
-// it, and closing destroys it. A branch the captain has had open for a week is
+// it, and closing destroys it. A branch Ribhav has had open for a week is
 // the opposite kind of thing. It exists, it may hold uncommitted work, and it
 // must still be there afterwards - so adoption is its own path rather than a
 // flag on spawn, and the record carries `adopted` so teardown can tell them
@@ -340,7 +340,7 @@ export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsM
   const wt = task.worktree;
   if (!existsSync(wt)) return [];
   // An adopted worktree outlives its session, so closing strands nothing: the
-  // changes are exactly where the captain left them. Refusing here would be
+  // changes are exactly where Ribhav left them. Refusing here would be
   // refusing to put a pane away over work that is in no danger.
   if (task.adopted) return [];
   const problems = [];
@@ -369,7 +369,7 @@ export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsM
     // task for the rest of time. The content shipped; there is nothing to strand.
     //
     // Asked of the PR when there is one, because a review worktree is detached
-    // and has no branch to ask about - and a review the captain redirected into
+    // and has no branch to ask about - and a review Ribhav redirected into
     // building is exactly the case that ends up holding landed work with nothing
     // to prove it by.
     const repo = task.repo ?? repoOf(task.project);
@@ -414,7 +414,7 @@ export function closeTask(id, { force = false } = {}) {
   }
 
   // Closing the last task in a window takes the window with it, because tmux has
-  // no concept of an empty one. The captain navigates by tab, so a `reviews` that
+  // no concept of an empty one. Ribhav navigates by tab, so a `reviews` that
   // disappears the moment its queue empties is a tab they have to rebuild by hand
   // to use again. Leave a placeholder shell behind instead - `openPane` already
   // treats a lone shell as a placeholder and replaces it, so the next task lands
@@ -435,12 +435,12 @@ export function closeTask(id, { force = false } = {}) {
     try { tmux(['select-layout', '-t', window, 'tiled']); } catch { /* window went with the pane */ }
   }
   // Closing an adopted task takes the session down and nothing else. The
-  // worktree and its branch were the captain's before this and remain theirs
+  // worktree and its branch were Ribhav's before this and remain theirs
   // after; `--force` here would remove a week of work and call it teardown.
   //
   // Unless it has landed. Once the PR is merged there is no week of work to
   // protect - the branch is on the main line and the worktree is a stale copy of
-  // it, one of two dozen the captain then clears by hand. Merged work is the one
+  // it, one of two dozen Ribhav then clears by hand. Merged work is the one
   // case where taking the worktree with the session is the whole point.
   if (!task.adopted || branchIsMerged(repoOf(task.project), task.branch)) {
     try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }

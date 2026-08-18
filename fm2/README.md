@@ -68,7 +68,7 @@ this just carries it the last step.
 
 `ship` is for work that does not exist yet, so it cuts the branch and the
 worktree to hold it, and closing destroys both. `attach` is for work that does —
-a branch the captain has had open for a week. It creates nothing, so closing
+a branch Ribhav has had open for a week. It creates nothing, so closing
 takes down the session and leaves the worktree exactly as it was found. The
 record carries `adopted` and teardown reads it; getting that backwards deletes
 real work and calls it cleanup.

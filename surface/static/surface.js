@@ -1,4 +1,4 @@
-// Collect the captain's decisions and send them once.
+// Collect Ribhav's decisions and send them once.
 //
 // Three rules, each of which is a bug that actually shipped:
 //   1. Read through FormData over named controls. A control with an id but no

@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// surface - open a review page, and read back what the captain decided.
+// surface - open a review page, and read back what Ribhav decided.
 //
 // Usage:
 //   surface open <spec.json>     register the review, ensure the server, open the
 //                                page, print the URL, and RETURN. The calling
 //                                session is expected to stop immediately after.
-//   surface read <spec.json>     print decisions.json if the captain has sent,
+//   surface read <spec.json>     print decisions.json if Ribhav has sent,
 //                                exit 1 if not. This is what a woken reviewer runs.
 //   surface url <spec.json>      print the page URL without opening a browser
 //   surface list                 the reviews this server knows about
 //   surface claim-supervisor     record this pane as the supervisor's, so no review
-//                                can ever bind to it and type into the captain's chat
+//                                can ever bind to it and type into Ribhav's chat
 //   surface stop                 shut the server down
 //
 // There is no `poll`, and that absence is the design. A reviewer does not wait
-// for the captain; it stops, and the server wakes it by typing into its pane.
+// for Ribhav; it stops, and the server wakes it by typing into its pane.
 
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -100,7 +100,7 @@ if (command === 'open') {
   process.stdout.write(`${url}\n`);
   if (!pane) {
     process.stderr.write(
-      'surface: no tmux pane detected, so the captain\'s decisions cannot wake this session.\n' +
+      'surface: no tmux pane detected, so Ribhav\'s decisions cannot wake this session.\n' +
         `surface: they will still be written to ${decisionsPath(entry)} - read it when you next run.\n`,
     );
   }
@@ -110,7 +110,7 @@ if (command === 'open') {
 if (command === 'read') {
   const entry = entryFor(rest[0] ?? die('usage: surface read <spec.json>'));
   const decisions = readDecisions(entry);
-  if (!decisions) die('the captain has not sent decisions for this review yet', 1);
+  if (!decisions) die('Ribhav has not sent decisions for this review yet', 1);
   process.stdout.write(`${JSON.stringify(decisions, null, 2)}\n`);
   process.exit(0);
 }

@@ -1,9 +1,9 @@
-// Render a review spec into the page the captain decides on.
+// Render a review spec into the page Ribhav decides on.
 //
 // This module is the reason the surface exists. Every review used to hand-write
 // its own decision form, and two of them got it wrong in different ways on the
 // same afternoon: one put an id but no name on the verdict control, so the
-// captain's choice never entered the form data and a request-changes went out as
+// Ribhav's choice never entered the form data and a request-changes went out as
 // a plain comment; another read comment bodies with innerText inside a collapsed
 // <details>, which returns "" for anything not rendered, so eight edited drafts
 // came back empty and the reviewer posted its own text instead.
@@ -23,11 +23,11 @@
 
 // Two modes, and the default is never in doubt.
 //
-// On someone else's branch a fix is not yours to make, and the captain's rule is
+// On someone else's branch a fix is not yours to make, and Ribhav's rule is
 // blunt: review sessions do not touch review branches. On their own projects,
 // where they are the only developer, applying an approved fix is the point. So
 // the page carries the choice - but "comment" is chosen by the renderer, not
-// supplied by the review, so a review cannot hand the captain a page that is
+// supplied by the review, so a review cannot hand Ribhav a page that is
 // already set to change their code.
 const MODES = [
   ['comment', 'Comments only — the branch is not touched'],
@@ -37,9 +37,9 @@ export const DEFAULT_MODE = 'comment';
 
 // Comments-only is the safe default on someone else's work, and the wrong one on
 // your own: the reason to review your own PR is usually to fix it. The per-finding
-// "Fix it" choices are hidden until this question is answered, so a captain who
-// opened their own review, marked six findings and pressed send got six comments
-// and no fixes — the page never showed them the option they thought they picked.
+// "Fix it" choices are hidden until this question is answered, so a review
+// opened on Ribhav's own PR, with six findings marked and sent, came back as six
+// comments and no fixes — the page never showed them the option they thought they picked.
 //
 // Whose PR it is comes from the spec, because only the reviewer can know: it has
 // the forge and this renderer does not.
@@ -53,7 +53,7 @@ const DECISIONS = [
   ['drop', 'Drop'],
 ];
 
-// What a decision means when the captain has allowed changes.
+// What a decision means when Ribhav has allowed changes.
 const CHANGE_DECISIONS = [
   ['fix', 'Fix it'],
   ['inline', 'Comment only'],

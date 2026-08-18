@@ -1,14 +1,14 @@
 // The review server. One process, many pages, no held connections.
 //
 // The architecture is one decision: nothing waits. The tool this replaces had
-// the reviewing agent block in a foreground long-poll until the captain acted.
+// the reviewing agent block in a foreground long-poll until Ribhav acted.
 // That connection died on its own roughly every half hour, and each death fed an
 // idle session an input it did not need, which produced a turn, which woke the
 // supervisor. Hundreds of wakes, none of them work.
 //
-// Here a review writes its page, opens it, and stops. When the captain sends,
+// Here a review writes its page, opens it, and stops. When Ribhav sends,
 // this server writes decisions.json and pushes one line into that review's tmux
-// pane. The reviewer wakes exactly once per thing the captain sends, and never
+// pane. The reviewer wakes exactly once per thing Ribhav sends, and never
 // otherwise.
 //
 // No dependencies. node:http is enough, and a surface with no install step is a
@@ -48,7 +48,7 @@ function json(res, status, obj) {
 
 // Push one line into the reviewer's pane. This is the whole notification
 // mechanism: the reviewer is a stopped session, and typing into its pane is
-// exactly what the captain would do by hand.
+// exactly what Ribhav would do by hand.
 function wakePane(pane, line) {
   return new Promise((resolve) => {
     if (!pane) return resolve({ woke: false, reason: 'no pane recorded for this review' });
@@ -75,7 +75,7 @@ async function readBody(req, limit = 2 * 1024 * 1024) {
 
 // Server-side validation repeats the client's rules on purpose. The client can
 // be bypassed, and a partial payload written to disk would be posted under the
-// captain's name. Refusing here is the last place that can be prevented.
+// Ribhav's name. Refusing here is the last place that can be prevented.
 function validate(spec, payload) {
   const problems = [];
   if (!payload || typeof payload !== 'object') return ['the payload was not an object'];
@@ -104,7 +104,7 @@ function validate(spec, payload) {
 
 // A review whose spec has gone from disk is a review that was closed: the
 // worktree went with the session that held it. That is a final state, not a
-// transient failure, and it must not read like one — the captain types decisions
+// transient failure, and it must not read like one — Ribhav types decisions
 // into a page that can never accept them, and "unreadable" invites a retry.
 // Where the durable record went is part of the answer, because the page they are
 // looking at is not it.
@@ -184,12 +184,12 @@ const server = createServer(async (req, res) => {
     // `_fields` travels with the decisions because the reviewer reads this file
     // long after its brief, often across a compaction, and the two names are
     // close enough to swap: a reviewer once read `mode: comment` as "post a
-    // COMMENTED review" and withheld an approval the captain had given in
+    // COMMENTED review" and withheld an approval Ribhav had given in
     // `verdict`. The file has to say which is which at the point it is read.
     const record = {
       _fields: {
         mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
-        verdict: 'the captain\'s call on the PR, and the review action to post.',
+        verdict: 'Ribhav\'s call on the PR, and the review action to post.',
       },
       mode: 'comment',
       ...payload,
@@ -202,7 +202,7 @@ const server = createServer(async (req, res) => {
     // response reports the wake separately rather than failing the whole send.
     const woke = await wakePane(
       entry.pane,
-      `The captain has decided on this review. Read ${written} and act on it.`,
+      `Ribhav has decided on this review. Read ${written} and act on it.`,
     );
     return json(res, 200, { status: 'saved', decisions: written, ...woke });
   }

@@ -7,7 +7,7 @@
 // panel is filling up with workers about to report.
 //
 // Never blocks and never fails loudly, for the same reason the worker's hook
-// does not: the captain's turn must not be held up by bookkeeping, and a broken
+// does not: Ribhav's turn must not be held up by bookkeeping, and a broken
 // hook must not stop a session from starting.
 
 import { recordSupervisor } from '../lib/presence.mjs';

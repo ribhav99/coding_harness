@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The supervisor's Stop hook: the only thing that can interrupt the captain.
+// The supervisor's Stop hook: the only thing that can interrupt Ribhav.
 //
 // It blocks a turn when, and only when, a worker has reported something the
 // supervisor has not read. Not on idleness, not on staleness, not on a

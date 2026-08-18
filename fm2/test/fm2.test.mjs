@@ -228,7 +228,7 @@ test('a task whose commits are on no remote refuses to close', async () => {
   assert.ok(problems.some((p) => /no remote/.test(p)), problems.join('; '));
 });
 
-// An adopted worktree is the captain's, not the harness's. The refusals that
+// An adopted worktree is Ribhav's, not the harness's. The refusals that
 // protect a task's own worktree are exactly wrong for one that outlives its
 // session: nothing is stranded by closing, because closing removes nothing.
 
@@ -261,11 +261,11 @@ test('closing an adopted task takes the session down and leaves the worktree', a
   writeFileSync(join(wt, 'README.md'), '# must survive teardown\n');
 
   // A pane id that does not resolve: kill-pane fails and is swallowed, which is
-  // the same path a pane the captain already closed by hand takes.
+  // the same path a pane Ribhav already closed by hand takes.
   saveTask({ id: 'keepme', project, worktree: wt, pane: '%99999', kind: 'adopted', adopted: true });
   closeTask('keepme');
 
-  assert.ok(existsSync(wt), 'closing an adopted task destroyed the captain\'s worktree');
+  assert.ok(existsSync(wt), 'closing an adopted task destroyed Ribhav\'s worktree');
   assert.ok(existsSync(join(wt, 'README.md')), 'the uncommitted work went with the session');
   assert.equal(loadTask('keepme'), null, 'the task record outlived the close');
 });
@@ -347,7 +347,7 @@ test('a branch cut from an unpushed main is not blamed for what it inherited', a
   g('push', '-q', 'origin', 'HEAD:refs/heads/main');
   g('fetch', '-q', 'origin');
 
-  // The captain's own checkout, ahead of its remote - the normal state of a repo
+  // Ribhav's own checkout, ahead of its remote - the normal state of a repo
   // being worked in. A task branched from here starts life carrying these.
   writeFileSync(join(project, 'mine.txt'), 'not pushed yet\n');
   g('add', '-A');
@@ -415,7 +415,7 @@ test('a squash-merged branch has landed, however its commits look', async () => 
   );
 });
 
-// A review the captain redirects into building ends up holding the work that
+// A review Ribhav redirects into building ends up holding the work that
 // landed - on a detached head, so there is no branch to ask the forge about.
 test('a merged review task can be put away, detached head and all', async () => {
   freshHome();
@@ -518,7 +518,7 @@ test('every launch relinks the skills to this checkout', async () => {
 //
 // GitHub's GraphQL endpoint 503s in bursts. `prForBranch` caught that and
 // returned null, which reads identically to "this branch has no PR" - so
-// `handoff --stage swap` told the captain a finished task had nothing to review
+// `handoff --stage swap` told Ribhav a finished task had nothing to review
 // while its PR sat open and mergeable. The stall was survivable; the false
 // statement about the state of the world was not.
 

@@ -1,7 +1,7 @@
 // The surface's contract, tested through what it produces and serves.
 //
 // The first three tests exist because each one is a bug that shipped and posted
-// something the captain did not choose. They assert on the generated page rather
+// something Ribhav did not choose. They assert on the generated page rather
 // than on the generator's source, because the page is what the browser gets.
 //
 // Run: node --test surface/test/
@@ -73,13 +73,13 @@ test('content is escaped, so a finding cannot inject markup', () => {
 
 const { validate } = await import(join(ROOT, 'server.mjs'));
 
-// The captain's rule: review sessions do not touch review branches. On their own
+// Ribhav's rule: review sessions do not touch review branches. On their own
 // projects, where they are the only developer, applying an approved fix is the
 // point - so the page offers both, and the safe one is what you get without
 // choosing.
 //
 // `own_pr` is the ONE sanctioned way that default moves, and it only ever moves
-// it on the captain's own work. Everything else a spec might say - `mode`,
+// it on Ribhav's own work. Everything else a spec might say - `mode`,
 // `default_mode`, anything invented later - is ignored, so a review of someone
 // else's branch cannot hand over a page primed to edit it.
 test('only own_pr moves the default; no other spec field can', () => {
@@ -202,7 +202,7 @@ test('a valid send writes the decisions; an invalid one writes nothing', async (
   const body = await good.json();
   assert.equal(body.status, 'saved');
   // No pane was recorded, so the wake must be reported as not done rather than
-  // claimed - the captain is told when the reviewer was not reached.
+  // claimed - Ribhav is told when the reviewer was not reached.
   assert.equal(body.woke, false);
   assert.ok(existsSync(decisionsFile), 'an accepted send did not write decisions');
 
@@ -214,7 +214,7 @@ test('a valid send writes the decisions; an invalid one writes nothing', async (
 // The wake types into a tmux pane, so a wrong binding types into someone else's
 // session. This happened for real while building: a register run from the
 // supervisor's own session rebound the review, and the next send landed in the
-// captain's chat instead of the reviewer's pane.
+// Ribhav's chat instead of the reviewer's pane.
 test('a pane already claimed by another review is refused, not stolen', async () => {
   const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
   const work = mkdtempSync(join(tmpdir(), 'surface-work-'));
@@ -241,10 +241,10 @@ test('a pane already claimed by another review is refused, not stolen', async ()
   assert.equal(moved.rebound_from, '%7', 'a rebind was not reported to the caller');
 });
 
-// The supervisor's pane is the captain's chat. This is not hypothetical: it
+// The supervisor's pane is Ribhav's chat. This is not hypothetical: it
 // happened twice while building this component, because running `surface open`
 // from the supervisor's own session is the natural way to try it out, and the
-// captain's decisions were then typed at the captain.
+// Ribhav's decisions were then typed at Ribhav.
 test("a review cannot bind to the supervisor's own pane", async () => {
   const home = mkdtempSync(join(tmpdir(), 'surface-home-'));
   const work = mkdtempSync(join(tmpdir(), 'surface-work-'));
@@ -259,7 +259,7 @@ test("a review cannot bind to the supervisor's own pane", async () => {
   assert.throws(
     () => store.register(specPath, { pane: '%1' }),
     /supervisor's own session/,
-    'a review bound to the supervisor pane, which types decisions into the captain chat',
+    'a review bound to the supervisor pane, which types decisions into Ribhav chat',
   );
 
   // Any other pane is still fine, so the guard blocks the mistake and nothing else.
@@ -320,7 +320,7 @@ test('a page for an unknown review says so instead of rendering blank', async (t
 });
 
 // A review is closed by taking its session down, and the worktree - spec and all
-// - goes with it. The page in the captain's browser does not know that, and they
+// - goes with it. The page in Ribhav's browser does not know that, and they
 // find out by typing a round of decisions into it and pressing send. What comes
 // back has to say the review is over, not that something could not be read: one
 // is final, the other invites a retry that can never work.
@@ -371,7 +371,7 @@ test('a closed review refuses a send and says it is closed', async (t) => {
   assert.equal(sent.status, 410, 'a closed review answered a send with something retryable');
   const body = await sent.json();
   assert.match(body.error, /closed/, 'the refusal did not say the review was closed');
-  assert.doesNotMatch(body.error, /ENOENT/, 'the refusal leaked a filesystem error at the captain');
+  assert.doesNotMatch(body.error, /ENOENT/, 'the refusal leaked a filesystem error at Ribhav');
   assert.match(body.error, /report\.md/, 'the refusal did not say where the durable record went');
 
   // The page itself answers the same way, so an open tab is not a mystery.
@@ -382,7 +382,7 @@ test('a closed review refuses a send and says it is closed', async (t) => {
 
 // Comments-only is the right default on someone else's work and the wrong one on
 // your own. The per-finding "Fix it" choices are hidden behind the branch
-// question, so a captain reviewing their own PR marked six findings, pressed
+// question, so Ribhav reviewing their own PR marked six findings, pressed
 // send, and got six comments — the page never showed them the option they
 // thought they had picked.
 
@@ -410,7 +410,7 @@ test('a review of your own PR opens on apply-fixes, with the Fix choices showing
 // tmux reuses pane ids. `pr-146` closed on 10 Aug and its pane died with it;
 // eight days later the same id came back as a live review's pane, and the claim
 // guard refused to let that review bind to the pane it was actually running in.
-// The captain's decisions then had nowhere to land - the guard causing exactly
+// Ribhav's decisions then had nowhere to land - the guard causing exactly
 // the misdelivery it was written to prevent.
 
 test('a claim from before the pane existed does not block the review running in it', async () => {
