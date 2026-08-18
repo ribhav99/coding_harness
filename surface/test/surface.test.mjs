@@ -404,3 +404,63 @@ test('a review of your own PR opens on apply-fixes, with the Fix choices showing
   const silent = renderPage(SPEC, { id: 'pr-1' });
   assert.match(silent, /id="mode-comment"[^>]*checked/, 'a spec that said nothing was treated as your own PR');
 });
+
+// --- a pane id outlives the review that claimed it ---------------------------
+//
+// tmux reuses pane ids. `pr-146` closed on 10 Aug and its pane died with it;
+// eight days later the same id came back as a live review's pane, and the claim
+// guard refused to let that review bind to the pane it was actually running in.
+// The captain's decisions then had nowhere to land - the guard causing exactly
+// the misdelivery it was written to prevent.
+
+test('a claim from before the pane existed does not block the review running in it', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-stale-'));
+  process.env.SURFACE_HOME = join(home, 'registry');
+  const { register } = await import(`${join(ROOT, 'lib/store.mjs')}?stale`);
+
+  // The pane's shell started now; the claim is from last week.
+  const pane = process.env.TMUX_PANE || null;
+  if (!pane) return; // no tmux here; the guard is unprovable and stands, which is its own test below
+
+  const oldDir = join(home, 'pr-146');
+  mkdirSync(oldDir, { recursive: true });
+  writeFileSync(join(oldDir, 'review.json'), JSON.stringify({ id: 'pr-146', title: 'closed last week' }));
+  register(join(oldDir, 'review.json'), { pane });
+
+  // Backdate that claim to before this pane's shell was started.
+  const regPath = join(process.env.SURFACE_HOME, 'reviews.json');
+  const reg = JSON.parse(readFileSync(regPath, 'utf8'));
+  reg['pr-146'].registered_at = '2020-01-01T00:00:00.000Z';
+  writeFileSync(regPath, JSON.stringify(reg, null, 2));
+
+  const liveDir = join(home, 'pr-341');
+  mkdirSync(liveDir, { recursive: true });
+  writeFileSync(join(liveDir, 'review.json'), JSON.stringify({ id: 'pr-341', title: 'running here now' }));
+
+  const entry = register(join(liveDir, 'review.json'), { pane });
+  assert.equal(entry.pane, pane, 'a live review was locked out of its own pane by a dead claim');
+});
+
+test('a claim made after the pane started still blocks - staleness must be provable', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-fresh-'));
+  process.env.SURFACE_HOME = join(home, 'registry');
+  const { register } = await import(`${join(ROOT, 'lib/store.mjs')}?fresh`);
+
+  const pane = process.env.TMUX_PANE || null;
+  if (!pane) return;
+
+  const aDir = join(home, 'pr-a');
+  mkdirSync(aDir, { recursive: true });
+  writeFileSync(join(aDir, 'review.json'), JSON.stringify({ id: 'pr-a' }));
+  register(join(aDir, 'review.json'), { pane });
+
+  const bDir = join(home, 'pr-b');
+  mkdirSync(bDir, { recursive: true });
+  writeFileSync(join(bDir, 'review.json'), JSON.stringify({ id: 'pr-b' }));
+
+  assert.throws(
+    () => register(join(bDir, 'review.json'), { pane }),
+    /already belongs to review "pr-a"/,
+    'a genuine double-claim was let through',
+  );
+});

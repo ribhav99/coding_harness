@@ -14,6 +14,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 export const REGISTRY = process.env.SURFACE_HOME || join(homedir(), '.surface');
 
@@ -52,10 +53,48 @@ export function supervisorPane() {
   return value || null;
 }
 
+// tmux hands out pane ids from a pool and reuses them. A claim recorded in
+// August can therefore name the pane a review opened today: `pr-146` closed on
+// the 10th and its pane died with it, and eight days later that id came back
+// around. The claim below refused to let the live review bind to its own pane,
+// so the captain's decisions had nowhere to land and the reviewer went off to
+// improvise a workaround - which is the shape of every bug this guard exists to
+// prevent, arriving through the guard itself.
+//
+// The pane id is not the identity; the shell running in it is. Ask when that
+// shell started, and a claim registered before it is talking about a pane that
+// no longer exists.
+function paneBornAt(pane) {
+  try {
+    const pid = execFileSync('tmux', ['display-message', '-p', '-t', pane, '#{pane_pid}'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (!pid) return null;
+    const started = execFileSync('ps', ['-o', 'lstart=', '-p', pid], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const at = started ? new Date(started) : null;
+    return at && !Number.isNaN(at.getTime()) ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+// Unprovable is not stale. With no tmux, no such pane, or no timestamp to
+// compare, the claim stands - a guard that fails open on a missing answer is
+// not a guard.
+function claimIsStale(entry, pane) {
+  if (!entry || !entry.registered_at) return false;
+  const born = paneBornAt(pane);
+  if (!born) return false;
+  const claimed = new Date(entry.registered_at);
+  return !Number.isNaN(claimed.getTime()) && claimed < born;
+}
+
 export function claimSupervisorPane(pane) {
   if (!pane) throw new Error('no pane to claim: run this inside a tmux pane, or set SURFACE_PANE');
   const reg = loadRegistry();
-  const claimedBy = Object.values(reg).find((e) => e.pane === pane);
+  const claimedBy = Object.values(reg).find((e) => e.pane === pane && !claimIsStale(e, pane));
   if (claimedBy) {
     throw new Error(`pane ${pane} is already bound to review "${claimedBy.id}"; it is not the supervisor's`);
   }
@@ -130,7 +169,7 @@ export function register(specPath, { pane = null } = {}) {
           'review\'s session, or set SURFACE_PANE to it.',
       );
     }
-    const claimedBy = Object.values(reg).find((e) => e.pane === pane && e.id !== id);
+    const claimedBy = Object.values(reg).find((e) => e.pane === pane && e.id !== id && !claimIsStale(e, pane));
     if (claimedBy) {
       throw new Error(
         `pane ${pane} already belongs to review "${claimedBy.id}"; ` +
