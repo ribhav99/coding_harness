@@ -41,6 +41,21 @@ function branchOf(worktree) {
   }
 }
 
+// The checkout a worktree hangs off, from git rather than from a naming
+// convention: `--git-common-dir` resolves to the main checkout's .git, whose
+// parent is the checkout itself.
+function mainCheckoutOf(worktree) {
+  if (!existsSync(worktree)) return null;
+  try {
+    const common = execFileSync('git', ['-C', worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    return common.endsWith('/.git') ? dirname(common) : null;
+  } catch {
+    return null;
+  }
+}
+
 function die(msg, code = 1) {
   process.stderr.write(`fm: ${msg}\n`);
   process.exit(code);
@@ -177,7 +192,12 @@ if (command === 'ship') {
 if (command === 'attach') {
   const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>] [--resume [<session>]]');
   const worktree = resolve(target);
-  const project = resolve(arg('--project', process.cwd()));
+  // A worktree knows which checkout it belongs to, so asking it beats defaulting
+  // to whatever directory the supervisor happens to be standing in. Attaching to
+  // a bnl-packpilot worktree from the harness checkout used to fail with "is not
+  // a worktree of coding_harness" - true, unhelpful, and about a directory nobody
+  // named. --project still wins when it is given.
+  const project = resolve(arg('--project') ?? mainCheckoutOf(worktree) ?? process.cwd());
   // Named for the worktree, minus the project prefix the convention already puts
   // there: bnl-packpilot-wo-213 is simply wo-213.
   const base = worktree.split('/').pop();
