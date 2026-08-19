@@ -25,16 +25,7 @@ Descriptions say what someone intended. Diffs say what changed. Route on the dif
 
 ## Step 1 — resolve the project's layers
 
-Layers are named by kind, not by command, so this skill does not rot when a target is renamed. Resolve each kind to this project's actual command before writing anything. Look in `Makefile`, `package.json`, `pyproject.toml`, and the CI workflow.
-
-| Kind | What it is | Typical home |
-|---|---|---|
-| **contract** | Generated client / schema check — a mismatch is a *compile* error | codegen target, `test:contract` |
-| **unit** | Pure logic, no I/O | co-located `*.test.*`, `tests/` |
-| **integration** | Real database, real queue, real service | backend test suite (usually needs Docker) |
-| **component** | A rendered component in its states | Storybook, story tests |
-| **e2e** | Real browser, real backend, whole journey | Playwright specs |
-| **infra** | Synthesized infrastructure assertions | CDK/Terraform test dir |
+Layers are named by kind, not by command, so this skill does not rot when a target is renamed. The kinds are **contract**, **unit**, **integration**, **component**, **e2e**, and **infra** — defined in Step 2. Resolve each to this project's actual command before writing anything: look in `Makefile`, `package.json`, `pyproject.toml`, and the CI workflow.
 
 If a kind has no command in this project, say so in the output rather than inventing one or silently routing its work elsewhere.
 
@@ -42,36 +33,44 @@ Note existing **coverage gates** too — scripts that already enforce "a source 
 
 ## Step 2 — route each hunk
 
-Read down. **First matching row wins.** Route each hunk to exactly one layer.
+One rule decides everything:
 
-| The change is | Layer | Why not higher |
-|---|---|---|
-| An API request/response shape | **contract** | A rename should fail at build time in seconds, not in a browser in minutes |
-| Pure logic — a calculation, a transform, a validation rule, a reducer | **unit** | No I/O to exercise |
-| A SQL query, migration, or anything relying on real database semantics (`ON CONFLICT`, enum casts, constraints, bulk paths, transactions) | **integration** | Mocks reproduce your belief about the database, not the database |
-| A queue, worker, retry, timeout, or visibility/redelivery behavior | **integration** | Timing seams do not exist in a mock |
-| An external-service call (payment, mail, AI provider) | **unit** with the client faked at its boundary — **plus** one integration test if the wire format is the risk | Full stack for one call is waste |
-| A component's visual states — empty, loading, error, disabled, overflow | **component** | A browser journey is a slow way to see one component |
-| Permission or role-gated *rendering* | **component** or **unit** | The gate is a prop, not a journey |
-| Permission or role-gated *access to data* | **integration** | The gate is server-side; assert the server |
-| Browser-runtime behavior — drag past an activation threshold, touch gestures, file chooser, download, clipboard, second tab, viewport geometry | **e2e** | jsdom has no layout engine; this is the one thing only a real browser can do |
-| A journey crossing frontend, backend, and infrastructure together (upload → storage → queue → worker → result → render) | **e2e** | Every hop passes in isolation while the chain is broken |
-| A top user journey, end to end | **e2e** | Cap this at a small standing set — see the budget below |
-| Infrastructure definition — roles, policies, queues, routes | **infra** | |
-| A refactor with no behavior change | **none** | Existing tests are the safety net; that is what they are for |
-| Formatting, comments, copy, dependency bumps | **none** | |
+> **Test at the cheapest layer that can actually observe the change.**
 
-### The e2e budget
+Not the layer that *could* cover it — almost anything can be covered from a browser. The cheapest one where the bug would still be visible.
 
-End-to-end specs are the scarce resource. Adding one is a standing cost paid on every run forever.
+So for each hunk, ask: **what would have to be real for this bug to appear?** That names the layer. The layers are ordered by what each one makes real that the one below it does not, and each step costs seconds and stability:
 
-Before writing one, answer: **which other layer could hold this, and why can't it?** If the answer is "it could, but e2e is more thorough," route it down. Valid answers are only:
+**contract** — makes real the *shape agreement between two codebases*. Nothing runs; a mismatch is a build error. Cheapest possible, because it fails in seconds without executing anything. Anything that is a disagreement about field names, types, or nullability belongs here and nowhere else.
 
-- it needs real browser geometry or a real browser API
-- it crosses three or more services and the seam is the risk
-- it is one of the project's handful of top journeys
+**unit** — makes real *your logic, alone*. No I/O, no framework, no clock. If the change is a calculation, a transform, a rule, a reducer, a parser, the bug appears here. Most changes stop at this line.
 
-Sorting, filtering, pagination, search, and validation are **never** e2e. An assertion like "every row is sorted A–Z" against a pre-sorted fixture is worse than no assertion — it passes forever and proves nothing.
+**integration** — makes real the *dependencies you do not control*: the database, the queue, the filesystem, another service. Reach for it when the risk is not in your logic but in what the dependency actually does — `ON CONFLICT` semantics, enum casts, constraints, transaction boundaries, retry and redelivery behavior, timing between two services. A mock reproduces your belief about the dependency; that belief is the thing under suspicion, so mocking it tests nothing.
+
+**component** — makes real *rendering*. A component in a state: empty, loading, error, disabled, overflowing. If the question is "does this look right in this state," this is the layer; a whole journey is a slow way to see one component.
+
+**e2e** — makes real *the browser and the whole chain at once*. Two things live only here. First, browser-runtime behavior: geometry, pointer and touch input, file chooser, download, clipboard, a second tab. A test runner's fake DOM has no layout engine, so these are not merely awkward below this layer — they are unobservable. Second, multi-service journeys, where every hop passes in isolation while the chain between them is broken.
+
+**infra** — makes real the *synthesized infrastructure*: roles, policies, queues, routes.
+
+**none** — nothing changed that any layer can observe. A refactor, a restyle, a copy tweak, a dependency bump. Existing tests are the safety net; that is what they are for. This is a normal, frequent, correct outcome.
+
+### The trap
+
+The failure mode this whole skill exists to prevent is reasoning *"e2e could catch this too, and it's more thorough."* That sentence is always available and always wrong. E2e is the slowest, flakiest, most expensive layer, and every spec is a cost paid on every run forever.
+
+So when you land on e2e, say which cheaper layer you rejected and what it could not observe. If you cannot name something the cheaper layer would have missed, you are at the wrong layer.
+
+The tell that you have drifted up: an assertion that would pass even if the feature were deleted and replaced with static markup. "Every row is sorted A–Z" against a pre-sorted fixture is worse than no assertion — it passes forever and proves nothing.
+
+### Calibration
+
+Same feature, four different changes, four different layers:
+
+- A **discount formula** changes → unit. Nothing external is involved; the arithmetic is the risk.
+- The **upsert that saves the discount** changes → integration. The risk is what Postgres does with `ON CONFLICT`, not what you meant.
+- The **field name in the response** changes → contract. Frontend and backend now disagree; catch it at build time, not in a browser.
+- **Dragging a component onto the pack** changes → e2e. Pointer geometry past an activation threshold does not exist without a real browser.
 
 ## Step 3 — write, following the project's conventions
 
