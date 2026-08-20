@@ -69,6 +69,14 @@ The subtler drift is routing by what the test needs *in place* rather than by wh
 
 It does not follow. "At least 629 pages of results" needs a large database, but what it observes is a count the query returns; that is integration, and it stays integration however tedious the fixture is. Ask what the assertion looks at, never what it had to stand up first. Setup cost is a reason to build a better fixture, not a reason to climb a layer.
 
+### Reachability beats nature
+
+The rule says the cheapest layer that can *actually observe* the change, and "actually" is load-bearing. Routing by what a thing **is** rather than what can **reach** it puts tests at layers that cannot hold them.
+
+A boolean over four inputs is unit-shaped by nature. Written inline in a component's markup, or as a `useMemo` the component never exports, there is nothing to import and no unit test to write — the cheapest layer that can observe it is the one that renders it.
+
+The tell is precise: you can name the inputs and state the rule exactly, and still have nothing to call. When that happens the honest options are to test it one layer up, or to lift the logic out and make the lower layer reachable. Both are fine; extracting is a source change and belongs to whoever writes the test, not to the routing decision. Say which you chose.
+
 ### Splitting — and the one thing it can destroy
 
 A change often warrants more than one test at more than one layer, and splitting it is right: a hunk that adds a query and the panel that renders it is an integration test and a component test, not an argument about which. When one description resists a single layer, that is usually because it is describing more than one thing.
