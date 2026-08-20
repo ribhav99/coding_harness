@@ -49,7 +49,7 @@ So for each hunk, ask: **what would have to be real for this bug to appear?** Th
 
 **component** — makes real *rendering*. A component in a state: empty, loading, error, disabled, overflowing. If the question is "does this look right in this state," this is the layer; a whole journey is a slow way to see one component.
 
-**e2e** — makes real *the browser and the whole chain at once*. Two things live only here. First, browser-runtime behavior: geometry, pointer and touch input, file chooser, download, clipboard, a second tab. A test runner's fake DOM has no layout engine, so these are not merely awkward below this layer — they are unobservable. Second, multi-service journeys, where every hop passes in isolation while the chain between them is broken.
+**e2e** — makes real *the browser and the whole chain at once*. Two things live only here. First, browser-runtime behavior: geometry, pointer and touch input, file chooser, download, clipboard, a second tab. A test runner's fake DOM has no layout engine, so these are not merely awkward below this layer — they are unobservable. Second, a journey where **every step passes in isolation and the coupling between them is the risk**. Crossing services is the common shape of that, but not the requirement — a side effect one action has on another inside a single service qualifies, and is easier to miss precisely because nothing about it looks distributed.
 
 **infra** — makes real the *synthesized infrastructure*: roles, policies, queues, routes.
 
@@ -62,6 +62,20 @@ The failure mode this whole skill exists to prevent is reasoning *"e2e could cat
 So when you land on e2e, say which cheaper layer you rejected and what it could not observe. If you cannot name something the cheaper layer would have missed, you are at the wrong layer.
 
 The tell that you have drifted up: an assertion that would pass even if the feature were deleted and replaced with static markup. "Every row is sorted A–Z" against a pre-sorted fixture is worse than no assertion — it passes forever and proves nothing.
+
+### The other trap: expensive setup is not a layer requirement
+
+The subtler drift is routing by what the test needs *in place* rather than by what it *observes*. A check that wants thirty thousand seeded rows, or a populated queue, or a signed-in session with a particular role, feels like it belongs high up because that state is awkward to conjure — and the browser already has it.
+
+It does not follow. "At least 629 pages of results" needs a large database, but what it observes is a count the query returns; that is integration, and it stays integration however tedious the fixture is. Ask what the assertion looks at, never what it had to stand up first. Setup cost is a reason to build a better fixture, not a reason to climb a layer.
+
+### Splitting — and the one thing it can destroy
+
+A change often warrants more than one test at more than one layer, and splitting it is right: a hunk that adds a query and the panel that renders it is an integration test and a component test, not an argument about which. When one description resists a single layer, that is usually because it is describing more than one thing.
+
+The exception is sharp. **Never split an assertion whose entire content is that two things are wired together.** Downloading a document also locks the record it describes; the download is browser behavior and the lock is a state transition, and each half passes on its own forever while the coupling — the part nobody designed and everybody would be hurt by — goes untested.
+
+The diagnostic, after any split: *would every piece still pass if the thing I was worried about were broken?* If yes, the split dissolved the assertion rather than clarifying it. Put it back, keep it whole at the layer that can see both ends, and name the coupling as the reason it is there.
 
 ### Calibration
 
