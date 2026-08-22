@@ -1,0 +1,15 @@
+window=%12
+endpoint_task_id=exercise-search-303
+worktree=/Users/ribhavkapur/Desktop/everything/College/CS/fitness_agent-fm-exercise-search-303
+project=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness/firstmate_workflow/homes/fitness_agent/projects/fitness_agent
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+tasktmp=/tmp/fm-exercise-search-303
+model=default
+effort=max
+busy_gen=g1785626027.55311.17762
+backend=tmux-panes
+pr=https://github.com/ribhav99/fitness_agent/pull/307
+pr_head=958acd06cf8d798053e6c221659849e8b9b33057

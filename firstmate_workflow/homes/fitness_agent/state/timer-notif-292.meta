@@ -1,0 +1,15 @@
+window=%8
+endpoint_task_id=timer-notif-292
+worktree=/Users/ribhavkapur/Desktop/everything/College/CS/fitness_agent-fm-timer-notif-292
+project=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness/firstmate_workflow/homes/fitness_agent/projects/fitness_agent
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+tasktmp=/tmp/fm-timer-notif-292
+model=default
+effort=max
+busy_gen=g1785622613.37149.13280
+backend=tmux-panes
+pr=https://github.com/ribhav99/fitness_agent/pull/304
+pr_head=f4b0b735d3890a7f0143356c62772ad17ff4c10a

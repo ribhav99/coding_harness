@@ -1,0 +1,13 @@
+window=%14
+endpoint_task_id=auto-review-flow
+worktree=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness-fm-auto-review-flow
+project=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness/firstmate_workflow/homes/coding_harness/projects/coding_harness
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+tasktmp=/tmp/fm-auto-review-flow
+model=default
+effort=max
+busy_gen=g1785626353.73410.16132
+backend=tmux-panes

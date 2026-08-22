@@ -1,0 +1,5 @@
+working: unified ranked search implemented; 97 tests pass, tsc+lint clean (pre-existing failures only)
+done: PR https://github.com/ribhav99/fitness_agent/pull/307
+done: self-review complete
+done: #307 rebased onto release/2.2.0, MERGEABLE + all checks green
+done: sim visual proof captured; #307 updated with before/after screenshots

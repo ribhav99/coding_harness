@@ -1,0 +1,13 @@
+window=%19
+endpoint_task_id=volume-score-135b
+worktree=/Users/ribhavkapur/Desktop/everything/College/CS/fitness_agent-fm-volume-score-135b
+project=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness/firstmate_workflow/homes/fitness_agent/projects/fitness_agent
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+tasktmp=/tmp/fm-volume-score-135b
+model=default
+effort=max
+busy_gen=g1785628177.74979.1114
+backend=tmux-panes

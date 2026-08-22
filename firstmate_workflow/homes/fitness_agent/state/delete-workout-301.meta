@@ -1,0 +1,15 @@
+window=%11
+endpoint_task_id=delete-workout-301
+worktree=/Users/ribhavkapur/Desktop/everything/College/CS/fitness_agent-fm-delete-workout-301
+project=/Users/ribhavkapur/Desktop/everything/College/CS/coding_harness/firstmate_workflow/homes/fitness_agent/projects/fitness_agent
+harness=claude
+kind=ship
+mode=direct-PR
+yolo=off
+tasktmp=/tmp/fm-delete-workout-301
+model=default
+effort=max
+busy_gen=g1785626026.54715.25069
+backend=tmux-panes
+pr=https://github.com/ribhav99/fitness_agent/pull/306
+pr_head=0630fafcdc8eaeb749b81d0721ef38f41c878895

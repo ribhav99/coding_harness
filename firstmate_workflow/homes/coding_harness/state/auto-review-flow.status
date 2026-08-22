@@ -1,0 +1,4 @@
+working: setup done; branch based on firstmate-workflow (master lacks firstmate_workflow/), PR will target firstmate-workflow
+needs-decision: my debug script bug typed one stray self-review line into live pane %1 (fm-fitness_agent:workers, fitness_agent_android). Benign non-destructive instruction, no files touched, I have not touched that pane since. Firstmate owns whether to correct that worker. My own worktree work continues; test is being pinned so it can never reach a real tmux.
+done: PR https://github.com/ribhav99/coding_harness/pull/1 (base firstmate-workflow, not master)
+resolved: firstmate confirmed no correction needed - that worker read the stray line as a readiness question, answered read-only, touched nothing.

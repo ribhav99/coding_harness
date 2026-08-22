@@ -1,0 +1,4 @@
+# which tab each kind of task lands in
+ship: workers
+scout: reviews
+default: workers

@@ -1,0 +1,4 @@
+resolved: captain overrode brief — iOS is now primary; building ActivityKit Live Activity + new widget extension target (agent edits pbxproj), Android chronometer secondary
+resolved: Desktop filesystem access restored; commit/push/PR completed
+done: PR https://github.com/ribhav99/fitness_agent/pull/304
+paused: implementer retired into review flow (worktree and branch intact, PR pushed); full-review session owns this worktree now
