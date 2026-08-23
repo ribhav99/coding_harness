@@ -6,6 +6,7 @@
 //                        [--investigate]  an open question to think through, not ship
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 //                        [--resume]    carrying on the last conversation held there
+//                                      also how a task whose pane died is reopened
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -185,7 +186,9 @@ if (command === 'attach') {
   const id = arg('--id', base.startsWith(prefix) ? base.slice(prefix.length) : base);
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
-  const window = arg('--window', 'workers');
+  // Left null on purpose: adoptTask picks the window, because only it knows
+  // whether this is a fresh adoption or a review being reopened.
+  const window = arg('--window');
   // Bare `--resume` means the last conversation in that worktree; a value names
   // one exactly. Refusing when there is nothing to resume is deliberate: the
   // alternative is a pane that comes up cold looking exactly like one that
@@ -299,6 +302,7 @@ if (command === 'status') {
     process.exit(0);
   }
   const caps = capabilities();
+  let dead = 0;
   for (const task of tasks) {
     const alive = paneAlive(task.pane) ? 'alive' : 'DEAD';
     let forge = '';
@@ -312,6 +316,15 @@ if (command === 'status') {
     // sits on is the only thing that says which one it is.
     const where = task.adopted && task.branch ? ` | ${task.branch}` : '';
     process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}\n`);
+    if (alive === 'DEAD') dead += 1;
+  }
+  // A dead pane is not a dead task - the worktree and the conversation are both
+  // still there. Saying so here is the difference between a panel that looks
+  // lost after a tmux restart and one that is a command away from being back.
+  if (dead) {
+    process.stdout.write(
+      `\n${dead} task(s) with no session — fm attach <worktree> --resume reopens one\n`,
+    );
   }
   const n = count();
   if (n) process.stdout.write(`\n${n} unread report(s) — fm read\n`);

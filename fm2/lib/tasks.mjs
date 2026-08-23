@@ -184,29 +184,61 @@ function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
   return pane;
 }
 
+// A session that comes up behind a dialog has not started: it has not read its
+// brief, it will never stop, and so it never reports - which looks precisely
+// like a broken hook. Two dialogs do this, and both are answered here, where the
+// pane is known, rather than leaving every launch to be rescued by hand.
+//
 // A fresh worktree is a folder Claude Code has not seen, so it asks whether the
-// folder is trusted and waits. Until that is answered the session has not
-// started, has not read its brief, and will never stop - so it never reports,
-// which looks precisely like a broken hook. Answer it here, where the pane is
-// known, rather than leaving every spawn to be rescued by hand.
-function acceptTrustPrompt(pane, { attempts = 12, waitMs = 1000 } = {}) {
+// folder is trusted.
+//
+// And an old conversation asks how much of itself to bring back. `--resume` is
+// how a task gets its pane back after a tmux server has gone, so this one is on
+// the path of every restore - eight panes came up on it at once, all of them
+// looking alive and none of them running. The offer to resume from a summary is
+// declined on purpose: resuming exists so the pane holds what was already said,
+// a summary is a lossy version of exactly that, and nothing here could tell the
+// worker what had been dropped. It costs nothing until the session takes a turn,
+// and an adopted pane comes up idle.
+function clearStartupPrompts(pane, { attempts = 20, waitMs = 1000 } = {}) {
+  let answered = false;
   for (let i = 0; i < attempts; i += 1) {
     execFileSync('sleep', [String(waitMs / 1000)]);
     let screen = '';
-    try { screen = tmux(['capture-pane', '-p', '-t', pane]); } catch { return false; }
+    try { screen = tmux(['capture-pane', '-p', '-t', pane]); } catch { return answered; }
     if (/I trust this folder/i.test(screen)) {
       tmux(['send-keys', '-t', pane, 'Enter']);
-      return true;
+      answered = true;
+      continue;
+    }
+    if (/Resume full session as-is/i.test(screen)) {
+      tmux(['send-keys', '-t', pane, '-l', '2']);
+      tmux(['send-keys', '-t', pane, 'Enter']);
+      answered = true;
+      continue;
     }
     // The brief is being worked, so no dialog is coming.
-    if (/esc to interrupt|✻|⏺/i.test(screen)) return false;
+    if (/esc to interrupt|✻|⏺/i.test(screen)) return answered;
     // Or the session came up idle - a folder Claude Code already trusts, which
     // is the common case for an adopted worktree Ribhav has worked in.
     // Without this the loop burns its full budget waiting for a prompt that was
     // never going to appear, once per pane.
-    if (/\? for shortcuts/i.test(screen)) return false;
+    if (/\? for shortcuts/i.test(screen)) return answered;
   }
-  return false;
+  return answered;
+}
+
+// A launch that dies on the way up takes its pane with it, and tmux destroys the
+// window if that pane was the only one in it. `fm attach` then printed a task id,
+// a pane and a branch for a session that was never there - which is how a
+// mistyped `--resume` reads as success. Asked after the dialogs, because the
+// pane is legitimately busy until then.
+function assertStarted(pane, id) {
+  if (paneAlive(pane)) return;
+  throw new Error(
+    `"${id}" did not start: its pane exited immediately. ` +
+      'A --resume that names no real conversation does this.',
+  );
 }
 
 export function spawnTask({ id, project, brief, baseRef = null, window = 'workers', env = {} }) {
@@ -236,7 +268,8 @@ export function spawnTask({ id, project, brief, baseRef = null, window = 'worker
   let pane;
   try {
     pane = openPane(window, wt, briefPath, id, settingsFile);
-    acceptTrustPrompt(pane);
+    clearStartupPrompts(pane);
+    assertStarted(pane, id);
   } catch (err) {
     try { git(project, ['worktree', 'remove', '--force', wt]); } catch { /* never made it */ }
     throw new Error(`could not start "${id}": ${err.message.split('\n')[0]}`);
@@ -285,8 +318,21 @@ export function lastSessionFor(cwd, root = join(homedir(), '.claude', 'projects'
 // must still be there afterwards - so adoption is its own path rather than a
 // flag on spawn, and the record carries `adopted` so teardown can tell them
 // apart. Getting that backwards would delete real work on `fm close`.
-export function adoptTask({ id, project, worktree, window = 'workers', brief = null, resume = null, env = {} }) {
-  if (loadTask(id)) throw new Error(`task "${id}" already exists`);
+// And a task whose PANE has died is the same shape of thing again. The tmux
+// server going takes every pane in the panel with it and touches nothing else:
+// the worktrees are all still on disk and every conversation is still in
+// ~/.claude/projects. What is missing is only the pane. Refusing that as
+// "already exists" left no way back at all - `attach` would not move, and `close`
+// was the only command that would, which throws the record away to get a session
+// back and takes the review's PR and the report rail with it. So a dead pane is
+// REOPENED, keeping the record: a review stays a review, an adopted worktree
+// stays Ribhav's. A pane that is alive is still refused, because that is
+// genuinely the same session started twice.
+export function adoptTask({ id, project, worktree, window = null, brief = null, resume = null, env = {} }) {
+  const existing = loadTask(id);
+  if (existing && paneAlive(existing.pane)) throw new Error(`task "${id}" already exists`);
+  // A reopened review belongs back in the reviews window, not among the workers.
+  const target = window ?? (existing?.kind === 'review' ? 'reviews' : 'workers');
   syncSkills();
   const wt = resolve(worktree);
   if (!existsSync(wt)) throw new Error(`no worktree at ${wt}`);
@@ -310,25 +356,58 @@ export function adoptTask({ id, project, worktree, window = 'workers', brief = n
 
   // Nothing to roll back. The worktree was not ours to make, so a launch that
   // fails leaves it exactly as it was found - which is the whole point.
-  const pane = openPane(window, wt, briefPath, id, settingsFile, resume);
-  acceptTrustPrompt(pane);
+  const pane = openPane(target, wt, briefPath, id, settingsFile, resume);
+  clearStartupPrompts(pane);
+  assertStarted(pane, id);
 
+  // symbolic-ref, not `rev-parse --abbrev-ref`, which answers the literal string
+  // "HEAD" for a detached checkout. A review worktree is always detached, and a
+  // record claiming it sits on a branch called HEAD is a record that lies.
   let branch = null;
-  try { branch = git(wt, ['rev-parse', '--abbrev-ref', 'HEAD']); } catch { /* detached, or worse */ }
+  try { branch = git(wt, ['symbolic-ref', '-q', '--short', 'HEAD']) || null; } catch { /* detached */ }
 
-  return saveTask({
-    id,
-    project: resolve(project),
-    worktree: wt,
-    pane,
-    brief: briefPath,
-    kind: 'adopted',
-    adopted: true,
-    branch,
-    resumed: resume,
-    created_at: new Date().toISOString(),
-    ...env,
-  });
+  return saveTask(
+    reopened(existing, {
+      id,
+      project: resolve(project),
+      worktree: wt,
+      pane,
+      brief: briefPath,
+      kind: 'adopted',
+      adopted: true,
+      branch,
+      resumed: resume,
+      created_at: new Date().toISOString(),
+      ...env,
+    }),
+  );
+}
+
+// What a task's record looks like after its pane has been reopened: everything
+// it already knew, with a new pane.
+//
+// Its own function because the risk here is silent. A reopen that quietly
+// rewrites a review as `adopted` gives it back its session and takes away
+// everything else - `fm status` stops reading its PR, `fm announce` has nothing
+// to confirm, `missingReport` loses the path it reads the report beside, and
+// `fm close` stops removing the worktree it made. The pane comes up looking
+// perfectly fine either way, so nothing would show it until one of those failed.
+export function reopened(existing, fresh) {
+  if (!existing) return fresh;
+  return {
+    ...existing,
+    ...fresh,
+    // A spec given now replaces the old brief; without one, the task keeps the
+    // brief it was launched with rather than losing the file beside its report.
+    brief: fresh.brief ?? existing.brief ?? null,
+    kind: existing.kind,
+    // Never inferred from `fresh`, which always says adopted: whether a worktree
+    // is Ribhav's or the harness's was settled when the task was made, and
+    // it decides whether closing removes it.
+    adopted: existing.adopted === true,
+    resumed: fresh.resumed ?? existing.resumed ?? null,
+    created_at: existing.created_at ?? fresh.created_at,
+  };
 }
 
 // --- teardown ----------------------------------------------------------------

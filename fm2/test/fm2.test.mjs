@@ -308,6 +308,54 @@ test('closing an adopted task takes the session down and leaves the worktree', a
   assert.equal(loadTask('keepme'), null, 'the task record outlived the close');
 });
 
+// A tmux server going takes every pane with it and nothing else. What comes back
+// has to be the same task, not a new one wearing its id.
+
+test('reopening a task keeps everything but the pane', async () => {
+  freshHome();
+  const { reopened } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  const review = {
+    id: 'pr-306-x',
+    kind: 'review',
+    pane: '%78',
+    brief: '/home/.fm2/briefs/pr-306-x/brief.md',
+    pr: '306',
+    repo: 'r/p',
+    pr_url: 'https://example/306',
+    created_at: 'the-first-time',
+  };
+  // What adoptTask offers for any worktree it is pointed at: adopted, and now.
+  const fresh = {
+    id: 'pr-306-x',
+    kind: 'adopted',
+    adopted: true,
+    pane: '%91',
+    brief: null,
+    branch: null,
+    resumed: 'abc',
+    created_at: 'now',
+  };
+
+  const back = reopened(review, fresh);
+  assert.equal(back.pane, '%91', 'the one thing that should change did not');
+  assert.equal(back.resumed, 'abc');
+  assert.equal(back.kind, 'review', 'a reopened review was rewritten as a worker');
+  assert.equal(back.adopted, false, 'a review worktree became Ribhav\'s, so close would leave it behind');
+  assert.equal(back.pr, '306', 'the PR went with the pane');
+  assert.equal(back.brief, review.brief, 'the report path went with the pane');
+  assert.equal(back.created_at, 'the-first-time', 'reopening restarted the task\'s clock');
+
+  // An adopted task keeps being adopted, and keeps its earlier conversation when
+  // this reopen names none.
+  const carried = reopened({ ...fresh, resumed: 'older', pane: '%1' }, { ...fresh, resumed: null, pane: '%2' });
+  assert.equal(carried.adopted, true);
+  assert.equal(carried.resumed, 'older', 'a reopen with no --resume forgot the conversation');
+
+  // Nothing to merge is the plain adoption path, untouched.
+  assert.deepEqual(reopened(null, fresh), fresh);
+});
+
 // Reopening a branch you have worked on should carry its conversation, and the
 // id that names it is a filename under a folder derived from the cwd. Two things
 // are easy to get wrong: the encoding (underscores become dashes, same as
