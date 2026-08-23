@@ -378,8 +378,22 @@ export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsM
 
     const others = git(wt, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
       .split('\n').map((l) => l.trim()).filter((b) => b && b !== own);
-    const unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes', ...others])
-      .split('\n').filter(Boolean);
+    // `--` ends the revisions. Without it, a branch whose name is also a path in
+    // the tree makes git refuse the whole list as ambiguous - fitness_agent has
+    // both a `marketing` branch and a `marketing/` directory - and this check
+    // then reported a clean worktree. Three commits of review fixes Ribhav
+    // had approved were sitting behind that, one `fm close` from gone.
+    let unpushed;
+    try {
+      unpushed = git(wt, ['log', '--oneline', 'HEAD', '--not', '--remotes', ...others, '--'])
+        .split('\n').filter(Boolean);
+    } catch {
+      // And a question git would not answer is not an answer. This is the one
+      // check standing between a worktree and its own unpushed commits; the only
+      // safe reading of a failure is that it might be holding some.
+      problems.push('could not tell what is on no remote here');
+      return problems;
+    }
     if (unpushed.length) problems.push(`${unpushed.length} commit(s) on no remote`);
   } catch { /* no commits reachable, or no remotes: nothing to strand */ }
   return problems;

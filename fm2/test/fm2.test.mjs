@@ -228,6 +228,44 @@ test('a task whose commits are on no remote refuses to close', async () => {
   assert.ok(problems.some((p) => /no remote/.test(p)), problems.join('; '));
 });
 
+// A branch name that is also a path in the tree makes `git log` refuse the whole
+// revision list. That refusal used to be read as "nothing is unpushed", which is
+// the one wrong answer this check must never give.
+
+test('a branch named like a path does not hide unpushed commits', async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  // The shape fitness_agent has: a `marketing/` directory tracked in the tree,
+  // and a branch called `marketing` too. Every worktree then holds a path with
+  // the same name as a ref, which is what git calls ambiguous.
+  mkdirSync(join(project, 'marketing'), { recursive: true });
+  writeFileSync(join(project, 'marketing', 'page.md'), '# a landing page\n');
+  g('add', '-A');
+  g('commit', '-qm', 'a marketing site');
+  g('branch', 'marketing');
+
+  // Judged from a different worktree, so `marketing` is one of the OTHER
+  // branches whose commits get excluded - the position that made the list
+  // ambiguous, and where the failure was read as "nothing to strand".
+  const wt = join(dirname(project), 'thing-stranded');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'stranded', wt], { stdio: 'ignore' });
+  writeFileSync(join(wt, 'note.md'), 'this commit is on no remote\n');
+  execFileSync('git', ['-C', wt, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', wt, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'work'], { stdio: 'ignore' });
+
+  const problems = unlandedWork({ worktree: wt });
+  // Counted, not just mentioned. "could not tell what is on no remote here" is
+  // the refusal git's failure now produces, and matching on the phrase alone
+  // would let the very bug this test exists for pass as a pass.
+  assert.ok(
+    problems.some((p) => /^1 commit\(s\) on no remote$/.test(p)),
+    `an ambiguous branch name hid a commit that exists nowhere else: ${problems.join('; ') || 'reported clean'}`,
+  );
+});
+
 // An adopted worktree is Ribhav's, not the harness's. The refusals that
 // protect a task's own worktree are exactly wrong for one that outlives its
 // session: nothing is stranded by closing, because closing removes nothing.
