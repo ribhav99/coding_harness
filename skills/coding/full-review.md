@@ -95,6 +95,13 @@ Launch **all** of the following as background sub-agents, one per skill. Each ag
 - `code-design-judge` — architectural fit
 - `code-adversarial-judge` — guarantee completeness
 
+**Stopping them is an action, not a statement.** These are background agents: they
+keep running until something stops them. Asked to abandon the review, issue the
+stop, confirm each one is actually gone, and only then say so. A review once
+reported all six killed while all six were still reading the diff, and had to
+correct itself twice — the user had by then been told twice that nothing was
+running. If a stop cannot be confirmed, say that instead of claiming it worked.
+
 ### 3. Do your own review (while judges run)
 
 While the sub-agents are running, perform your own independent review. This is NOT a summary of what you expect the judges to find — it's your own analysis covering things judges miss:
