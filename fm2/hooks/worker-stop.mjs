@@ -8,7 +8,7 @@
 // Never blocks and never fails loudly. A worker's turn must not be held up by
 // the supervisor's bookkeeping, and a broken hook must not strand a session.
 
-import { record, lastAssistantMessage } from '../lib/notify.mjs';
+import { record, lastAssistantMessage, hasUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
 import { loadTask } from '../lib/config.mjs';
 
@@ -31,6 +31,8 @@ try {
   if (loadTask(task)?.quiet) process.exit(0);
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
+  // Asked before recording, because recording is what would make it true.
+  const alreadyWaiting = hasUnread(task);
   if (text) record({ task, text, cwd: payload.cwd ?? null });
   // Then say so, here, at the one moment it is known to have happened.
   //
@@ -39,7 +41,7 @@ try {
   // report is most likely to land. Knocking is not conditional on the supervisor
   // looking busy or idle: whether a stop is worth acting on is the supervisor's
   // judgement, and this hook's job is only to make sure it gets to make it.
-  await knock(task);
+  if (!alreadyWaiting) await knock(task);
 } catch {
   // Deliberately silent. There is nothing a worker can do about this, and
   // failing here would make a reporting bug look like a work bug.

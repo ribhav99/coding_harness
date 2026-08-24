@@ -184,6 +184,34 @@ test('a worker stopping records its own words, and never fails the worker', asyn
   assert.equal(broken.code, 0, 'a missing transcript failed the worker');
 });
 
+test('a task with a report still unread does not knock again', async () => {
+  const home = freshHome();
+  const transcript = join(home, 'r.jsonl');
+  const write = (text) =>
+    writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } })}\n`);
+
+  const { pending, drain } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { knockLine } = await import(join(ROOT, 'lib/knock.mjs'));
+
+  // No supervisor pane recorded, so a knock cannot land either way - what this
+  // asserts is that both stops are RECORDED. Losing the second would be worse
+  // than repeating it; only the interrupt is suppressed.
+  write('PR is up');
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-9' });
+  write('the last CI waiter finished, nothing changed');
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-9' });
+
+  const items = pending();
+  assert.equal(items.length, 2, 'a repeat stop must still be recorded');
+  assert.match(items[1].text, /nothing changed/);
+  assert.equal(typeof knockLine('wo-9'), 'string');
+
+  // Reading drains the queue, so the next stop is news again.
+  drain();
+  const { hasUnread } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(hasUnread('wo-9'), false, 'reading did not clear the way for the next knock');
+});
+
 test('a quiet task reports nothing and knocks on nobody', async () => {
   const home = freshHome();
   const { saveTask } = await import(join(ROOT, 'lib/config.mjs'));

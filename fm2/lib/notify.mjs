@@ -78,6 +78,22 @@ export function drain() {
   return items;
 }
 
+// Whether this task already has a report the supervisor has not taken.
+//
+// A worker can end several turns in a row without saying anything new - a
+// background CI waiter finishing re-invokes it, it has nothing to add, and it
+// stops again. WO-337 did this six times in five minutes, each stop carrying the
+// same delivered-PR summary, and each one interrupted the supervisor.
+//
+// The report is still worth recording every time; what is not worth repeating is
+// the knock. If the supervisor has not yet read the last thing this task said, it
+// already knows the task is stopping - a second tap on the shoulder tells it
+// nothing it does not have. Once it reads, the queue drains and the next stop
+// knocks normally.
+export function hasUnread(task) {
+  return pending().some((item) => item.task === task);
+}
+
 export function count() {
   return readdirSync(notifyDir()).filter((f) => f.endsWith('.json')).length;
 }

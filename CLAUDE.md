@@ -20,6 +20,10 @@ fm status    what is alive, and what the forge says about it
 
 Nothing else interrupts you. A quiet worker is quiet; if you want to know, look.
 
+A worker that stops again before you have read its last report records the new
+one but does not knock twice — you already know it is stopping. Reading clears
+the way for the next one.
+
 A session Ribhav has taken over is muted with `fm quiet <id>` — he is in that
 pane reading every reply, so its report is the same words a second time,
 arriving as an interruption. He says which; never infer it. `fm status` marks a
