@@ -660,3 +660,35 @@ test('a branch the forge says has nothing open is still null', async () => {
     process.env.PATH = path;
   }
 });
+
+// --- attach finds its own project -------------------------------------------
+//
+// `fm attach <worktree>` defaulted --project to the supervisor's cwd, so
+// attaching to a bnl-packpilot worktree from the harness checkout died with
+// "is not a worktree of coding_harness" - a true sentence about a directory
+// nobody had named. A worktree knows its own checkout; ask it.
+
+test('a worktree names the checkout it belongs to', async () => {
+  const { execFileSync: run } = await import('node:child_process');
+  const root = mkdtempSync(join(tmpdir(), 'fm2-proj-'));
+  const repo = join(root, 'somerepo');
+  mkdirSync(repo);
+  run('git', ['-C', repo, 'init', '-q', '-b', 'main']);
+  writeFileSync(join(repo, 'f.txt'), 'x\n');
+  run('git', ['-C', repo, 'add', '.']);
+  run('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
+  const wt = join(root, 'somerepo-feature');
+  run('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'feature', wt]);
+
+  const cli = readFileSync(join(ROOT, 'cli.mjs'), 'utf8');
+  assert.match(cli, /mainCheckoutOf\(worktree\)/, 'attach no longer asks the worktree where it belongs');
+
+  // The mechanism itself: git resolves the shared .git, whose parent is the checkout.
+  const common = run('git', ['-C', wt, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    encoding: 'utf8',
+  }).trim();
+  // realpath both sides: on macOS /var is a symlink to /private/var and git
+  // reports the resolved path.
+  const { realpathSync } = await import('node:fs');
+  assert.equal(dirname(common), realpathSync(repo), 'a worktree failed to name its own checkout');
+});
