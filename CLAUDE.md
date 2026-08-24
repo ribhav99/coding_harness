@@ -20,6 +20,11 @@ fm status    what is alive, and what the forge says about it
 
 Nothing else interrupts you. A quiet worker is quiet; if you want to know, look.
 
+A session Ribhav has taken over is muted with `fm quiet <id>` — he is in that
+pane reading every reply, so its report is the same words a second time,
+arriving as an interruption. He says which; never infer it. `fm status` marks a
+muted session so the mute cannot outlive its reason.
+
 ## The work
 
 ```
@@ -28,6 +33,7 @@ fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
+fm quiet <id>                    stop a session reporting; Ribhav has that pane
 fm close <id>                    take a task down; it refuses to strand work
 fm announce <id>                 the outcome, confirmed on the forge
 ```

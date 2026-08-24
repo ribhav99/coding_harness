@@ -184,6 +184,28 @@ test('a worker stopping records its own words, and never fails the worker', asyn
   assert.equal(broken.code, 0, 'a missing transcript failed the worker');
 });
 
+test('a quiet task reports nothing and knocks on nobody', async () => {
+  const home = freshHome();
+  const { saveTask } = await import(join(ROOT, 'lib/config.mjs'));
+  saveTask({ id: 'wo-quiet', quiet: true });
+  saveTask({ id: 'wo-loud' });
+
+  const transcript = join(home, 'q.jsonl');
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`,
+  );
+
+  const { pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-quiet' }).code, 0);
+  assert.equal(pending().length, 0, 'a muted task still reported');
+
+  // And the mute is per task, not a switch on the mechanism.
+  assert.equal(runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-loud' }).code, 0);
+  assert.equal(pending().length, 1);
+  assert.equal(pending()[0].task, 'wo-loud');
+});
+
 // --- the rails ---------------------------------------------------------------
 
 function makeProject() {

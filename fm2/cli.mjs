@@ -10,6 +10,7 @@
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
+//   fm quiet <id> [--off]              stop a task reporting; Ribhav has that pane
 //   fm close <id> [--force]            take a task down, refusing to strand work
 //   fm announce <id>                   post the outcome where the review was asked for
 //   fm caps                            what this machine can reach
@@ -335,7 +336,11 @@ if (command === 'status') {
     // An adopted task has no PR of its own to read state from, so the branch it
     // sits on is the only thing that says which one it is.
     const where = task.adopted && task.branch ? ` | ${task.branch}` : '';
-    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}\n`);
+    // A muted task is otherwise invisible: it stops reporting and looks exactly
+    // like one with nothing to say. Say so here, or the mute outlives the reason
+    // for it and a session goes unwatched by both of us.
+    const muted = task.quiet ? ' | quiet' : '';
+    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}\n`);
     if (alive === 'DEAD') dead += 1;
   }
   // A dead pane is not a dead task - the worktree and the conversation are both
@@ -348,6 +353,26 @@ if (command === 'status') {
   }
   const n = count();
   if (n) process.stdout.write(`\n${n} unread report(s) — fm read\n`);
+  process.exit(0);
+}
+
+// --- quiet -------------------------------------------------------------------
+//
+// Some sessions Ribhav works himself. He is in that pane, reading every reply as
+// it lands, and the report afterwards is the same words again - arriving as an
+// interruption to whatever else he had the supervisor doing. This mutes one task
+// at the source: its Stop hook writes no notification and knocks on no pane.
+//
+// Deliberately per-task and deliberately explicit. There is no rule that could
+// infer this - "he replied to it recently" is true of every session that is
+// going well - so it is something he says, once, about the one he has taken.
+
+if (command === 'quiet') {
+  const id = process.argv[3] ?? die('usage: fm quiet <id> [--off]');
+  const task = loadTask(id) ?? die(`no task "${id}"`);
+  const off = process.argv.includes('--off');
+  saveTask({ ...task, quiet: !off });
+  process.stdout.write(off ? `${id} reports again\n` : `${id} is quiet\n`);
   process.exit(0);
 }
 
@@ -396,4 +421,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|handoff|read|status|close|announce|caps');
+die('usage: fm review|ship|attach|handoff|read|status|quiet|close|announce|caps');

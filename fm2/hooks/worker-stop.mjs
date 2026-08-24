@@ -10,6 +10,7 @@
 
 import { record, lastAssistantMessage } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
+import { loadTask } from '../lib/config.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -22,6 +23,12 @@ for await (const chunk of process.stdin) raw += chunk;
 try {
   const payload = JSON.parse(raw || '{}');
   const task = process.env.FM2_TASK || 'unknown';
+  // A task Ribhav is running himself. He is already in that pane reading the
+  // replies as they land, so a report about it is not news - it is the same
+  // words a second time, arriving as an interruption. Silence is the whole
+  // feature: no notification is written and no knock is sent, so there is
+  // nothing for the supervisor's own Stop hook to block on either.
+  if (loadTask(task)?.quiet) process.exit(0);
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
   if (text) record({ task, text, cwd: payload.cwd ?? null });
