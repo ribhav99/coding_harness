@@ -10,6 +10,7 @@
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
+//   fm tell <id> <message>             pass Ribhav's words to a session
 //   fm quiet <id> [--off]              stop a task reporting; Ribhav has that pane
 //   fm close <id> [--force]            take a task down, refusing to strand work
 //   fm announce <id>                   post the outcome where the review was asked for
@@ -356,6 +357,36 @@ if (command === 'status') {
   process.exit(0);
 }
 
+// --- tell --------------------------------------------------------------------
+//
+// The supervisor does not chat with workers. Three things it may say, and this
+// carries all three: an answer Ribhav gave to a question the worker asked, a
+// message Ribhav asked to be passed on verbatim, and the handoff.
+//
+// It exists because doing it by hand meant driving tmux directly - two
+// `send-keys` calls, the pane id copied from `status`, and no check that anyone
+// was there to hear it. A message typed into a dead pane goes nowhere and says
+// it succeeded, which is the failure this refuses.
+//
+// What it deliberately does NOT do is invent a reason to speak. Whether a
+// session should be told something is a judgement made before running this.
+
+if (command === 'tell') {
+  const id = process.argv[3] ?? die('usage: fm tell <id> <message>');
+  const message = process.argv.slice(4).join(' ').trim();
+  if (!message) die('usage: fm tell <id> <message>');
+  const task = loadTask(id) ?? die(`no task "${id}"`);
+  // A pane that has gone takes the message with it and reports nothing. Say so
+  // instead, and name the way back.
+  if (!paneAlive(task.pane)) {
+    die(`"${id}" has no session (pane ${task.pane} is gone); nothing was sent.\n` +
+        `fm attach ${task.worktree} --resume reopens it.`);
+  }
+  sendToPane(task.pane, message);
+  process.stdout.write(`told ${id}\n`);
+  process.exit(0);
+}
+
 // --- quiet -------------------------------------------------------------------
 //
 // Some sessions Ribhav works himself. He is in that pane, reading every reply as
@@ -421,4 +452,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|handoff|read|status|quiet|close|announce|caps');
+die('usage: fm review|ship|attach|handoff|read|status|tell|quiet|close|announce|caps');

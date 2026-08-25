@@ -37,6 +37,7 @@ fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
+fm tell <id> <message>           pass Ribhav's words to a session
 fm quiet <id>                    stop a session reporting; Ribhav has that pane
 fm close <id>                    take a task down; it refuses to strand work
 fm announce <id>                 the outcome, confirmed on the forge

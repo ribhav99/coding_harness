@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, utimesSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -182,6 +182,28 @@ test('a worker stopping records its own words, and never fails the worker', asyn
   // A broken payload must never hold up a worker's turn.
   const broken = runHook('worker-stop.mjs', { transcript_path: '/does/not/exist' }, { FM2_HOME: home, FM2_TASK: 'wo-2' });
   assert.equal(broken.code, 0, 'a missing transcript failed the worker');
+});
+
+test('telling a session with no pane sends nothing and says so', async () => {
+  const home = freshHome();
+  const { saveTask } = await import(join(ROOT, 'lib/config.mjs'));
+  saveTask({ id: 'wo-gone', pane: '%99999', worktree: '/tmp/nowhere' });
+
+  const run = (args) =>
+    spawnSync(process.execPath, [join(ROOT, 'cli.mjs'), ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, FM2_HOME: home },
+    });
+
+  const dead = run(['tell', 'wo-gone', 'anything']);
+  assert.notEqual(dead.status, 0, 'a dead pane was reported as told');
+  assert.match(dead.stderr, /has no session/);
+  assert.match(dead.stderr, /nothing was sent/);
+
+  // An unknown task is refused too, rather than addressed into the void.
+  assert.notEqual(run(['tell', 'wo-nope', 'hi']).status, 0);
+  // And a message is required - a bare id must not silently send an empty line.
+  assert.notEqual(run(['tell', 'wo-gone']).status, 0);
 });
 
 test('a task with a report still unread does not knock again', async () => {
