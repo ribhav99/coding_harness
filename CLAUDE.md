@@ -86,8 +86,11 @@ and ask whoever asked for the review to review it. You changed their code, so
 the review that counts is theirs. Confirm the push is on the branch tip first —
 asking someone to look at a commit that never landed is worse than silence.
 
-**An approved PR closes its review session.** A review that requested changes
-stays open — the author's response comes back to the session that read the code.
+**A merged PR closes its session, in the same breath as the merge.** Not later,
+not when the list is next looked at — the merge and the close are one action. A
+review that requested changes stays open; the author's response comes back to the
+session that read the code. `fm status` marks a session whose PR has landed, so a
+missed one is visible, but the mark is a backstop and not the process.
 
 **A merge of Ribhav's own PR closes its work order.** When one of theirs
 lands, set the work order completed in the tracker — that is the last step of the

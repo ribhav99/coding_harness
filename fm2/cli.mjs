@@ -325,13 +325,20 @@ if (command === 'status') {
   }
   const caps = capabilities();
   let dead = 0;
+  let merged = 0;
   for (const task of tasks) {
     const alive = paneAlive(task.pane) ? 'alive' : 'DEAD';
     let forge = '';
+    // A session whose PR has landed has nothing left to do, and it does not
+    // announce that - it just sits in the list looking like work in progress.
+    // Ribhav had to notice three of them himself. Say it here, where the forge
+    // is already being asked, and say it as an instruction rather than a state.
+    let landed = false;
     if (task.pr && caps.gh) {
       try {
         const s = reviewState(task.repo, task.pr);
         forge = ` | PR ${task.pr} ${s.prState}/${s.decision ?? '-'}`;
+        landed = s.prState === 'MERGED';
       } catch { forge = ` | PR ${task.pr} unreadable`; }
     }
     // An adopted task has no PR of its own to read state from, so the branch it
@@ -341,12 +348,19 @@ if (command === 'status') {
     // like one with nothing to say. Say so here, or the mute outlives the reason
     // for it and a session goes unwatched by both of us.
     const muted = task.quiet ? ' | quiet' : '';
-    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}\n`);
+    const done = landed ? '  <- MERGED, close it' : '';
+    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}${done}\n`);
     if (alive === 'DEAD') dead += 1;
+    if (landed) merged += 1;
   }
   // A dead pane is not a dead task - the worktree and the conversation are both
   // still there. Saying so here is the difference between a panel that looks
   // lost after a tmux restart and one that is a command away from being back.
+  if (merged) {
+    process.stdout.write(
+      `\n${merged} session(s) whose PR has merged — fm close <id> takes them down\n`,
+    );
+  }
   if (dead) {
     process.stdout.write(
       `\n${dead} task(s) with no session — fm attach <worktree> --resume reopens one\n`,
