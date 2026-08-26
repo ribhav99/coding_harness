@@ -23,8 +23,24 @@ function git(cwd, args, { quiet = true } = {}) {
   }).trim();
 }
 
+// Bounded, because a tmux call that never returns is worse than one that fails.
+//
+// `send-keys` can block indefinitely when the caller's environment cannot reach
+// the tmux socket - a sandboxed shell is the case that bit us. There is no
+// output and no error, so `fm tell` simply never came back and the message was
+// never delivered; worse, the literal had already landed, leaving the typed
+// text stranded unsent in the worker's prompt where the next send would
+// concatenate onto it. Ten seconds is far longer than any tmux command here
+// legitimately takes, so a timeout means something is wrong, not slow.
 function tmux(args) {
-  return execFileSync('tmux', args, { encoding: 'utf8' }).trim();
+  try {
+    return execFileSync('tmux', args, { encoding: 'utf8', timeout: 10_000 }).trim();
+  } catch (error) {
+    if (error?.signal === 'SIGTERM' && error?.killed) {
+      throw new Error(`tmux ${args[0]} did not return within 10s (target ${args[2] ?? '?'})`);
+    }
+    throw error;
+  }
 }
 
 // What a new task branches FROM.
@@ -542,9 +558,19 @@ export function closeTask(id, { force = false } = {}) {
   return task;
 }
 
+// The text and the Enter are two calls, and the gap between them is a real
+// state: if the second one fails the message is sitting in the worker's prompt,
+// typed and unsent, and the caller has to be told that rather than left to
+// discover it when the next message concatenates onto the stranded one.
 export function sendToPane(pane, line) {
   tmux(['send-keys', '-t', pane, '-l', line]);
-  tmux(['send-keys', '-t', pane, 'Enter']);
+  try {
+    tmux(['send-keys', '-t', pane, 'Enter']);
+  } catch (error) {
+    throw new Error(
+      `${error.message}\nthe message was typed into ${pane} but not submitted - clear that prompt before sending again`,
+    );
+  }
 }
 
 // Asked by membership, not by addressing the pane.
