@@ -413,6 +413,56 @@ test('a review of your own PR opens on apply-fixes, with the Fix choices showing
 // Ribhav's decisions then had nowhere to land - the guard causing exactly
 // the misdelivery it was written to prevent.
 
+// The stale-server bug, from both ends. A running process reports what it was
+// built from, and a stamp computed from changed source no longer matches it -
+// which is what lets the CLI tell "already running" apart from "running the
+// code I have".
+test('the server reports the build it is running, and a source change changes it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-build-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+
+  const port = 4407;
+  const { spawn } = await import('node:child_process');
+  const server = spawn(process.execPath, [join(ROOT, 'server.mjs')], {
+    env: { ...process.env, SURFACE_HOME: home, SURFACE_PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => server.kill('SIGKILL'));
+
+  const base = `http://127.0.0.1:${port}`;
+  let health = null;
+  for (let i = 0; i < 60; i += 1) {
+    try {
+      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) });
+      if (r.ok) {
+        health = await r.json();
+        break;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.ok(health, 'the server never answered /health');
+  assert.match(health.build, /^[0-9a-f]{12}$/, 'the server did not report a build stamp');
+  // The pid is how the CLI stops this exact process. Matching on the command
+  // line does not work - the live server had been started by hand with a
+  // relative path, so no pattern built from an absolute one ever found it.
+  assert.equal(typeof health.pid, 'number', 'the server did not report its pid');
+  assert.equal(health.pid, server.pid, 'the reported pid is not the process serving the port');
+
+  const { buildStamp } = await import(join(ROOT, 'lib/build.mjs'));
+  assert.equal(health.build, buildStamp(), 'a fresh stamp did not match the running one');
+
+  // A negative control: without this, a stamp that ignored the sources
+  // entirely - a constant - would pass everything above.
+  const source = join(ROOT, 'server.mjs');
+  const original = readFileSync(source, 'utf8');
+  t.after(() => writeFileSync(source, original));
+  writeFileSync(source, `${original}\n// touched by the build-stamp test\n`);
+  assert.notEqual(buildStamp(), health.build, 'editing the source did not change the stamp');
+  writeFileSync(source, original);
+  assert.equal(buildStamp(), health.build, 'restoring the source did not restore the stamp');
+});
+
 test('a claim from before the pane existed does not block the review running in it', async () => {
   const home = mkdtempSync(join(tmpdir(), 'surface-stale-'));
   process.env.SURFACE_HOME = join(home, 'registry');

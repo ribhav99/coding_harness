@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import {
   register, lookup, idFor, readDecisions, decisionsPath, listReviews, claimSupervisorPane,
 } from './lib/store.mjs';
+import { buildStamp } from './lib/build.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.SURFACE_PORT || 4390);
@@ -33,26 +34,66 @@ function die(message, code = 1) {
   process.exit(code);
 }
 
-async function serverAlive() {
+async function serverHealth() {
   try {
     const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(1500) });
-    return res.ok;
+    if (!res.ok) return null;
+    return await res.json();
   } catch {
-    return false;
+    return null;
   }
 }
 
-// Start detached and wait for it to answer. Detached because the server outlives
-// the session that happened to need it first; a review opened at noon must still
-// serve a tab opened at five.
-async function ensureServer() {
-  if (await serverAlive()) return false;
+async function serverAlive() {
+  return (await serverHealth()) !== null;
+}
+
+function spawnServer() {
   const child = spawn(process.execPath, [join(HERE, 'server.mjs')], {
     detached: true,
     stdio: 'ignore',
     env: process.env,
   });
   child.unref();
+}
+
+// Start detached and wait for it to answer. Detached because the server outlives
+// the session that happened to need it first; a review opened at noon must still
+// serve a tab opened at five.
+//
+// Outliving the session is the point; outliving the code is the bug. Because
+// nothing ever restarted it, a server started in August served August's code
+// for weeks - which is how a word renamed out of the harness kept appearing in
+// files written long after the rename. So compare what the running process was
+// built from against the source on disk, and replace it when they differ. This
+// CLI is a fresh process each time, so its own stamp is always current.
+// Stop whatever is serving this port, by the pid it reports rather than by
+// matching a command line. Returns false if something is still answering.
+async function stopServer(pid) {
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    if (pid) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        /* already gone, or not ours to signal; the port check below decides */
+      }
+    }
+    for (let i = 0; i < 30; i += 1) {
+      if (!(await serverAlive())) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  return !(await serverAlive());
+}
+
+async function ensureServer() {
+  const health = await serverHealth();
+  if (health) {
+    if (health.build === buildStamp()) return false;
+    process.stderr.write('surface: the running server is out of date; restarting it\n');
+    if (!(await stopServer(health.pid))) die(`the out-of-date server on ${BASE} would not stop`);
+  }
+  spawnServer();
   for (let i = 0; i < 40; i += 1) {
     await new Promise((r) => setTimeout(r, 150));
     if (await serverAlive()) return true;
@@ -139,11 +180,12 @@ if (command === 'claim-supervisor') {
 }
 
 if (command === 'stop') {
-  try {
-    execFileSync('pkill', ['-f', join(HERE, 'server.mjs')], { stdio: 'ignore' });
-  } catch {
-    /* already stopped */
+  const health = await serverHealth();
+  if (!health) {
+    process.stdout.write('surface: nothing was running\n');
+    process.exit(0);
   }
+  if (!(await stopServer(health.pid))) die(`the server on ${BASE} would not stop`);
   process.stdout.write('surface: stopped\n');
   process.exit(0);
 }

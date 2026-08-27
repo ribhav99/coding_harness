@@ -1,13 +1,13 @@
-# Captain preferences
+# Ribhav preferences
 
 Local, gitignored. Printed in the session-start digest.
 Inspect and rewrite entries in place — do not append forever.
 
 ## Working style
 
-- The captain drives task selection. Do not self-initiate surveys, audits, or
+- Ribhav drives task selection. Do not self-initiate surveys, audits, or
   "while I was in there" work. Wait to be told. (2026-08-01)
-- The captain reads work directly in the agent's own pane rather than asking for
+- Ribhav reads work directly in the agent's own pane rather than asking for
   a relayed summary. Treat direct intervention in a pane as authoritative and
   reconcile it at the next supervision pass. (2026-08-01)
 
@@ -21,25 +21,25 @@ Inspect and rewrite entries in place — do not append forever.
   Ship work goes to `workers`, review and scout work to `reviews`. (2026-08-01)
 
 - Every crewmate and scout launches as `claude --dangerously-skip-permissions
-  --effort max`. This is a standing captain instruction, enforced mechanically by
+  --effort max`. This is a standing Ribhav instruction, enforced mechanically by
   `config/crew-harness` and `config/crew-effort` in each home, not by memory.
-  AGENTS.md section 4's generic "never max without explicit captain preference"
+  AGENTS.md section 4's generic "never max without explicit Ribhav preference"
   fallback is superseded by this. Do not lower it per task without being asked.
   (2026-08-01)
 
 ## Delivery
 
-- Projects run in `direct-PR` mode. The captain's own reviewer fleet in
+- Projects run in `direct-PR` mode. Ribhav's own reviewer fleet in
   `../skills/coding/` is the quality gate — `no-mistakes` is deliberately not
   installed and must not be reintroduced as a second pipeline. (2026-08-01)
-- Never merge without the captain's explicit word. `yolo` stays off. (2026-08-01)
+- Never merge without Ribhav's explicit word. `yolo` stays off. (2026-08-01)
 
 ## Tooling
 
 - The AXI suite is deliberately absent except where explicitly reintroduced.
   `bin/fm-pr-merge.sh` and `bin/fm-teardown.sh` use plain `gh`. Do not propose
   installing `quota-axi` or `chrome-devtools-axi`. (2026-08-01)
-- `tasks-axi` IS installed (0.2.4). It backs durable captain decision holds
+- `tasks-axi` IS installed (0.2.4). It backs durable Ribhav decision holds
   (`bin/fm-decision-hold.sh`), which scout teardown verifies. The backlog itself
   stays hand-edited via `config/backlog-backend=manual`. (2026-08-01)
 - Finishing a scout is a two-step gate, by design: write `data/<id>/report.md`,
@@ -47,13 +47,13 @@ Inspect and rewrite entries in place — do not append forever.
   `bin/fm-decision-hold.sh complete <id> --none` (or list real decision keys).
   Teardown refuses until both hold. That refusal is the gate working — never
   reach for `--force` to get past it. (2026-08-01)
-- `lavish-axi` IS used, but only by the captain's `full-review` skill, and only
+- `lavish-axi` IS used, but only by Ribhav's `full-review` skill, and only
   via the `lavish` shell function (node 22). It is not a firstmate
   dependency. (2026-08-01)
-- Projects may be SYMLINKS under `projects/` pointing at a checkout the captain
+- Projects may be SYMLINKS under `projects/` pointing at a checkout Ribhav
   already had on disk, rather than firstmate-owned clones. `fitness_agent` is one.
   Never re-clone a project that is already symlinked, and never treat a
-  `FLEET_SYNC: STUCK:` line for such a project as a problem to fix - the captain
+  `FLEET_SYNC: STUCK:` line for such a project as a problem to fix - Ribhav
   works on their own branch there and that is expected. (2026-08-01)
 - Worktrees are plain `git worktree` siblings of the project checkout, named
   `<project>-fm-<id>`. No pool, no leases, no warm state, no setup hooks —

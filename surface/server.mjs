@@ -20,6 +20,7 @@ import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { renderPage } from './lib/render.mjs';
+import { buildStamp } from './lib/build.mjs';
 import {
   register,
   lookup,
@@ -34,6 +35,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const STATIC = join(HERE, 'static');
 const PORT = Number(process.env.SURFACE_PORT || 4390);
 const HOST = '127.0.0.1';
+const BUILD = buildStamp();
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 
@@ -120,7 +122,14 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const path = url.pathname;
 
-  if (path === '/health') return json(res, 200, { ok: true, reviews: listReviews().length });
+  // `build` is how a caller tells this process apart from the source on disk;
+  // `pid` is how it stops exactly this process and no other. Matching on the
+  // command line instead does not work: a server started by hand from the repo
+  // root has a relative path in its argv and no pattern built from an absolute
+  // one will find it, while a pattern loose enough to match would also kill a
+  // server a test is running on another port.
+  if (path === '/health')
+    return json(res, 200, { ok: true, reviews: listReviews().length, build: BUILD, pid: process.pid });
 
   if (path.startsWith('/static/')) {
     const file = join(STATIC, path.slice('/static/'.length));

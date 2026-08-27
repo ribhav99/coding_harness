@@ -9,7 +9,7 @@ Sections and item shape match the tasks-axi markdown format: `## In flight`,
 - timer-notif-292 - Live ongoing rest-timer notification (Android), issue #292
   project: fitness_agent | kind: ship | mode: direct-PR | dispatched 2026-08-01
   branch: fm/timer-notif-292
-  Brief scoped this Android-only with iOS deferred. Captain overrode that directly
+  Brief scoped this Android-only with iOS deferred. Ribhav overrode that directly
   in the worker's pane on 2026-08-01: iOS is now primary - ActivityKit Live Activity
   plus a new widget-extension target (worker edits the Xcode project file), with the
   Android chronometer secondary. That decision is settled; do not re-raise it.

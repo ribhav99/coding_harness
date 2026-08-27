@@ -12,7 +12,7 @@ Line format:
 Modes: `direct-PR` | `local-only`.
 
 `no-mistakes` is NOT available in this home — it is deliberately not installed
-(see `data/captain.md`). Use `direct-PR` so the captain's own reviewer fleet in
+(see `data/preferences.md`). Use `direct-PR` so Ribhav's own reviewer fleet in
 `../skills/coding/` gates the work, or `local-only` where there is no remote.
 
 An unregistered project, a bracket-less legacy line, or an unknown mode all fall
@@ -22,6 +22,6 @@ anyway — the fallback is a safety net, not a workflow.
 ## Registered
 
 - fitness_agent [direct-PR] - main app; projects/fitness_agent is a SYMLINK to the
-  captain's existing checkout at ~/Desktop/everything/College/CS/fitness_agent,
+  Ribhav's existing checkout at ~/Desktop/everything/College/CS/fitness_agent,
   not a firstmate-owned clone. Task worktrees land beside that real checkout as
   fitness_agent-fm-<id>. (added 2026-08-01)

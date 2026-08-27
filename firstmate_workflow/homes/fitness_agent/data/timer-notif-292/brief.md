@@ -35,7 +35,7 @@ countdown must stay correct without relying on a JS timer ticking in the backgro
 
 **Do NOT implement iOS.** A live countdown on iOS requires a Live Activity (ActivityKit plus a
 new widget extension target in `ios/`), which is a materially larger piece of work and is a
-pending captain decision. On iOS the feature must cleanly no-op: no crash, no regression, and
+pending Ribhav decision. On iOS the feature must cleanly no-op: no crash, no regression, and
 the existing completion alert keeps working exactly as it does today. If you conclude the
 feature is incoherent without iOS, append `needs-decision:` and stop rather than building it.
 
@@ -65,7 +65,7 @@ feature is incoherent without iOS, append `needs-decision:` and stop rather than
   have a physical device; state plainly in the PR what you could and could not verify.
 
 ## Notes
-This is an app the captain ships. Match the existing service/hook/component conventions rather
+This is an app Ribhav ships. Match the existing service/hook/component conventions rather
 than introducing a new architecture. If the right design turns out to differ from this brief,
 say so in the PR description - do not silently expand scope.
 

@@ -2,4 +2,4 @@ working: setup done - worktree isolated, branch fm/volume-score-135 created, cod
 resolved: Desktop filesystem access restored (macOS TCC); resuming chart fixes, verification and PR
 done: PR https://github.com/ribhav99/fitness_agent/pull/305
 paused: implementer retired into review flow (worktree and branch intact, PR pushed); full-review session owns this worktree now
-failed: PR #305 closed unmerged by captain; attempt superseded, restarting from scratch as volume-score-135b (old branch fm/volume-score-135 and its worktree left intact)
+failed: PR #305 closed unmerged by Ribhav; attempt superseded, restarting from scratch as volume-score-135b (old branch fm/volume-score-135 and its worktree left intact)

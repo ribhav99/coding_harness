@@ -9,7 +9,7 @@ Implement GitHub issue #135 (https://github.com/ribhav99/fitness_agent/issues/13
 
 The issue body is empty; the title above is the whole ask, and this brief is the specification.
 
-**This is a fresh start.** An earlier attempt shipped as PR #305 and the captain closed it
+**This is a fresh start.** An earlier attempt shipped as PR #305 and Ribhav closed it
 unmerged. Do not look at that branch, do not resurrect its commits, and do not treat it as a
 starting point - you are solving the problem from scratch. If you happen across it, ignore it.
 
