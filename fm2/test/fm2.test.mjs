@@ -256,6 +256,38 @@ test('a quiet task reports nothing and knocks on nobody', async () => {
   assert.equal(pending()[0].task, 'wo-loud');
 });
 
+// A session restarted by hand comes back in a new pane. Reporting survives that
+// - this hook finds its task through FM2_TASK - but everything addressed to the
+// session does not, so the record has to follow the session rather than the
+// spawn. This is the one moment the live pane is known.
+test('a stop records where the session is now, muted or not', async () => {
+  const home = freshHome();
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  saveTask({ id: 'wo-moved', pane: '%1' });
+  saveTask({ id: 'wo-moved-quiet', pane: '%1', quiet: true });
+  saveTask({ id: 'wo-still', pane: '%1' });
+
+  const transcript = join(home, 'moved.jsonl');
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'done' }] } })}\n`,
+  );
+
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-moved', TMUX_PANE: '%42' });
+  assert.equal(loadTask('wo-moved').pane, '%42', 'the task still names the pane it was spawned in');
+
+  // A muted task moves panes too, and unmuting it later must not find a stale id.
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-moved-quiet', TMUX_PANE: '%43' });
+  const quiet = loadTask('wo-moved-quiet');
+  assert.equal(quiet.pane, '%43', 'a muted task did not follow its session');
+  assert.equal(quiet.quiet, true, 'following the session dropped the mute');
+
+  // Negative control: outside tmux nothing is known, so nothing is written.
+  // (Blank rather than absent, because the hook inherits the caller's env.)
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-still', TMUX_PANE: '' });
+  assert.equal(loadTask('wo-still').pane, '%1', 'an unknown pane overwrote a good one');
+});
+
 // --- the rails ---------------------------------------------------------------
 
 function makeProject() {

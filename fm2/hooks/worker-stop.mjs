@@ -10,7 +10,7 @@
 
 import { record, lastAssistantMessage, hasUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
-import { loadTask } from '../lib/config.mjs';
+import { loadTask, saveTask } from '../lib/config.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -23,6 +23,19 @@ for await (const chunk of process.stdin) raw += chunk;
 try {
   const payload = JSON.parse(raw || '{}');
   const task = process.env.FM2_TASK || 'unknown';
+  // Where this task is now, not where it was spawned. A session that is
+  // restarted by hand - to pick up a Claude Code update, say - comes back in a
+  // different pane, and the task record still names the old one. Reporting
+  // survives that, because this hook finds its task through FM2_TASK rather
+  // than the pane; everything addressed *to* the session does not. `fm status`
+  // calls it DEAD and `fm tell` refuses to send. The supervisor's own Stop hook
+  // already re-records its pane for exactly this reason - a worker is no
+  // different, and here is the one moment its live pane is known.
+  const here = process.env.TMUX_PANE;
+  const known = loadTask(task);
+  if (here && known && known.pane !== here) {
+    try { saveTask({ ...known, pane: here }); } catch { /* bookkeeping never blocks a turn */ }
+  }
   // A task Ribhav is running himself. He is already in that pane reading the
   // replies as they land, so a report about it is not news - it is the same
   // words a second time, arriving as an interruption. Silence is the whole
