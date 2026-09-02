@@ -81,10 +81,12 @@ comments`, `approved`. Confirm on the forge first — never relay a worker's cla
 about what it posted. Only if Slack is connected; otherwise tell Ribhav.
 
 **Fixes you pushed are asked for back.** When apply-fixes lands on someone
-else's branch, the announcement is not an outcome, it is a request: name the sha
-and ask whoever asked for the review to review it. You changed their code, so
-the review that counts is theirs. Confirm the push is on the branch tip first —
-asking someone to look at a commit that never landed is worse than silence.
+else's branch, the announcement is not an outcome, it is a request: say the
+branch was touched and ask whoever asked for the review to look. You changed
+their code, so the review that counts is theirs. Confirm the push is on the
+branch tip first — asking someone to look at a commit that never landed is worse
+than silence. Confirm it, do not quote it: a sha identifies nothing they can act
+on, and they open the PR and see the head regardless.
 
 **A merged PR closes its session, in the same breath as the merge.** Not later,
 not when the list is next looked at — the merge and the close are one action. A
