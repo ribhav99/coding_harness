@@ -796,3 +796,82 @@ test('a worktree names the checkout it belongs to', async () => {
   const { realpathSync } = await import('node:fs');
   assert.equal(dirname(common), realpathSync(repo), 'a worktree failed to name its own checkout');
 });
+
+test("a long message reaches the worker's prompt whole", async () => {
+  freshHome();
+  const { sendToPane } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  // A real pane, in a session of this test's own, running `cat` into a file so
+  // what ARRIVED can be compared byte for byte against what was sent. Reading
+  // the screen instead would only prove what fit on it. Ribhav's words are
+  // carried by exactly this call, so the only honest test of it is a live one.
+  const session = `fm2-send-${process.pid}`;
+  const out = join(mkdtempSync(join(tmpdir(), 'fm2-send-')), 'arrived.txt');
+  const tmux = (args) => execFileSync('tmux', args, { encoding: 'utf8' }).trim();
+  let pane;
+  try {
+    // Chained with the create, because ~/.tmux.conf sets destroy-unattached on
+    // and a detached session dies before the next command can address it - the
+    // same reason openPane chains it.
+    pane = tmux(['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', session, '-x', '200', '-y', '50',
+      // Two things make this stand in for Claude Code. -icanon, because Claude
+      // Code reads its input in raw mode and a cooked tty would drop any single
+      // line over ~1KB before sendToPane was ever involved - the test would be
+      // measuring the line discipline instead of the thing it is about. And
+      // ESC[?2004h, because tmux only brackets a paste for an application that
+      // has asked for bracketed paste; a receiver that never asks is sent the
+      // bytes bare, and the test would pass on the broken path for a reason
+      // that has nothing to do with the message.
+      'sh', '-c', `stty -icanon -echo min 1 time 0; printf '\\033[?2004h'; cat > ${out}`,
+      ';', 'set-option', '-t', session, 'destroy-unattached', 'off']);
+  } catch {
+    return; // no tmux server here; a live test is the point, so skip rather than fake one
+  }
+
+  try {
+    // Long enough to overrun what a keystroke stream survives, and multi-line,
+    // which is the half that used to join words across the break. The message
+    // that broke this arrived with its first two thirds gone and "Backoffice
+    // names" welded into "Backofficenames".
+    const message = [
+      'FIRST-LINE-MARKER the instruction that must not be dropped from the front.',
+      'Keep the Backoffice names in CC as they are set up.',
+      'padding so the message is far longer than one keystroke burst survives. '.repeat(20).trim(),
+      'LAST-LINE-MARKER open the PR when it is green.',
+    ].join('\n');
+
+    // The receiver has to have asked for bracketed paste before anything is
+    // sent, and `new-session` returns as soon as the pane exists - well before
+    // its shell has run. `cat`'s redirect creates the file only after the printf
+    // above it, so the file appearing is the signal that the pane is ready.
+    for (let i = 0; i < 50 && !existsSync(out); i += 1) execFileSync('sleep', ['0.1']);
+    assert.ok(existsSync(out), 'the test receiver never started');
+
+    sendToPane(pane, message);
+    execFileSync('sleep', ['1']);
+
+    // The tty passes the bracketed-paste markers through untouched - only an
+    // application that understands them takes them off - so they are stripped
+    // here rather than being counted as corruption.
+    const arrived = readFileSync(out, 'utf8');
+
+    // What this pins is the PROTOCOL, and it is worth being exact about why.
+    // The receiver here is `cat`, which drains its tty as fast as bytes appear;
+    // Claude Code is a TUI that does not, and the corruption in production came
+    // out of that difference. A test cannot honestly reproduce the race, but it
+    // can hold the mechanism that removes it: the message must arrive announced
+    // as a paste, not as a keystroke stream the application is free to coalesce,
+    // drop the front of, and eat the newlines out of. Reverting sendToPane to
+    // `send-keys -l` fails on these two lines and passes every other assertion
+    // here, which is the honest shape of what changed.
+    assert.ok(arrived.startsWith('\u001b[200~'), 'the message was typed, not pasted');
+    assert.ok(arrived.includes('\u001b[201~'), 'the paste was never closed');
+
+    // And inside the markers it is byte for byte what was sent - the front
+    // intact, and the line breaks still line breaks rather than welded joins.
+    const body = arrived.slice('\u001b[200~'.length, arrived.indexOf('\u001b[201~'));
+    assert.equal(body, message, 'the message did not arrive as it was sent');
+  } finally {
+    try { tmux(['kill-session', '-t', session]); } catch { /* already gone */ }
+  }
+});
