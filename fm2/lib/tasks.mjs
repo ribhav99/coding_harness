@@ -143,23 +143,42 @@ function placeholderPane(target) {
   return pane;
 }
 
-function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
+// What a worker is actually started as.
+//
+// Its own function because every flag in it is a decision that is invisible
+// once the pane is up. A worker on the wrong model, at the wrong effort, or
+// without its settings file looks exactly like one that is right - same pane,
+// same reports, same `fm status` line - so the only place the choice can be
+// held is here, where a test can read it.
+export function launchCommand({ id, settingsFile, briefPath = null, resume = null }) {
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
   // shell asked for the pane. Without them the hook fires and writes its report
   // into the wrong home, which looks exactly like the hook not firing at all.
   const env = `FM2_TASK=${JSON.stringify(id)} FM2_HOME=${JSON.stringify(homeDir())}`;
+  // The model is named rather than left to whatever the CLI defaults to. A
+  // default is not a choice: the default moved to Fable and every worker
+  // spawned after that quietly came up on it, which nothing in a pane, a report
+  // or `fm status` would ever show. Ribhav's workers run on Opus, so the
+  // command says so itself instead of depending on the CLI agreeing.
+  //
   // No brief means no opening prompt: the session comes up idle, waiting for
   // whoever opens the pane. An adopted worktree has no task to be handed, and
   // passing an empty string instead would start a turn on nothing.
+  //
   // Resuming picks the conversation back up where it stopped, so the pane comes
   // up holding everything that was already said in this worktree rather than
   // cold. It is a launch flag, not a message: nothing is sent to the worker.
-  const command =
-    `${env} claude --dangerously-skip-permissions --effort max ` +
+  return (
+    `${env} claude --dangerously-skip-permissions --effort max --model opus ` +
     `--settings ${JSON.stringify(settingsFile)}` +
     (resume ? ` --resume ${JSON.stringify(resume)}` : '') +
-    (briefPath ? ` "$(cat ${JSON.stringify(briefPath)})"` : '');
+    (briefPath ? ` "$(cat ${JSON.stringify(briefPath)})"` : '')
+  );
+}
+
+function openPane(window, cwd, briefPath, id, settingsFile, resume = null) {
+  const command = launchCommand({ id, settingsFile, briefPath, resume });
   let session = sessionName();
   if (!session) {
     session = 'fm';

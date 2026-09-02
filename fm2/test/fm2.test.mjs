@@ -875,3 +875,28 @@ test("a long message reaches the worker's prompt whole", async () => {
     try { tmux(['kill-session', '-t', session]); } catch { /* already gone */ }
   }
 });
+
+test('a worker is launched on Opus, not on whatever the CLI defaults to', async () => {
+  freshHome();
+  const { launchCommand } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  const cmd = launchCommand({ id: 'wo-9', settingsFile: '/s.json' });
+
+  // The default moved to Fable under us and every worker spawned after that came
+  // up on it silently - nothing in the pane, the report or `fm status` says which
+  // model a session is. Naming it is the only thing that makes the choice real.
+  assert.match(cmd, /--model opus\b/, 'the launch left the model to the CLI default');
+  assert.match(cmd, /--effort max\b/);
+  assert.match(cmd, /--dangerously-skip-permissions\b/);
+  assert.match(cmd, /--settings "\/s\.json"/);
+  assert.match(cmd, /FM2_TASK="wo-9"/, 'the hook could not find its task');
+
+  // An idle pane and a resumed one differ only in these two flags, and both are
+  // easy to pass by accident: an empty brief would start a turn on nothing, and
+  // a stray --resume would silently reopen an unrelated conversation.
+  assert.doesNotMatch(cmd, /--resume/);
+  assert.doesNotMatch(cmd, /\$\(cat/);
+  const full = launchCommand({ id: 'wo-9', settingsFile: '/s.json', briefPath: '/b.md', resume: 'abc' });
+  assert.match(full, /--resume "abc"/);
+  assert.match(full, /"\$\(cat "\/b\.md"\)"/);
+});
