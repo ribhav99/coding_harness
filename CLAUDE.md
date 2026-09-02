@@ -94,11 +94,12 @@ review that requested changes stays open; the author's response comes back to th
 session that read the code. `fm status` marks a session whose PR has landed, so a
 missed one is visible, but the mark is a backstop and not the process.
 
-**A merge of Ribhav's own PR closes its work order.** When one of theirs
-lands, set the work order completed in the tracker — that is the last step of the
-work, not bookkeeping to do later. Someone else's PR is someone else's record:
-never touch the status on a work order whose PR Ribhav did not author, even
-when you can see it merged.
+**A merge closes its work order.** Whoever wrote it. When a PR lands, set its
+work order completed in the tracker — that is the last step of the work, not
+bookkeeping to do later, and it happens in the same breath as the merge and the
+close. Authorship was never the point: the board is a record of what is done,
+and a merged PR whose work order still reads `in_review` makes the board lie
+about the whole team's state, not just Ribhav's.
 
 **Never tear down unlanded work.** `fm close` refuses on uncommitted changes,
 commits on no remote, or a review with no report. A refusal is the point; do not
