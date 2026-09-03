@@ -2,6 +2,7 @@
 // fm - the whole harness.
 //
 //   fm review <pr> [--project <dir>]   open a cold review on a PR  [--window <name>]
+//                        [--spec <text|@file>]  on Ribhav's brief instead of the review skill
 //   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
 //                        [--investigate]  an open question to think through, not ship
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
@@ -94,6 +95,22 @@ You never write a status line. Stopping IS your report - your last message befor
 stop is what reaches Ribhav, so make it two or three lines saying what you
 concluded and what, if anything, you need.`;
 
+// Not every review wants the judge panel. A dependency bump Ribhav wants checked
+// and landed is a review in the harness's eyes - a cold session at the PR head,
+// a report, a close that asks for one - but the brief is his words, not the
+// skill's. What the harness owns is unchanged; only what is asked differs.
+const PLAIN_REVIEW_BRIEF = (spec, prUrl, id, reportPath) => `You are reviewing ${prUrl}. Do not run the \`full-review\` skill; this is what is asked instead:
+
+${spec}
+
+You are in an isolated git worktree, detached at the PR's head. Keep your own files out of
+it - write your outcome to ${reportPath}. The project's pre-push gate lints everything it
+finds in its tree, and the report is what survives this session.
+
+You never write a status line. Stopping IS your report - your last message before you
+stop is what reaches Ribhav, so make it two or three lines saying what you
+concluded and what, if anything, you need.`;
+
 const SHIP_BRIEF = (spec, id) => `You are an autonomous worker. Work on your own; do not wait for a human.
 
 ${spec}
@@ -132,8 +149,11 @@ const [, , command] = process.argv;
 // --- review ------------------------------------------------------------------
 
 if (command === 'review') {
-  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>]');
+  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>]');
   const project = resolve(arg('--project', process.cwd()));
+  // Ribhav's own brief for the review, when the full skill is more than he wants.
+  let spec = arg('--spec');
+  if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   // A batch of reviews Ribhav wants kept apart from the day's work gets its
   // own window, the same way `ship` batches do. Naming one that does not exist
   // yet is how you get it.
@@ -154,7 +174,7 @@ if (command === 'review') {
   const task = spawnTask({
     id,
     project,
-    brief: REVIEW_BRIEF(meta.url, id, reportPath, specPath),
+    brief: spec ? PLAIN_REVIEW_BRIEF(spec, meta.url, id, reportPath) : REVIEW_BRIEF(meta.url, id, reportPath, specPath),
     baseRef: ref,
     window,
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
