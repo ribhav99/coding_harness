@@ -2,7 +2,8 @@
 //
 // The skills live here, in git, which is the whole point of the repo. But a
 // worker does not run here — it runs in a worktree of some other project — so
-// project-local discovery never sees them. They have to be in ~/.claude/skills,
+// project-local discovery never sees them. They have to be in the provider's
+// global skills directory,
 // which means a symlink per skill, which means a manual step, which means they
 // go stale the moment the checkout moves or a second machine appears. That is
 // exactly what happened: a review told to "run the full-review skill" resolved
@@ -20,7 +21,10 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = dirname(dirname(HERE));
 
-export function skillsRoot() {
+export function skillsRoot(agent = 'claude') {
+  if (agent === 'codex') {
+    return process.env.CODEX_SKILLS_DIR || join(homedir(), '.agents', 'skills');
+  }
   return process.env.CLAUDE_SKILLS_DIR || join(homedir(), '.claude', 'skills');
 }
 
@@ -50,7 +54,7 @@ function currentTarget(link) {
 
 // Returns the names it had to repair, so a caller can say so. An empty array is
 // the normal case and worth staying quiet about.
-export function syncSkills({ repo = REPO, root = skillsRoot() } = {}) {
+export function syncSkills({ repo = REPO, agent = 'claude', root = skillsRoot(agent) } = {}) {
   const repaired = [];
   for (const [name, target] of repoSkills(repo)) {
     const link = join(root, name, 'SKILL.md');
@@ -60,7 +64,7 @@ export function syncSkills({ repo = REPO, root = skillsRoot() } = {}) {
     try {
       mkdirSync(dirname(link), { recursive: true });
       // A stale link, or a real file someone dropped there, both have to go
-      // before symlink() will take. Only ever inside ~/.claude/skills.
+      // before symlink() will take. Only ever inside the chosen skills root.
       if (existsSync(link) || currentTarget(link) !== null) rmSync(link, { force: true });
       symlinkSync(target, link);
       repaired.push(name);

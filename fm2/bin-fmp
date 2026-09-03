@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fmp - open (or re-attach to) a project's control panel.
 #
-#   fmp <project>   create/attach the project's tmux session and start firstmate
+#   fmp <project> [--agent claude|codex]
+#                   create/attach the project's tmux session and start firstmate
 #   fmp             list the projects it can see
 #
 # One session per project:
@@ -26,6 +27,7 @@
 #   FM_REPO          the harness checkout
 #   FM_PROJECTS      where projects live      (default ~/Desktop/everything)
 #   FMP_CLAUDE_CMD   how firstmate is started
+#   FMP_CODEX_CMD    how a Codex firstmate is started
 #   FMP_NO_ATTACH=1  build the panel and leave it detached, printing its name
 
 set -eu
@@ -63,12 +65,23 @@ list_projects() {
 command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux)"
 
 if [ $# -eq 0 ]; then
-  printf 'usage: fmp <project>\n\nprojects:\n'
+  printf 'usage: fmp <project> [--agent claude|codex]\n\nprojects:\n'
   list_projects
   exit 0
 fi
 
 PROJECT=$1
+shift
+FMP_AGENT=claude
+FMP_AGENT_EXPLICIT=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --agent) [ $# -ge 2 ] || die '--agent needs claude or codex'; FMP_AGENT=$2; FMP_AGENT_EXPLICIT=1; shift 2 ;;
+    *) die "unknown option '$1'" ;;
+  esac
+done
+case "$FMP_AGENT" in claude|codex) ;; *) die "unknown agent '$FMP_AGENT' (use claude or codex)" ;; esac
+FMP_CODEX_CMD="${FMP_CODEX_CMD:-node \"$FM_REPO/fm2/supervisor.mjs\" codex}"
 case "$PROJECT" in
   ''|*[!A-Za-z0-9._-]*) die "unsafe project name '$PROJECT'" ;;
 esac
@@ -90,6 +103,10 @@ attach() {
 # Already running: go there. Never rebuild a live session - task panes and their
 # worktrees live in it.
 if tmux has-session -t "=$SES" 2>/dev/null; then
+  if [ "$FMP_AGENT_EXPLICIT" = 1 ]; then
+    printf 'fmp: --agent applies when a panel is created; this panel already exists.\n' >&2
+    printf '     In its control pane, exit the current controller and run node %s/fm2/supervisor.mjs %s\n' "$FM_REPO" "$FMP_AGENT" >&2
+  fi
   # But say so if it was built against a different checkout. A panel outlives the
   # repo it was started from: move the harness, or clone it somewhere else on a
   # second machine, and `fmp` still finds the old session and takes you to panes
@@ -162,7 +179,11 @@ done
 tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
 
 LEFT=$(tmux list-panes -t "$SES:control" -F '#{pane_id}' | head -1)
-tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+if [ "$FMP_AGENT" = codex ]; then
+  tmux send-keys -t "$LEFT" "$FMP_CODEX_CMD" C-m
+else
+  tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+fi
 
 tmux select-window -t "$SES:control"
 tmux select-pane -t "$LEFT"

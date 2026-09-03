@@ -34,6 +34,7 @@ Nothing else can interrupt. Not idleness, not staleness, not a heartbeat.
 fm review <pr> [--project <dir>]   open a cold review on a PR
 fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
+fm switch <id> --agent codex       move the same task to Codex (or claude)
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -42,6 +43,54 @@ fm close <id> [--force]            take a task down, refusing to strand work
 fm announce <id>                   the outcome, confirmed on the forge
 fm caps                            what this machine can reach
 ```
+
+Claude Code remains the default. Add `--agent codex` to `review`, `ship`, or
+`attach` for an explicit Codex launch. Cold review also remains Claude unless
+`--agent codex` is given on the review or the swap handoff.
+
+## Switching Claude Code and Codex
+
+`fm switch <id> --agent codex` and `fm switch <id> --agent claude` replace the
+CLI process in that task's existing pane. The task id, worktree, branch, current
+files, brief/report path, PR metadata, mute, and unread notifications stay on
+the same record. Dirty files and commits that have not been pushed are neither
+cleaned nor moved.
+
+Every harness-launched session has `SessionStart` and `Stop` hooks. SessionStart
+records the provider's exact session id, transcript path, and cwd. Stop feeds
+the provider's `last_assistant_message` into the existing fm report queue. A
+switch first copies the full source transcript and a manifest to
+`~/.fm2/handoffs/<id>/`, then interrupts only the old CLI process and starts the
+target in the same worktree. If the task used the target provider before, fm
+resumes that exact session and gives it the transcript containing everything
+that happened since.
+
+Older Claude tasks predate the identity hook. For those, fm requires one local
+transcript matching the exact worktree and opening brief. Multiple matches are
+an error rather than a recency guess; after Ribhav identifies it, pass
+`--session <source-id>`. Switching does not call the source provider, so it also
+works when that provider is timing out. The transcript only contains events the
+old CLI had already written; hidden model state and an unwritten partial answer
+cannot transfer.
+
+For the controller itself, exit Claude in the control pane and run:
+
+```sh
+node fm2/supervisor.mjs codex
+```
+
+Then use Codex's interactive
+[`/import`](https://learn.chatgpt.com/docs/import) to select the exact recent
+Claude controller chat and run `fm status`. `/import` is useful for controller history
+and supported setup, but it is not an automated worker converter: Codex limits
+it to 50 chats from the last 30 days, and it is unavailable during a running
+task, in remote sessions, and while connected to a local app-server daemon.
+The transcript snapshot above is the reliable worker handoff. A new panel can
+start a Codex controller with `fmp <project> --agent codex`; plain `fmp` still
+starts Claude.
+
+The hook fields and output shapes follow the current official
+[Codex hooks contract](https://learn.chatgpt.com/docs/hooks).
 
 ## The knock
 

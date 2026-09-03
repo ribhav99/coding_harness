@@ -11,6 +11,7 @@
 import { record, lastAssistantMessage, hasUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
 import { loadTask, saveTask } from '../lib/config.mjs';
+import { rememberSession } from '../lib/sessions.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -20,9 +21,25 @@ let raw = '';
 process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) raw += chunk;
 
+function done() {
+  // Codex Stop hooks require JSON on a successful exit. Claude accepts the
+  // same hook with no output, so keep its existing behavior unchanged.
+  if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
+  process.exit(0);
+}
+
 try {
   const payload = JSON.parse(raw || '{}');
   const task = process.env.FM2_TASK || 'unknown';
+  try {
+    rememberSession({
+      task,
+      agent: process.env.FM2_AGENT || 'claude',
+      sessionId: payload.session_id,
+      transcriptPath: payload.transcript_path,
+      cwd: payload.cwd,
+    });
+  } catch { /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is
   // restarted by hand - to pick up a Claude Code update, say - comes back in a
   // different pane, and the task record still names the old one. Reporting
@@ -41,7 +58,7 @@ try {
   // words a second time, arriving as an interruption. Silence is the whole
   // feature: no notification is written and no knock is sent, so there is
   // nothing for the supervisor's own Stop hook to block on either.
-  if (loadTask(task)?.quiet) process.exit(0);
+  if (loadTask(task)?.quiet) done();
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
   // Asked before recording, because recording is what would make it true.
@@ -60,4 +77,4 @@ try {
   // failing here would make a reporting bug look like a work bug.
 }
 
-process.exit(0);
+done();
