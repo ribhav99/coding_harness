@@ -346,6 +346,7 @@ if (command === 'status') {
   const caps = capabilities();
   let dead = 0;
   let merged = 0;
+  let unhanded = 0;
   for (const task of tasks) {
     const alive = paneAlive(task.pane) ? 'alive' : 'DEAD';
     let forge = '';
@@ -354,6 +355,7 @@ if (command === 'status') {
     // Ribhav had to notice three of them himself. Say it here, where the forge
     // is already being asked, and say it as an instruction rather than a state.
     let landed = false;
+    let pending = '';
     if (task.pr && caps.gh) {
       try {
         const s = reviewState(task.repo, task.pr);
@@ -367,10 +369,26 @@ if (command === 'status') {
       // day - a revert and a promotion, both landed, both still sitting in the
       // list looking like work. A detached review worktree has no branch, so it
       // costs those nothing.
-      const landedIn = landedPrForBranch(task.repo ?? repoOf(task.project), task.branch ?? branchOf(task.worktree));
+      const repo = task.repo ?? repoOf(task.project);
+      const branch = task.branch ?? branchOf(task.worktree);
+      const landedIn = landedPrForBranch(repo, branch);
       if (landedIn) {
         forge = ` | PR ${landedIn} MERGED`;
         landed = true;
+      } else if (task.kind === 'ship' && !task.handoff_stage) {
+        // A ship task that opened a PR owes a handoff: it reviews its own work
+        // once, then a fresh session reads the PR cold. CLAUDE.md calls that
+        // automatic, and nothing made it so - the PR just sits there looking
+        // finished, which is indistinguishable from a task still working. Ribhav
+        // had to ask for it three times before asking why. The open PR on the
+        // branch is the evidence the work is done; `handoff_stage` is the
+        // evidence it was passed on.
+        const openIn = prForBranch(repo, branch);
+        if (openIn) {
+          forge = ` | PR ${openIn} open`;
+          unhanded += 1;
+          pending = '  <- opened a PR, not handed off';
+        }
       }
     }
     // An adopted task has no PR of its own to read state from, so the branch it
@@ -381,7 +399,7 @@ if (command === 'status') {
     // for it and a session goes unwatched by both of us.
     const muted = task.quiet ? ' | quiet' : '';
     const done = landed ? '  <- MERGED, close it' : '';
-    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}${done}\n`);
+    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}${done}${pending}\n`);
     if (alive === 'DEAD') dead += 1;
     if (landed) merged += 1;
   }
@@ -391,6 +409,11 @@ if (command === 'status') {
   if (merged) {
     process.stdout.write(
       `\n${merged} session(s) whose PR has merged — fm close <id> takes them down\n`,
+    );
+  }
+  if (unhanded) {
+    process.stdout.write(
+      `\n${unhanded} task(s) whose PR is open and unreviewed — fm handoff <id> starts the chain\n`,
     );
   }
   if (dead) {
