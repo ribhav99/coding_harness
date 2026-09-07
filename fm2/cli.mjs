@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, lastSessionFor } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
-import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch } from './lib/forge.mjs';
+import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -360,6 +360,18 @@ if (command === 'status') {
         forge = ` | PR ${task.pr} ${s.prState}/${s.decision ?? '-'}`;
         landed = s.prState === 'MERGED';
       } catch { forge = ` | PR ${task.pr} unreadable`; }
+    } else if (caps.gh) {
+      // A ship task never carries a PR number: the worker opens the PR, so `fm`
+      // only ever knows the branch. That made the mark above fire for reviews and
+      // stay silent for exactly the tasks Ribhav had to spot himself twice in one
+      // day - a revert and a promotion, both landed, both still sitting in the
+      // list looking like work. A detached review worktree has no branch, so it
+      // costs those nothing.
+      const landedIn = landedPrForBranch(task.repo ?? repoOf(task.project), task.branch ?? branchOf(task.worktree));
+      if (landedIn) {
+        forge = ` | PR ${landedIn} MERGED`;
+        landed = true;
+      }
     }
     // An adopted task has no PR of its own to read state from, so the branch it
     // sits on is the only thing that says which one it is.

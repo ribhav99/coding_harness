@@ -765,6 +765,49 @@ test('a branch the forge says has nothing open is still null', async () => {
   }
 });
 
+// --- a landed ship task says so ---------------------------------------------
+//
+// `fm status` marks a session whose PR has merged, so a missed close is visible.
+// It only ever fired for reviews, which carry a PR number; a ship task does not -
+// the worker opens the PR, so `fm` only knows the branch. Ribhav had to spot the
+// leftovers himself twice in one day. The branch is the thread back, and it has
+// to be asked about MERGED PRs: the open-PR lookup goes blind at exactly the
+// moment the answer becomes yes.
+
+test('a ship task whose branch has landed is found by the branch, not a PR number', async () => {
+  const { landedPrForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?landed`);
+
+  const argsFile = join(mkdtempSync(join(tmpdir(), 'fm2-args-')), 'argv');
+  const bin = fakeGh(`#!/bin/sh\nprintf '%s\\n' "$*" > ${argsFile}\necho '[{"number":390}]'\n`);
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(landedPrForBranch('o/r', 'ribhav/revert-348'), 390, 'a landed branch read as having nothing');
+    const asked = readFileSync(argsFile, 'utf8');
+    assert.match(asked, /--state merged/, 'the open-PR lookup was reused, which cannot see a merged PR');
+    assert.match(asked, /--head ribhav\/revert-348/, 'the branch was not the thing asked about');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
+test('a branch with nothing merged, or no branch at all, is not called landed', async () => {
+  const { landedPrForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?unlanded`);
+
+  const bin = fakeGh('#!/bin/sh\necho "[]"\n');
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(landedPrForBranch('o/r', 'still-open'), null, 'an open PR was reported as landed');
+    // A review worktree is detached, so it has no branch - and a task read before
+    // its project resolves has no repo. Neither is a merge.
+    assert.equal(landedPrForBranch('o/r', null), null, 'a detached worktree was reported as landed');
+    assert.equal(landedPrForBranch(null, 'b'), null, 'a task with no repo was reported as landed');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
 // --- attach finds its own project -------------------------------------------
 //
 // `fm attach <worktree>` defaulted --project to the supervisor's cwd, so
