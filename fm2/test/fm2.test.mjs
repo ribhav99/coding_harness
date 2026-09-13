@@ -234,6 +234,79 @@ test('a task with a report still unread does not knock again', async () => {
   assert.equal(hasUnread('wo-9'), false, 'reading did not clear the way for the next knock');
 });
 
+// A fake tmux on PATH, so a hook running as a real subprocess can be asked
+// whether it actually knocked. Without this the only observable is "no pane
+// recorded", which cannot tell a suppressed knock from a failed one.
+function tmuxSpy(home) {
+  const bin = join(home, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const log = join(home, 'tmux.log');
+  writeFileSync(join(bin, 'tmux'), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${log}\nexit 0\n`);
+  execFileSync('chmod', ['+x', join(bin, 'tmux')]);
+  return {
+    PATH: `${bin}:${process.env.PATH}`,
+    knocks: () =>
+      (existsSync(log) ? readFileSync(log, 'utf8') : '')
+        .split('\n')
+        .filter((l) => l.includes('stopped.')),
+  };
+}
+
+test('several workers stopping together knock once, and all of them are recorded', async () => {
+  const home = freshHome();
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  recordSupervisor('%7');
+  const spy = tmuxSpy(home);
+
+  const transcript = join(home, 'many.jsonl');
+  const write = (text) =>
+    writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } })}\n`);
+
+  // Six sessions once stopped inside the same half-minute. Each knock typed a
+  // line into the supervisor's pane, the first `fm read` handed over every
+  // report at once, and the five lines behind it each cost a turn to discover
+  // there was nothing left to take.
+  for (const task of ['wo-a', 'wo-b', 'wo-c']) {
+    write(`${task} is done`);
+    runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: task, PATH: spy.PATH });
+  }
+
+  const { pending, drain } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(pending().length, 3, 'a stop went unrecorded - the knock may be deduped, the report never');
+  assert.equal(spy.knocks().length, 1, 'every stop knocked again, so reading once left stale taps queued');
+  assert.match(spy.knocks()[0], /wo-a/, 'the one knock was not the first stop');
+
+  // Reading takes all three, and the queue being empty makes the next stop news.
+  assert.equal(drain().length, 3);
+  write('wo-a again');
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-a', PATH: spy.PATH });
+  assert.equal(spy.knocks().length, 2, 'reading did not clear the way for the next knock');
+});
+
+test('a stop with nothing to say records nothing and knocks on nobody', async () => {
+  const home = freshHome();
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  recordSupervisor('%7');
+  const spy = tmuxSpy(home);
+
+  // A turn that ended on a tool call, with no final message in the payload
+  // either. Stopping is the report and the last message is the content, so
+  // there is no report here - and a knock would send the supervisor to `fm read`
+  // for "nothing new".
+  const transcript = join(home, 'silent.jsonl');
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash' }] } })}\n`,
+  );
+
+  const result = runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-mute', PATH: spy.PATH });
+  assert.equal(result.code, 0, 'a contentless stop failed the hook');
+
+  const { pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(pending().length, 0, 'an empty report was recorded');
+  assert.equal(spy.knocks().length, 0, 'knocked with nothing behind it');
+});
+
 test('a quiet task reports nothing and knocks on nobody', async () => {
   const home = freshHome();
   const { saveTask } = await import(join(ROOT, 'lib/config.mjs'));

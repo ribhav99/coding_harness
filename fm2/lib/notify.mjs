@@ -97,3 +97,24 @@ export function hasUnread(task) {
 export function count() {
   return readdirSync(notifyDir()).filter((f) => f.endsWith('.json')).length;
 }
+
+// Whether the supervisor has any report at all that it has not taken.
+//
+// This, not hasUnread, is what the knock asks - because reading is queue-wide
+// and knocking should match it. `fm read` drains everything waiting, so the
+// first knock already buys a look at every report behind it, whatever task it
+// came from.
+//
+// Six sessions once stopped inside the same half-minute. Each hook found no
+// unread report for its own task, so each knocked, and six lines went into the
+// supervisor's pane. The first `fm read` handed over all six reports at once -
+// correctly - and the remaining five lines stayed queued as prompts, each
+// costing the supervisor a turn to discover there was nothing behind it. Five
+// turns spent being told something it had already been told.
+//
+// Scoping to the queue keeps the guarantee that mattered - a stop is never
+// silently dropped, because every report is still recorded - and gives up only
+// the duplicate tap on the shoulder.
+export function anyUnread() {
+  return count() > 0;
+}

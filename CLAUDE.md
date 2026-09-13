@@ -9,7 +9,7 @@ Two tools do everything: `fm` (tasks) and `surface` (the review page).
 
 A worker stopping is the only trigger. There is no watcher, no polling, and no
 status files. When a worker stops, its own last message is recorded and it
-knocks on your pane on the way out — every stop, whatever you are doing. Your
+knocks on your pane on the way out — whatever you are doing. Your
 turn is also blocked while anything is unread. You are told; what it is worth is
 your call.
 
@@ -20,9 +20,10 @@ fm status    what is alive, and what the forge says about it
 
 Nothing else interrupts you. A quiet worker is quiet; if you want to know, look.
 
-A worker that stops again before you have read its last report records the new
-one but does not knock twice — you already know it is stopping. Reading clears
-the way for the next one.
+While anything is unread, further stops are recorded but do not knock — you
+already know to look, and one `fm read` takes them all, whichever sessions they
+came from. Reading clears the way for the next one. A stop with nothing to say
+is silent: no report, no knock.
 
 A session Ribhav has taken over is muted with `fm quiet <id>` — he is in that
 pane reading every reply, so its report is the same words a second time,

@@ -8,7 +8,7 @@
 // Never blocks and never fails loudly. A worker's turn must not be held up by
 // the supervisor's bookkeeping, and a broken hook must not strand a session.
 
-import { record, lastAssistantMessage, hasUnread } from '../lib/notify.mjs';
+import { record, lastAssistantMessage, anyUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
 import { loadTask, saveTask } from '../lib/config.mjs';
 
@@ -44,8 +44,11 @@ try {
   if (loadTask(task)?.quiet) process.exit(0);
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
-  // Asked before recording, because recording is what would make it true.
-  const alreadyWaiting = hasUnread(task);
+  // Asked before recording, because recording is what would make it true. The
+  // question is queue-wide, not about this task: `fm read` takes everything
+  // waiting, so a supervisor with any report unread has already been told to
+  // look, and this stop will be in its hands when it does.
+  const alreadyWaiting = anyUnread();
   if (text) record({ task, text, cwd: payload.cwd ?? null });
   // Then say so, here, at the one moment it is known to have happened.
   //
@@ -54,7 +57,14 @@ try {
   // report is most likely to land. Knocking is not conditional on the supervisor
   // looking busy or idle: whether a stop is worth acting on is the supervisor's
   // judgement, and this hook's job is only to make sure it gets to make it.
-  if (!alreadyWaiting) await knock(task);
+  //
+  // It is conditional on there being something to say. A stop with no last
+  // message recorded nothing, so the knock would send the supervisor to `fm
+  // read` for "nothing new" - a tap on the shoulder that spends a turn and
+  // teaches it to distrust the next one. Stopping is the report and the last
+  // message is the content; with no content there is no report, and `fm status`
+  // is where a quiet session is found.
+  if (text && !alreadyWaiting) await knock(task);
 } catch {
   // Deliberately silent. There is nothing a worker can do about this, and
   // failing here would make a reporting bug look like a work bug.
