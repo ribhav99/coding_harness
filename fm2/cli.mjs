@@ -45,6 +45,37 @@ function branchOf(worktree) {
   }
 }
 
+// The name the forge knows this branch by, which is not always the local one.
+//
+// A worker that pushes `HEAD:ribhav/wo-354-match-quantity` leaves its worktree on
+// a branch called `wo-354-match-quantity` and a PR whose head is the prefixed
+// name. `gh pr list --head` matches only what was pushed, so asking with the
+// local name gets "no PR open on that branch" for a branch that plainly has one -
+// and `handoff --stage swap` then refuses to open the cold review on a task that
+// did everything right.
+//
+// git already records where a branch pushes to, so ask it rather than guessing at
+// the convention. A branch with no upstream has not been pushed anywhere, and its
+// local name is the only name there is.
+function pushedBranchOf(worktree, local = branchOf(worktree)) {
+  if (!worktree || !local || !existsSync(worktree)) return local;
+  try {
+    const upstream = execFileSync(
+      'git',
+      ['-C', worktree, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', `${local}@{upstream}`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+    if (!upstream) return local;
+    // "origin/ribhav/wo-354" -> "ribhav/wo-354". Only the remote comes off; a
+    // branch name with its own slashes keeps every one of them.
+    const cut = upstream.indexOf('/');
+    return cut === -1 ? upstream : upstream.slice(cut + 1);
+  } catch {
+    // No upstream recorded - never pushed, or pushed without tracking.
+    return local;
+  }
+}
+
 // The checkout a worktree hangs off, from git rather than from a naming
 // convention: `--git-common-dir` resolves to the main checkout's .git, whose
 // parent is the checkout itself.
@@ -286,7 +317,7 @@ if (command === 'handoff') {
   let number = task.pr ?? null;
   if (number == null) {
     try {
-      number = prForBranch(task.repo ?? repoOf(task.project), branchOf(task.worktree) ?? task.branch ?? id);
+      number = prForBranch(task.repo ?? repoOf(task.project), pushedBranchOf(task.worktree) ?? task.branch ?? id);
     } catch (err) {
       // Distinct from the refusal below on purpose: "the forge would not say" and
       // "there is no PR" lead Ribhav to opposite next moves, and only one of
@@ -370,7 +401,7 @@ if (command === 'status') {
       // list looking like work. A detached review worktree has no branch, so it
       // costs those nothing.
       const repo = task.repo ?? repoOf(task.project);
-      const branch = task.branch ?? branchOf(task.worktree);
+      const branch = pushedBranchOf(task.worktree, task.branch ?? branchOf(task.worktree));
       const landedIn = landedPrForBranch(repo, branch);
       if (landedIn) {
         forge = ` | PR ${landedIn} MERGED`;
