@@ -1,0 +1,1 @@
+../../../skills/work-orders/wo-spec-judge.md

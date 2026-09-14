@@ -1,0 +1,1 @@
+../../../skills/requirements/req-spec-judge.md

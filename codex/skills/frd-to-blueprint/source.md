@@ -1,0 +1,1 @@
+../../../skills/blueprints/frd-to-blueprint.md

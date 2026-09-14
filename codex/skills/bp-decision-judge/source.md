@@ -1,0 +1,1 @@
+../../../skills/blueprints/bp-decision-judge.md

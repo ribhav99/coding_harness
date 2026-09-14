@@ -1,0 +1,1 @@
+../../../skills/blueprints/bp-consistency-judge.md
