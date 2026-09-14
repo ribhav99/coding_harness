@@ -114,12 +114,34 @@ Maintenance is bidirectional. A suite that only grows becomes a graveyard nobody
 
 ## Step 5 — keep the ledger honest
 
-If the project keeps a test-plan or coverage document, update it in the same commit:
+A plan claiming coverage the tests do not have is worse than no plan, because it is believed.
 
-- new e2e spec → add its section, and tag spec and section with the same stable id so coverage is mechanically checkable rather than a matter of opinion
-- removed spec → remove its section
+If the project keeps a plan describing product behaviour, updating it is part of the change — not follow-up work. Four moves, in the same commit:
 
-A plan claiming coverage the specs do not have is worse than no plan, because it is believed.
+- **New behaviour** → describe it in the plan, in the product's own words. What a person does, what the product does back. A behaviour nobody wrote down is a behaviour nobody agreed to.
+- **New test** → claim the section it proves, with whatever stable-id marker the project uses, so coverage is mechanically checkable rather than a matter of opinion. Put the marker on the file that **actually proves** the behaviour, not the one whose name matches the section's title — those drift apart, and a claim on the wrong file reads as coverage while proving something else.
+- **Changed behaviour** → correct the plan's claim and record the correction where the project keeps them. The plan is a document the product can disprove; that is normal, and hiding it is what makes a plan rot.
+- **Removed surface** → the section goes with its tests.
+
+Then run the coverage gate, if the project has one. A marker you did not verify is a claim, not a fact — the gate is what turns it into one.
+
+Where the project has **no** plan, say so in the output rather than inventing a document nobody asked for.
+
+### Stale sentences live in the sections you did not open
+
+Those four moves cover the sections you know you touched. The ones that go stale are the others: a change to one screen alters what other sections say about the same thing, and none of them carries the id you were editing. A discount that now applies before tax changes what the cart, the receipt and the refund sections say about totals — and the section you edited is the only one of those you would think to reread.
+
+No gate finds these. A coverage gate checks ids, markers and exact strings, never whether a sentence is still true, so a plan describing a product that no longer exists passes every one. A green gate means the ledger is well-formed, not that it is current.
+
+So search the plan for what the diff changed, not for the sections you edited:
+
+- **Whatever the diff removed or reworded** — copy, a control's name, a route, an endpoint, a state. Grep the plan for the old words; every hit describes something that is gone.
+- **Whatever the diff changed the behaviour of**, by the word a person would use for it — "total", "draft", "the cart" — across the whole plan, not only this screen's sections.
+- **The sections claimed by every test file the diff touched**, edited as well as new. A test that had to change usually proves a behaviour that did.
+
+Read each hit against the code as it is now — steps, outcomes and notes, because a note explaining *why* is a claim too — and correct what no longer holds, recording each correction like any other.
+
+Then check from the other side: **every section you touched is still walked by a test that claims it.** A section can stay true while its test stops proving it. Add a step to a section and the test that walked the old flow still passes, still carries the tag, and proves nothing about the new step. Either that test walks the step, or the step gets its own situation and a test that does.
 
 ## Step 6 — verify
 
@@ -139,8 +161,14 @@ deleted
   e2e/legacy-cart.spec.ts         surface removed in this PR
 unstated
   src/services/matching.py:120    new deviation threshold has no defined value — needs a decision before it can be asserted
+plan
+  CART-02                         corrected  the discount now applies before tax (changelog)
+  RECEIPT-01                      corrected  its only test never reached the new step — test added
+  REFUND-03                       re-read    still true
 verified
   make test-backend  ✅  142 passed
 ```
+
+Name every section the staleness search reached, the ones still true included. A section the output never mentions is indistinguishable from one nobody read.
 
 Flag anything you routed to a layer that does not exist in this project yet. That is a gap in the project's test setup, and it is worth more than the test you would have written around it.
