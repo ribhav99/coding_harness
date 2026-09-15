@@ -1,8 +1,10 @@
-# Codex app setup
+# Codex skill setup
 
-The app holds the tasks, messages, review discussion, and progress. These skills
-reuse the harness's domain procedures and judge rubrics without launching `fm`,
-tmux, `surface`, or the Python orchestrator.
+The same installed skills support the Codex app and the `fm` terminal panel.
+With no `FM2_TASK` or `FM2_PANEL` marker, the app holds tasks, messages, reviews,
+and progress through its native tools. A marked terminal session uses `fm` for
+its controller and workers and `surface` for review decisions. Neither mode
+assumes the Python planning orchestrator is running.
 
 Install from this checkout with Node.js:
 
@@ -14,9 +16,13 @@ node --test codex/install.test.mjs
 
 The installer links whole skill folders into `~/.agents/skills`. Each has a real
 `SKILL.md`; shared rubrics remain linked to `skills/`. Empty imported folders are
-repaired. Conflicting custom content stops the install before any changes. Other
-skills, Claude configuration, credentials, permissions, and models are untouched.
-Use `--skills-dir /path/to/skills` for an isolated installation.
+repaired. A legacy directory containing only a link to this checkout's shared
+`SKILL.md` source is migrated to the native folder. Conflicting custom content
+stops the install before any changes. Other skills, Claude configuration,
+credentials, permissions, and models are untouched.
+Use `--skills-dir /path/to/skills` for an isolated installation. Codex launches
+through `fm` use this same installer; they do not overwrite files through folder
+links. Claude launches retain their existing shared-skill installation.
 
 Keep this checkout at its installed path and rerun the installer after adding,
 removing, or renaming a skill. `--check` fails for missing entries, broken rubric
@@ -42,6 +48,12 @@ Examples:
 - “Keep watching that task and tell me when it needs me.” A native heartbeat
   continues monitoring after the coordinating turn ends.
 
-The five coding workflow overrides and `firstmate` are native procedures. The
-remaining entrypoints load [runtime.md](runtime.md) and their shared source so
-review depth and document conventions have one maintained home.
+In a terminal controller, “switch this whole session to Codex” routes to
+`fm panel-switch --agent codex`; `--agent claude` switches back. The command
+hands off saved conversations and existing task worktrees in the background.
+It does not convert hidden model state or require manually importing chats.
+
+`firstmate` and `full-review` have separate app and CLI procedures. The other
+entrypoints retain the same implementation, evidence, and document rules while
+[runtime.md](runtime.md) and [cli-runtime.md](cli-runtime.md) select the session's
+tools and reporting mechanism. Merely opening a terminal does not change modes.

@@ -17,6 +17,19 @@ function targetOf(file) {
   return stat(file)?.isSymbolicLink() ? resolve(dirname(file), readlinkSync(file)) : null;
 }
 
+function sharedSkills(repo) {
+  const entries = [];
+  for (const category of readdirSync(join(repo, 'skills'), { withFileTypes: true })) {
+    if (!category.isDirectory()) continue;
+    for (const file of readdirSync(join(repo, 'skills', category.name))) {
+      if (file.endsWith('.md') && !file.startsWith('_')) {
+        entries.push([basename(file, '.md'), join(repo, 'skills', category.name, file)]);
+      }
+    }
+  }
+  return entries;
+}
+
 export function skillEntries(repo = REPO) {
   const root = join(repo, 'codex', 'skills');
   const entries = readdirSync(root, { withFileTypes: true })
@@ -25,6 +38,9 @@ export function skillEntries(repo = REPO) {
     .sort(([a], [b]) => a.localeCompare(b));
   if (!entries.length) throw new Error('No Codex skills found.');
   for (const [name, dir] of entries) {
+    if (!stat(join(dir, 'SKILL.md'))?.isFile()) {
+      throw new Error(`Codex entrypoint must be a regular file: ${join(dir, 'SKILL.md')}`);
+    }
     const text = readFileSync(join(dir, 'SKILL.md'), 'utf8');
     const frontmatter = text.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name)
@@ -35,17 +51,15 @@ export function skillEntries(repo = REPO) {
     for (const file of readdirSync(dir)) {
       if (stat(join(dir, file))?.isSymbolicLink()) realpathSync(join(dir, file));
     }
-    for (const [, dependency] of text.matchAll(/\]\((source\.md|runtime\.md)\)/gu)) {
+    for (const [, dependency] of text.matchAll(/\]\(([^\s)]+\.md)(?:#[^\s)]*)?\)/gu)) {
+      if (/^[a-z][a-z0-9+.-]*:/iu.test(dependency)) continue;
       readFileSync(join(dir, dependency), 'utf8');
     }
   }
   const names = new Set(entries.map(([name]) => name));
-  for (const category of readdirSync(join(repo, 'skills'), { withFileTypes: true })) {
-    if (!category.isDirectory()) continue;
-    for (const file of readdirSync(join(repo, 'skills', category.name))) {
-      if (file.endsWith('.md') && !file.startsWith('_') && !names.has(basename(file, '.md'))) {
-        throw new Error(`Shared skill has no Codex entrypoint: ${category.name}/${file}`);
-      }
+  for (const [name, file] of sharedSkills(repo)) {
+    if (!names.has(name)) {
+      throw new Error(`Shared skill has no Codex entrypoint: ${file}`);
     }
   }
   return entries;
@@ -55,6 +69,7 @@ export function install({ repo = REPO, root = join(homedir(), '.agents', 'skills
   repo = resolve(repo);
   root = resolve(root);
   const entries = skillEntries(repo);
+  const legacyTargets = new Map(sharedSkills(repo));
   const manifestPath = join(root, MANIFEST);
   const previous = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : { version: 1, links: {} };
   if (previous.version !== 1 || !previous.links || typeof previous.links !== 'object' || Array.isArray(previous.links)) {
@@ -74,7 +89,10 @@ export function install({ repo = REPO, root = join(homedir(), '.agents', 'skills
     if (targetOf(dest) === target) continue;
     if (!current) changes.push({ name, target, action: 'link' });
     else if (current.isDirectory() && readdirSync(dest).length === 0) changes.push({ name, target, action: 'empty' });
-    else if (current.isSymbolicLink() && targetOf(dest) === previous.links[name]) changes.push({ name, target, action: 'relink' });
+    else if (current.isDirectory() && readdirSync(dest).length === 1
+      && targetOf(join(dest, 'SKILL.md')) === legacyTargets.get(name)) {
+      changes.push({ name, target, action: 'legacy' });
+    } else if (current.isSymbolicLink() && targetOf(dest) === previous.links[name]) changes.push({ name, target, action: 'relink' });
     else conflicts.push(dest);
   }
   for (const [name, target] of Object.entries(previous.links)) {
@@ -91,6 +109,10 @@ export function install({ repo = REPO, root = join(homedir(), '.agents', 'skills
     mkdirSync(root, { recursive: true });
     for (const { name, target, action } of changes) {
       const dest = join(root, name);
+      if (action === 'legacy') {
+        unlinkSync(join(dest, 'SKILL.md'));
+        rmdirSync(dest);
+      }
       if (action === 'empty') rmdirSync(dest);
       if (action === 'relink' || action === 'remove') unlinkSync(dest);
       if (action !== 'remove') symlinkSync(target, dest, 'dir');

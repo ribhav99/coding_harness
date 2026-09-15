@@ -5,6 +5,11 @@ description: Execute the repository's Playwright checks with its established ser
 
 # Playwright Runner
 
+If `FM2_TASK` or `FM2_PANEL` is nonempty, read [the fm CLI runtime](cli-runtime.md)
+first. Its session, tool, and reporting rules take precedence over app-specific
+instructions below. Otherwise, follow this procedure in the current Codex app
+task. An ordinary terminal alone does not select the fm workflow.
+
 Execute the requested browser checks and report evidence to the current task or
 parent agent. No harness variables, communication file, or separate app task is
 required. The project's existing configuration owns the spec paths, port, base

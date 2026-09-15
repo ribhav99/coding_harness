@@ -92,9 +92,45 @@ test('a replaced owned link is treated as custom content', t => {
 test('a wrapper cannot verify when its referenced rubric or runtime file is absent', t => {
   const f = fixture(t);
   const skill = join(f.repo, 'codex', 'skills', 'full-review', 'SKILL.md');
-  for (const dependency of ['source.md', 'runtime.md']) {
+  for (const dependency of ['source.md', 'runtime.md', 'app.md', 'cli.md', 'cli-runtime.md']) {
     writeFileSync(skill, `---\nname: full-review\ndescription: Review a change.\n---\nRead [the procedure](${dependency}).\n`);
     assert.throws(() => install({ ...f, check: true }), /ENOENT/u);
     assert.deepEqual(readdirSync(f.root), []);
   }
+});
+
+test('migrates only an unmodified legacy source link without changing either source', t => {
+  const f = fixture(t);
+  const legacy = join(f.root, 'full-review');
+  const shared = join(f.repo, 'skills', 'coding', 'full-review.md');
+  const native = join(f.repo, 'codex', 'skills', 'full-review', 'SKILL.md');
+  const before = readFileSync(native, 'utf8');
+  mkdirSync(legacy);
+  symlinkSync(shared, join(legacy, 'SKILL.md'));
+  assert.ok(install({ ...f, check: true }).changes.some(change => change.action === 'legacy'));
+  assert.equal(readlinkSync(join(legacy, 'SKILL.md')), shared);
+  install(f);
+  assert.equal(readlinkSync(legacy), join(f.repo, 'codex', 'skills', 'full-review'));
+  assert.equal(readFileSync(native, 'utf8'), before);
+  assert.equal(readFileSync(shared, 'utf8'), 'Shared procedure.');
+});
+
+test('legacy directories with extra content remain untouched', t => {
+  const f = fixture(t);
+  const legacy = join(f.root, 'full-review');
+  mkdirSync(legacy);
+  symlinkSync(join(f.repo, 'skills', 'coding', 'full-review.md'), join(legacy, 'SKILL.md'));
+  writeFileSync(join(legacy, 'notes.md'), 'Personal review notes.');
+  assert.throws(() => install(f), /Custom skill content preserved/u);
+  assert.equal(readFileSync(join(legacy, 'notes.md'), 'utf8'), 'Personal review notes.');
+  assert.deepEqual(readdirSync(f.root), ['full-review']);
+});
+
+test('a Codex entrypoint replaced with a shared-source symlink fails before installation', t => {
+  const f = fixture(t);
+  const entrypoint = join(f.repo, 'codex', 'skills', 'full-review', 'SKILL.md');
+  unlinkSync(entrypoint);
+  symlinkSync(join(f.repo, 'skills', 'coding', 'full-review.md'), entrypoint);
+  assert.throws(() => install(f), /Codex entrypoint must be a regular file/u);
+  assert.deepEqual(readdirSync(f.root), []);
 });

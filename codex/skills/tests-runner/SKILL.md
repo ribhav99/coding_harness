@@ -5,6 +5,11 @@ description: Execute the repository's requested test suite and report its comman
 
 # Tests Runner
 
+If `FM2_TASK` or `FM2_PANEL` is nonempty, read [the fm CLI runtime](cli-runtime.md)
+first. Its session, tool, and reporting rules take precedence over app-specific
+instructions below. Otherwise, follow this procedure in the current Codex app
+task. An ordinary terminal alone does not select the fm workflow.
+
 Run the agreed test scope and report observed results. This is an execution gate,
 not a correctness review or permission to fix the code. The caller can use the
 skill directly or assign it through a collaboration subagent; no separate app

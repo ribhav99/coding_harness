@@ -5,6 +5,11 @@ description: Open or update the PR for the current Codex task using the reposito
 
 # Open Task PR
 
+If `FM2_TASK` or `FM2_PANEL` is nonempty, read [the fm CLI runtime](cli-runtime.md)
+first. Its session, tool, and reporting rules take precedence over app-specific
+instructions below. Otherwise, follow this procedure in the current Codex app
+task. An ordinary terminal alone does not select the fm workflow.
+
 Prepare and publish the current task's change when the user requested a PR or
 the authorized workflow includes one. An explicit request to keep work local,
 avoid commits, or wait before publishing takes precedence. Do not ask again for

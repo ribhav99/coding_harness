@@ -1,4 +1,13 @@
-# Shared skills in a Codex app task
+# Shared skills in Codex
+
+Resolve this shared file's real path before following its relative links;
+installed skill folders link here through a symlink.
+
+Check the session environment first. If `FM2_TASK` or `FM2_PANEL` is nonempty,
+read [the fm CLI runtime](cli-runtime.md); its session, tool, and reporting rules
+take precedence over app-specific instructions here. Otherwise this is the native
+app workflow. The presence of a terminal or an installed `fm` command does not
+select CLI mode.
 
 Read the linked source procedure in full and retain its domain rules, evidence
 requirements, and document formats. The following replaces its Claude/Python
@@ -22,8 +31,8 @@ that limit; do not invent acceptance-criterion IDs or fail solely because a
 harness work-order file is absent.
 
 Use the session's file/shell tools where the source names Read, Write, Edit, or
-Bash. Use collaboration tools where it names Task/subagents. Keep work within
-the current task unless a separate sidebar task was explicitly requested. In a
+Bash. Use the available Codex subagent tools where it names Task/subagents. Keep
+work within the current task unless a separate sidebar task was explicitly requested. In a
 judge assignment, read the assigned primary documents directly; do not delegate
 their reading to a summarizing agent. Tool availability is not proof that hooks
 or write restrictions are installed: uphold the judge's read-only scope yourself.
