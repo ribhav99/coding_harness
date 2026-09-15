@@ -36,6 +36,7 @@ muted session so the mute cannot outlive its reason.
 fm review <pr> --project <dir>   a cold review: fresh session at the PR head
 fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
+fm switch <id> --agent codex     continue the exact task in Codex (or claude to switch back)
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm tell <id> <message>           pass Ribhav's words to a session
@@ -43,6 +44,38 @@ fm quiet <id>                    stop a session reporting; Ribhav has that pane
 fm close <id>                    take a task down; it refuses to strand work
 fm announce <id>                 the outcome, confirmed on the forge
 ```
+
+Claude Code is the default for every launch. `review`, `ship`, and `attach`
+accept `--agent codex` when Ribhav chooses it explicitly. To move a task that
+already exists, always use `fm switch`; attaching it under another agent would
+lose the conversation boundary, so `attach` refuses that shortcut.
+
+## Changing agents
+
+A controller can move from Claude Code to Codex without rebuilding the panel.
+Exit Claude in the control pane, run `node fm2/supervisor.mjs codex`, then use
+Codex's interactive `/import` and choose the exact Claude controller chat. Run
+`fm status` after import; it reads the existing tasks, and
+`fm switch <id> --agent codex` moves any worker that should follow. Use
+`fm switch <id> --agent claude` to move it back. A newly created panel can start
+there directly with `fmp <project> --agent codex`.
+
+`fm switch` keeps the task id, pane, worktree, branch, files, brief, review
+state, quiet setting, unread reports, and reporting route. Before it interrupts
+the old CLI process, it copies that task's exact full transcript under
+`~/.fm2/handoffs/<id>/`. The target reads the copy before continuing. If hooks
+have not recorded an exact session (an older task), fm matches both the exact
+worktree and opening brief. It stops on ambiguity; Ribhav can name the source
+with `--session <id>` after deciding which one is right. It never chooses the
+largest or newest transcript.
+
+Codex `/import` is a person-driven setup and controller-chat operation, not the
+worker switch mechanism. It currently offers at most 50 chats from the last 30
+days and is unavailable during a running task, in remote sessions, or through a
+local app-server connection. Switching workers therefore uses local transcript
+snapshots and native per-provider resume. This transfers the complete recorded
+conversation, not hidden model state; an interrupted response that the source
+CLI never wrote cannot be recovered.
 
 ## The rules
 
@@ -112,7 +145,8 @@ credential, and anything destructive or irreversible. Nothing else.
 
 ## Standing preferences
 
-- Every agent launch uses `--dangerously-skip-permissions --effort max`.
+- Claude launches use `--dangerously-skip-permissions --effort max`; Codex
+  launches use its supported equivalents and `model_reasoning_effort="max"`.
 - Worktrees are siblings of the real checkout, named `<repo>-<description>`.
 - Imports go at the top of a file unless a circular import genuinely forbids it.
 - Reviews keep their depth: the judge fan-out stays, at full effort.

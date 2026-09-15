@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -15,6 +15,8 @@ const ROOT = dirname(HERE);
 function freshHome() {
   const home = mkdtempSync(join(tmpdir(), 'fm2-home-'));
   process.env.FM2_HOME = home;
+  process.env.CLAUDE_SKILLS_DIR = join(home, 'claude-skills');
+  process.env.CODEX_SKILLS_DIR = join(home, 'codex-skills');
   return home;
 }
 
@@ -182,6 +184,42 @@ test('a worker stopping records its own words, and never fails the worker', asyn
   // A broken payload must never hold up a worker's turn.
   const broken = runHook('worker-stop.mjs', { transcript_path: '/does/not/exist' }, { FM2_HOME: home, FM2_TASK: 'wo-2' });
   assert.equal(broken.code, 0, 'a missing transcript failed the worker');
+});
+
+test('Codex startup records exact identity and Codex stop reports through the same task route', async () => {
+  const home = freshHome();
+  const worktree = mkdtempSync(join(tmpdir(), 'fm2-codex-wt-'));
+  const transcript = join(home, 'codex.jsonl');
+  const session = '44444444-4444-4444-4444-444444444444';
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'session_meta', payload: { id: session, cwd: worktree } })}\n`,
+  );
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  const { pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  saveTask({ id: 'wo-codex-report', pane: '%1', worktree, agent: 'codex' });
+
+  const env = { FM2_HOME: home, FM2_TASK: 'wo-codex-report', FM2_AGENT: 'codex' };
+  const started = runHook('worker-session.mjs', {
+    session_id: session,
+    transcript_path: transcript,
+    cwd: worktree,
+  }, env);
+  assert.equal(started.code, 0);
+  assert.equal(started.stdout.trim(), '{}', 'Codex SessionStart did not receive valid JSON output');
+  assert.equal(loadTask('wo-codex-report').sessions.codex.id, session);
+
+  const stopped = runHook('worker-stop.mjs', {
+    session_id: session,
+    transcript_path: transcript,
+    cwd: worktree,
+    last_assistant_message: 'PR is ready: https://example.test/pr/1',
+  }, env);
+  assert.equal(stopped.code, 0);
+  assert.equal(stopped.stdout.trim(), '{}', 'Codex Stop did not receive valid JSON output');
+  assert.equal(pending().length, 1);
+  assert.equal(pending()[0].task, 'wo-codex-report');
+  assert.match(pending()[0].text, /PR is ready/);
 });
 
 test('telling a session with no pane sends nothing and says so', async () => {
@@ -377,6 +415,145 @@ function makeProject() {
   return project;
 }
 
+test('a task switches to Codex and back without changing its work or report route', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin]);
+  execFileSync('git', ['-C', project, 'remote', 'add', 'origin', origin]);
+  execFileSync('git', ['-C', project, 'push', '-q', 'origin', 'HEAD:refs/heads/main']);
+
+  const worktree = join(dirname(project), 'thing-wo-switch');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-switch', worktree]);
+  writeFileSync(join(worktree, 'unpushed.txt'), 'must survive\n');
+  execFileSync('git', ['-C', worktree, 'add', 'unpushed.txt']);
+  execFileSync('git', ['-C', worktree, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'unpushed work']);
+  writeFileSync(join(worktree, 'README.md'), '# dirty and must survive\n');
+  writeFileSync(join(worktree, 'untracked.txt'), 'also must survive\n');
+
+  const briefDir = join(home, 'briefs', 'wo-switch');
+  mkdirSync(briefDir, { recursive: true });
+  const brief = join(briefDir, 'brief.md');
+  writeFileSync(brief, 'Build this exact feature.\n');
+  const claudeSession = '11111111-1111-1111-1111-111111111111';
+  const claudeTranscript = join(home, 'claude.jsonl');
+  writeFileSync(
+    claudeTranscript,
+    [
+      JSON.stringify({ sessionId: claudeSession, cwd: worktree, type: 'user', message: { content: 'Build this exact feature.' } }),
+      JSON.stringify({ sessionId: claudeSession, cwd: worktree, type: 'assistant', message: { content: [{ type: 'text', text: 'Waiting on Ribhav to choose A or B.' }] } }),
+      '',
+    ].join('\n'),
+  );
+
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  const { record, pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  saveTask({
+    id: 'wo-switch',
+    project,
+    worktree,
+    pane: '%7',
+    brief,
+    branch: 'wo-switch',
+    kind: 'ship',
+    agent: 'claude',
+    sessions: {
+      claude: { id: claudeSession, transcript: claudeTranscript, cwd: worktree, recorded_at: '2026-01-01' },
+    },
+  });
+  record({ task: 'wo-switch', text: 'Waiting on Ribhav to choose A or B.', cwd: worktree });
+
+  const launches = [];
+  let interrupts = 0;
+  const runtime = {
+    available: () => true,
+    alive: () => true,
+    interrupt: () => { interrupts += 1; },
+    replace: (pane, cwd, command) => { launches.push({ pane, cwd, command }); return pane; },
+    open: () => { throw new Error('a live switch must reuse its pane'); },
+    clear: () => {},
+    assert: () => {},
+  };
+  const beforeHead = execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const beforeStatus = execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1'], { encoding: 'utf8' });
+
+  const toCodex = switchTask('wo-switch', { agent: 'codex', runtime });
+  assert.equal(toCodex.worktreePreserved, true);
+  assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
+  assert.match(launches[0].command, /codex --dangerously-bypass-approvals-and-sandbox/);
+  assert.equal(launches[0].cwd, worktree);
+  const afterCodex = loadTask('wo-switch');
+  assert.equal(afterCodex.agent, 'codex');
+  assert.equal(afterCodex.id, 'wo-switch');
+  assert.equal(afterCodex.worktree, worktree);
+  assert.equal(afterCodex.brief, brief);
+  assert.equal(afterCodex.sessions.claude.id, claudeSession);
+  assert.ok(
+    existsSync(join(home, 'codex-skills', 'full-review', 'SKILL.md')),
+    'Codex did not receive the same harness skills',
+  );
+  const firstManifest = JSON.parse(readFileSync(toCodex.manifest, 'utf8'));
+  assert.equal(firstManifest.source.id, claudeSession);
+  assert.equal(firstManifest.reporting.task, 'wo-switch');
+  assert.equal(firstManifest.reporting.unread.length, 1, 'the pending decision was dropped from the handoff');
+  assert.equal(readFileSync(firstManifest.source.transcript_snapshot, 'utf8'), readFileSync(claudeTranscript, 'utf8'));
+
+  const codexSession = '22222222-2222-2222-2222-222222222222';
+  const codexTranscript = join(home, 'codex.jsonl');
+  writeFileSync(
+    codexTranscript,
+    [
+      JSON.stringify({ type: 'session_meta', payload: { id: codexSession, cwd: worktree } }),
+      JSON.stringify({ type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text: 'Continue from the handoff.' }] } }),
+      '',
+    ].join('\n'),
+  );
+  const started = runHook('worker-session.mjs', {
+    session_id: codexSession,
+    transcript_path: codexTranscript,
+    cwd: worktree,
+  }, { FM2_HOME: home, FM2_TASK: 'wo-switch', FM2_AGENT: 'codex' });
+  assert.equal(started.code, 0);
+  const stopped = runHook('worker-stop.mjs', {
+    session_id: codexSession,
+    transcript_path: codexTranscript,
+    cwd: worktree,
+    last_assistant_message: 'Implemented the selected path; tests pass.',
+  }, { FM2_HOME: home, FM2_TASK: 'wo-switch', FM2_AGENT: 'codex' });
+  assert.equal(stopped.code, 0);
+  assert.ok(pending().some((item) => item.task === 'wo-switch' && /tests pass/.test(item.text)));
+
+  const toClaude = switchTask('wo-switch', { agent: 'claude', runtime });
+  assert.equal(toClaude.resumed, claudeSession, 'switching back did not resume the exact prior Claude chat');
+  assert.match(launches[1].command, /claude --dangerously-skip-permissions/);
+  assert.match(launches[1].command, new RegExp(`--resume '${claudeSession}'`));
+  const back = loadTask('wo-switch');
+  assert.equal(back.agent, 'claude');
+  assert.equal(back.sessions.codex.id, codexSession);
+  assert.equal(back.brief, brief, 'switching providers changed the report path');
+  assert.equal(interrupts, 2);
+
+  assert.equal(execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), beforeHead);
+  assert.equal(execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1'], { encoding: 'utf8' }), beforeStatus);
+  assert.equal(readFileSync(join(worktree, 'unpushed.txt'), 'utf8'), 'must survive\n');
+  assert.equal(readFileSync(join(worktree, 'untracked.txt'), 'utf8'), 'also must survive\n');
+
+  let touched = false;
+  assert.throws(
+    () => switchTask('wo-switch', {
+      agent: 'codex',
+      runtime: {
+        available: () => false,
+        alive: () => true,
+        interrupt: () => { touched = true; },
+      },
+    }),
+    /codex is not installed/,
+  );
+  assert.equal(touched, false, 'the source was interrupted before target availability was known');
+});
+
 test('a task with uncommitted work refuses to close', async () => {
   const home = freshHome();
   const project = makeProject();
@@ -533,34 +710,47 @@ test('reopening a task keeps everything but the pane', async () => {
   assert.deepEqual(reopened(null, fresh), fresh);
 });
 
-// Reopening a branch you have worked on should carry its conversation, and the
-// id that names it is a filename under a folder derived from the cwd. Two things
-// are easy to get wrong: the encoding (underscores become dashes, same as
-// slashes), and which file wins.
-test('the last conversation in a worktree is found by cwd, newest first', async () => {
+// A worktree can have several conversations. Recency is not identity: a quick
+// unrelated chat opened later in the same folder must not steal a task.
+test('a legacy Claude session is selected by exact cwd and brief, never newest', async () => {
   freshHome();
-  const { lastSessionFor } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { resolveSession } = await import(join(ROOT, 'lib/sessions.mjs'));
 
   const root = mkdtempSync(join(tmpdir(), 'fm2-projects-'));
   const wt = join(tmpdir(), 'fitness_agent-fm-volume_score');
-  // Underscores are dashed exactly like the separators, which is what made
-  // fitness_agent-marketing resolve to ...-fitness-agent-marketing.
   const folder = join(root, wt.replace(/[^A-Za-z0-9]/g, '-'));
   mkdirSync(folder, { recursive: true });
+  const brief = join(freshHome(), 'brief.md');
+  writeFileSync(brief, 'Implement the exact assigned change.\n');
 
-  assert.equal(lastSessionFor(wt, root), null, 'an empty folder claimed a conversation');
+  const wanted = '11111111-1111-1111-1111-111111111111';
+  const unrelated = '22222222-2222-2222-2222-222222222222';
+  writeFileSync(
+    join(folder, `${wanted}.jsonl`),
+    `${JSON.stringify({ sessionId: wanted, cwd: wt, type: 'user', message: { content: 'Implement the exact assigned change.' } })}\n`,
+  );
+  writeFileSync(
+    join(folder, `${unrelated}.jsonl`),
+    `${JSON.stringify({ sessionId: unrelated, cwd: wt, type: 'user', message: { content: 'Unrelated scratch question' } })}\n`,
+  );
 
-  const older = join(folder, '11111111-1111-1111-1111-111111111111.jsonl');
-  const newer = join(folder, '22222222-2222-2222-2222-222222222222.jsonl');
-  writeFileSync(older, '{}\n');
-  writeFileSync(newer, '{}\n');
-  utimesSync(older, new Date(1e9), new Date(1e9));
-  utimesSync(newer, new Date(2e9), new Date(2e9));
+  const task = { id: 'volume-score', worktree: wt, brief };
+  assert.equal(resolveSession(task, 'claude', { claudeRoot: root }).id, wanted);
+  assert.equal(
+    resolveSession({ id: 'scratch', worktree: wt }, 'claude', { claudeRoot: root, explicit: unrelated }).id,
+    unrelated,
+  );
 
-  assert.equal(lastSessionFor(wt, root), '22222222-2222-2222-2222-222222222222');
-  // A worktree nobody has opened has nothing to resume, and saying so is how
-  // `fm attach --resume` refuses instead of coming up cold and looking resumed.
-  assert.equal(lastSessionFor(join(tmpdir(), 'never-opened'), root), null);
+  const duplicate = '33333333-3333-3333-3333-333333333333';
+  writeFileSync(
+    join(folder, `${duplicate}.jsonl`),
+    `${JSON.stringify({ sessionId: duplicate, cwd: wt, type: 'user', message: { content: 'Implement the exact assigned change.' } })}\n`,
+  );
+  assert.throws(
+    () => resolveSession(task, 'claude', { claudeRoot: root }),
+    /ambiguous Claude history|ambiguous claude history/i,
+    'two plausible histories were silently ordered by time',
+  );
 });
 
 // A review worktree sits on a detached PR head with no branch of its own. Asking
@@ -1004,8 +1194,9 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(cmd, /--model opus\b/, 'the launch left the model to the CLI default');
   assert.match(cmd, /--effort max\b/);
   assert.match(cmd, /--dangerously-skip-permissions\b/);
-  assert.match(cmd, /--settings "\/s\.json"/);
-  assert.match(cmd, /FM2_TASK="wo-9"/, 'the hook could not find its task');
+  assert.match(cmd, /--settings '\/s\.json'/);
+  assert.match(cmd, /FM2_TASK='wo-9'/, 'the hook could not find its task');
+  assert.match(cmd, /FM2_AGENT='claude'/);
 
   // An idle pane and a resumed one differ only in these two flags, and both are
   // easy to pass by accident: an empty brief would start a turn on nothing, and
@@ -1013,6 +1204,80 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.doesNotMatch(cmd, /--resume/);
   assert.doesNotMatch(cmd, /\$\(cat/);
   const full = launchCommand({ id: 'wo-9', settingsFile: '/s.json', briefPath: '/b.md', resume: 'abc' });
-  assert.match(full, /--resume "abc"/);
-  assert.match(full, /"\$\(cat "\/b\.md"\)"/);
+  assert.match(full, /--resume 'abc'/);
+  assert.match(full, /"\$\(cat '\/b\.md'\)"/);
+});
+
+test('a Codex worker uses Codex permission, effort, resume, and hook contracts', async () => {
+  const home = freshHome();
+  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const settings = writeWorkerSettings('wo-codex', 'codex');
+  const prompt = join(home, 'prompt.md');
+  writeFileSync(prompt, 'continue the same task\n');
+
+  const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
+  assert.match(fresh, /\bcodex --dangerously-bypass-approvals-and-sandbox\b/);
+  assert.match(fresh, /--dangerously-bypass-hook-trust\b/);
+  assert.match(fresh, /model_reasoning_effort="max"/);
+  assert.match(fresh, /hooks\.SessionStart=/);
+  assert.match(fresh, /hooks\.Stop=/);
+  assert.match(fresh, /worker-session\.mjs/);
+  assert.match(fresh, /worker-stop\.mjs/);
+  assert.match(fresh, /FM2_AGENT='codex'/);
+  assert.doesNotMatch(fresh, /claude --/);
+
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
+  const argsFile = join(home, 'worker-args');
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+  const invoked = spawnSync('/bin/sh', ['-c', fresh], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FM2_ARGS_FILE: argsFile },
+  });
+  assert.equal(invoked.status, 0, invoked.stderr);
+  const actualArgs = readFileSync(argsFile, 'utf8');
+  assert.match(actualArgs, /--dangerously-bypass-approvals-and-sandbox/);
+  assert.match(actualArgs, /hooks\.SessionStart=/);
+  assert.match(actualArgs, /continue the same task/);
+
+  const resumed = launchCommand({
+    agent: 'codex',
+    id: 'wo-codex',
+    settingsFile: settings,
+    briefPath: prompt,
+    resume: '44444444-4444-4444-4444-444444444444',
+  });
+  assert.match(resumed, /codex resume /);
+  assert.match(resumed, /'44444444-4444-4444-4444-444444444444'/);
+});
+
+test('the Codex controller launcher passes native hooks to the real CLI boundary', () => {
+  const home = freshHome();
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-codex-bin-'));
+  const argsFile = join(home, 'codex-args');
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+  const result = spawnSync(process.execPath, [join(ROOT, 'supervisor.mjs'), 'codex'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      FM2_HOME: home,
+      FM2_ARGS_FILE: argsFile,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const args = readFileSync(argsFile, 'utf8');
+  assert.match(args, /--dangerously-bypass-approvals-and-sandbox/);
+  assert.match(args, /model_reasoning_effort="max"/);
+  assert.match(args, /hooks\.UserPromptSubmit=/);
+  assert.match(args, /supervisor-start\.mjs/);
+  assert.match(args, /hooks\.Stop=/);
+  assert.match(args, /supervisor-stop\.mjs/);
 });

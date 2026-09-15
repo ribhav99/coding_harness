@@ -20,6 +20,11 @@ let raw = '';
 process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) raw += chunk;
 
+function done() {
+  if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
+  process.exit(0);
+}
+
 // Where the supervisor lives, so a stopping worker knows where to knock. Written
 // on every stop rather than once, because a supervisor can be restarted into a
 // new pane and a stale id knocks on somebody else's door.
@@ -31,10 +36,10 @@ try {
 } catch {
   // If the notify directory cannot be read, let the turn end. A supervisor that
   // cannot stop is worse than one that misses a report it can still read later.
-  process.exit(0);
+  done();
 }
 
-if (items.length === 0) process.exit(0);
+if (items.length === 0) done();
 
 const lines = items.map((item) => {
   const first = String(item.text || '').split('\n').find((l) => l.trim()) || '(no text)';

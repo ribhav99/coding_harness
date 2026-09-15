@@ -6,8 +6,9 @@
 //   fm ship <id> --spec <text|@file>   put a worker on a task  [--window <name>]
 //                        [--investigate]  an open question to think through, not ship
 //   fm attach <worktree> [--spec ...]  a session on a worktree that already exists
-//                        [--resume]    carrying on the last conversation held there
+//                        [--resume]    carrying on the exact recorded conversation
 //                                      also how a task whose pane died is reopened
+//   fm switch <id> --agent <name>      move the same task between claude and codex
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -26,9 +27,10 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, lastSessionFor } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
+import { agentOf, normalizeAgent, resolveSession } from './lib/sessions.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -99,6 +101,10 @@ function die(msg, code = 1) {
 function arg(flag, fallback = null) {
   const i = process.argv.indexOf(flag);
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+}
+
+function selectedAgent(value) {
+  try { return normalizeAgent(value); } catch (error) { return die(error.message); }
 }
 
 // Kicking off a review is invoking the review skill on the PR. Nothing else.
@@ -180,8 +186,9 @@ const [, , command] = process.argv;
 // --- review ------------------------------------------------------------------
 
 if (command === 'review') {
-  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>]');
+  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>] [--agent claude|codex]');
   const project = resolve(arg('--project', process.cwd()));
+  const agent = selectedAgent(arg('--agent', 'claude'));
   // Ribhav's own brief for the review, when the full skill is more than he wants.
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
@@ -208,6 +215,7 @@ if (command === 'review') {
     brief: spec ? PLAIN_REVIEW_BRIEF(spec, meta.url, id, reportPath) : REVIEW_BRIEF(meta.url, id, reportPath, specPath),
     baseRef: ref,
     window,
+    agent,
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
   });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
@@ -217,8 +225,9 @@ if (command === 'review') {
 // --- ship --------------------------------------------------------------------
 
 if (command === 'ship') {
-  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>] [--investigate]');
+  const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>] [--investigate] [--agent claude|codex]');
   const project = resolve(arg('--project', process.cwd()));
+  const agent = selectedAgent(arg('--agent', 'claude'));
   let spec = arg('--spec') ?? die('a ship task needs --spec');
   if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   // A window per batch, when Ribhav wants one. `fm` creates it on demand, so
@@ -227,7 +236,7 @@ if (command === 'ship') {
   // An open question gets a worker told to answer it, not one told to open a PR.
   const investigate = process.argv.includes('--investigate');
   const brief = investigate ? INVESTIGATE_BRIEF(spec, id) : SHIP_BRIEF(spec, id);
-  const task = spawnTask({ id, project, brief, window });
+  const task = spawnTask({ id, project, brief, window, agent });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
   process.exit(0);
 }
@@ -244,7 +253,7 @@ if (command === 'ship') {
 // be told the history again is the same session started twice.
 
 if (command === 'attach') {
-  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>] [--resume [<session>]]');
+  const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>] [--resume [<session>]] [--agent claude|codex]');
   const worktree = resolve(target);
   // A worktree knows which checkout it belongs to, so asking it beats defaulting
   // to whatever directory the supervisor happens to be standing in. Attaching to
@@ -257,28 +266,71 @@ if (command === 'attach') {
   const base = worktree.split('/').pop();
   const prefix = `${project.split('/').pop()}-`;
   const id = arg('--id', base.startsWith(prefix) ? base.slice(prefix.length) : base);
+  const existing = loadTask(id);
+  const agent = selectedAgent(arg('--agent', agentOf(existing)));
+  if (existing && agent !== agentOf(existing)) {
+    die(`"${id}" belongs to ${agentOf(existing)}; use fm switch ${id} --agent ${agent} to preserve its history`);
+  }
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   // Left null on purpose: adoptTask picks the window, because only it knows
   // whether this is a fresh adoption or a review being reopened.
   const window = arg('--window');
-  // Bare `--resume` means the last conversation in that worktree; a value names
-  // one exactly. Refusing when there is nothing to resume is deliberate: the
+  // Bare `--resume` means the conversation recorded for this task, or the one
+  // transcript whose cwd and opening brief identify it; a value names one
+  // exactly. Refusing when there is nothing to resume is deliberate: the
   // alternative is a pane that comes up cold looking exactly like one that
   // resumed, and Ribhav finds out by asking it something it cannot answer.
   let resume = null;
   if (process.argv.includes('--resume')) {
     const named = arg('--resume');
-    resume = named && !named.startsWith('--') ? named : lastSessionFor(worktree);
-    if (!resume) die(`no past conversation in ${worktree} to resume`);
+    const explicit = named && !named.startsWith('--') ? named : null;
+    try {
+      resume = resolveSession(
+        existing ?? { id, worktree, brief: null, sessions: {} },
+        agent,
+        { explicit },
+      ).id;
+    } catch (error) {
+      die(error.message);
+    }
   }
   let task;
   try {
-    task = adoptTask({ id, project, worktree, window, brief: spec ? SHIP_BRIEF(spec, id) : null, resume });
+    task = adoptTask({
+      id,
+      project,
+      worktree,
+      window,
+      brief: spec ? SHIP_BRIEF(spec, id) : null,
+      resume,
+      agent,
+    });
   } catch (err) {
     die(err.message);
   }
   process.stdout.write(`${task.id}\t${task.pane}\t${task.branch ?? 'detached'}\t${task.worktree}${resume ? `\t${resume}` : ''}\n`);
+  process.exit(0);
+}
+
+// --- switch ------------------------------------------------------------------
+// Keep the task, branch, worktree and reporting route; replace only the CLI.
+// The source transcript is resolved before the old process is stopped, copied
+// outside the worktree, and handed to the target session in full.
+
+if (command === 'switch') {
+  const id = process.argv[3] ?? die('usage: fm switch <id> --agent claude|codex [--session <source-id>]');
+  const agent = arg('--agent') ?? die('a switch needs --agent claude|codex');
+  const session = arg('--session');
+  try {
+    const result = switchTask(id, { agent, session });
+    process.stdout.write(
+      `${id}: ${result.from} -> ${result.to}; same task and worktree\n` +
+        `full handoff: ${result.manifest}${result.resumed ? `; resumed ${result.to} session ${result.resumed}` : ''}\n`,
+    );
+  } catch (error) {
+    die(error.message);
+  }
   process.exit(0);
 }
 
@@ -290,6 +342,7 @@ if (command === 'handoff') {
   const id = process.argv[3] ?? die('usage: fm handoff <id>');
   const task = loadTask(id) ?? die(`no task "${id}"`);
   const stage = arg('--stage', task.handoff_stage ?? 'self-review');
+  const reviewAgent = selectedAgent(arg('--agent', 'claude'));
 
   if (stage === 'self-review') {
     if (!paneAlive(task.pane)) die(`"${id}" has no live session to self-review`);
@@ -346,6 +399,7 @@ if (command === 'handoff') {
     brief: REVIEW_BRIEF(meta.url, reviewId, reportPath, specPath),
     baseRef: ref,
     window: 'reviews',
+    agent: reviewAgent,
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
   });
   process.stdout.write(`${id} closed; ${reviewId} now reviewing ${meta.url}\n`);
@@ -428,9 +482,10 @@ if (command === 'status') {
     // A muted task is otherwise invisible: it stops reporting and looks exactly
     // like one with nothing to say. Say so here, or the mute outlives the reason
     // for it and a session goes unwatched by both of us.
+    const provider = agentOf(task) === 'claude' ? '' : ` | ${agentOf(task)}`;
     const muted = task.quiet ? ' | quiet' : '';
     const done = landed ? '  <- MERGED, close it' : '';
-    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${muted}${done}${pending}\n`);
+    process.stdout.write(`${task.id}\t${task.pane}\t${alive}${where}${forge}${provider}${muted}${done}${pending}\n`);
     if (alive === 'DEAD') dead += 1;
     if (landed) merged += 1;
   }
@@ -449,7 +504,7 @@ if (command === 'status') {
   }
   if (dead) {
     process.stdout.write(
-      `\n${dead} task(s) with no session — fm attach <worktree> --resume reopens one\n`,
+      `\n${dead} task(s) with no session — fm attach <worktree> --resume reopens one with its recorded agent\n`,
     );
   }
   const n = count();
@@ -552,4 +607,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|handoff|read|status|tell|quiet|close|announce|caps');
+die('usage: fm review|ship|attach|switch|handoff|read|status|tell|quiet|close|announce|caps');
