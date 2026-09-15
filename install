@@ -59,8 +59,7 @@ command_link "$REPO/fm2/bin-fm"          fm
 command_link "$REPO/fm2/bin-fmp"         fmp
 command_link "$REPO/surface/bin-surface" surface
 
-# Claude Code and Codex discover a skill as <name>/SKILL.md, so the link is the file
-# inside a directory named for the skill - not the directory itself.
+# Claude uses file links; Codex uses complete entrypoint folders and references.
 # Skills go through the same code fm uses at every launch, so there is one
 # implementation and it cannot drift from what a worker actually gets.
 printf '\nskills:\n'
@@ -70,7 +69,7 @@ if [ "$CHECK" = 1 ]; then
     const { realpathSync, lstatSync } = await import("node:fs");
     const { join } = await import("node:path");
     let stale = 0;
-    for (const agent of ["claude", "codex"]) {
+    for (const agent of ["claude"]) {
       for (const [name, target] of repoSkills(process.argv[1])) {
         const link = join(skillsRoot(agent), name, "SKILL.md");
         let cur = null;
@@ -78,8 +77,9 @@ if [ "$CHECK" = 1 ]; then
         if (cur !== realpathSync(target)) { console.log(`  TODO  ${agent}:${name} -> ${cur ?? "missing"}`); stale++; }
       }
     }
-    console.log(`  ${stale === 0 ? "ok    all" : stale + " stale of"} ${repoSkills(process.argv[1]).length * 2} provider skill link(s)`);
+    console.log(`  ${stale === 0 ? "ok    all" : stale + " stale of"} ${repoSkills(process.argv[1]).length} Claude skill link(s)`);
   ' "$REPO"
+  node "$REPO/codex/install.mjs" --check
 else
   node -e '
     const { syncSkills, repoSkills } = await import(process.argv[1] + "/fm2/lib/skills.mjs");
@@ -141,5 +141,5 @@ printf '\nnot handled here (per machine, never in the repo):\n'
 printf '  - the Software Factory MCP server, in the global mcpServers of ~/.claude.json\n'
 printf '  - anything a project needs to build; the harness only launches sessions\n'
 
-printf '\nClaude supervisor hooks come with the repo (.claude/settings.json, via $CLAUDE_PROJECT_DIR).\n'
-printf 'Codex supervisor hooks are passed by fm2/supervisor.mjs. Run firstmate from this checkout.\n'
+printf '\nBoth providers receive controller lifecycle hooks from fm2/supervisor.mjs.\n'
+printf 'Start with fmp <project> [--agent codex]; Claude remains the default.\n'

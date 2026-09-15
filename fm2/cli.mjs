@@ -31,6 +31,8 @@ import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, m
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 import { agentOf, normalizeAgent, resolveSession } from './lib/sessions.mjs';
+import { queuePanelSwitch } from './lib/panel-switch.mjs';
+import { currentPanel } from './lib/presence.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -105,6 +107,17 @@ function arg(flag, fallback = null) {
 
 function selectedAgent(value) {
   try { return normalizeAgent(value); } catch (error) { return die(error.message); }
+}
+
+function defaultAgent() {
+  const panel = currentPanel();
+  if (panel) {
+    try {
+      const value = execFileSync('tmux', ['show-option', '-qv', '-t', panel, '@fm-agent'], { encoding: 'utf8', timeout: 5000 }).trim();
+      if (value) return selectedAgent(value);
+    } catch { /* legacy panels use the launch environment */ }
+  }
+  return process.env.FM2_AGENT || 'claude';
 }
 
 // Kicking off a review is invoking the review skill on the PR. Nothing else.
@@ -188,7 +201,7 @@ const [, , command] = process.argv;
 if (command === 'review') {
   const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>] [--agent claude|codex]');
   const project = resolve(arg('--project', process.cwd()));
-  const agent = selectedAgent(arg('--agent', 'claude'));
+  const agent = selectedAgent(arg('--agent', defaultAgent()));
   // Ribhav's own brief for the review, when the full skill is more than he wants.
   let spec = arg('--spec');
   if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
@@ -227,7 +240,7 @@ if (command === 'review') {
 if (command === 'ship') {
   const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>] [--investigate] [--agent claude|codex]');
   const project = resolve(arg('--project', process.cwd()));
-  const agent = selectedAgent(arg('--agent', 'claude'));
+  const agent = selectedAgent(arg('--agent', defaultAgent()));
   let spec = arg('--spec') ?? die('a ship task needs --spec');
   if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
   // A window per batch, when Ribhav wants one. `fm` creates it on demand, so
@@ -267,7 +280,7 @@ if (command === 'attach') {
   const prefix = `${project.split('/').pop()}-`;
   const id = arg('--id', base.startsWith(prefix) ? base.slice(prefix.length) : base);
   const existing = loadTask(id);
-  const agent = selectedAgent(arg('--agent', agentOf(existing)));
+  const agent = selectedAgent(arg('--agent', existing ? agentOf(existing) : defaultAgent()));
   if (existing && agent !== agentOf(existing)) {
     die(`"${id}" belongs to ${agentOf(existing)}; use fm switch ${id} --agent ${agent} to preserve its history`);
   }
@@ -318,6 +331,17 @@ if (command === 'attach') {
 // The source transcript is resolved before the old process is stopped, copied
 // outside the worktree, and handed to the target session in full.
 
+if (command === 'panel-switch') {
+  const agent = arg('--agent') ?? die('usage: fm panel-switch --agent claude|codex [--panel <session>] [--sessions @file]');
+  try {
+    const sessionsFile = arg('--sessions');
+    const sessions = sessionsFile ? JSON.parse(readFileSync(sessionsFile.replace(/^@/, ''), 'utf8')) : {};
+    const result = await queuePanelSwitch({ agent, panel: arg('--panel') ?? currentPanel(), sessions });
+    process.stdout.write(`Switch queued: ${result.from} -> ${result.to}\nFull panel handoff: ${result.path}\nProgress: ${result.log}\n`);
+  } catch (error) { die(error.message); }
+  process.exit(0);
+}
+
 if (command === 'switch') {
   const id = process.argv[3] ?? die('usage: fm switch <id> --agent claude|codex [--session <source-id>]');
   const agent = arg('--agent') ?? die('a switch needs --agent claude|codex');
@@ -342,7 +366,7 @@ if (command === 'handoff') {
   const id = process.argv[3] ?? die('usage: fm handoff <id>');
   const task = loadTask(id) ?? die(`no task "${id}"`);
   const stage = arg('--stage', task.handoff_stage ?? 'self-review');
-  const reviewAgent = selectedAgent(arg('--agent', 'claude'));
+  const reviewAgent = selectedAgent(arg('--agent', defaultAgent()));
 
   if (stage === 'self-review') {
     if (!paneAlive(task.pane)) die(`"${id}" has no live session to self-review`);
@@ -409,7 +433,7 @@ if (command === 'handoff') {
 // --- read --------------------------------------------------------------------
 
 if (command === 'read') {
-  const items = drain();
+  const items = drain(currentPanel() ?? undefined);
   if (!items.length) {
     process.stdout.write('nothing new\n');
     process.exit(0);
@@ -607,4 +631,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|handoff|read|status|tell|quiet|close|announce|caps');
+die('usage: fm review|ship|attach|switch|panel-switch|handoff|read|status|tell|quiet|close|announce|caps');

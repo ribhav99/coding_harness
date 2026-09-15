@@ -5,6 +5,7 @@
 
 import { rememberSession } from '../lib/sessions.mjs';
 import { currentPanel } from '../lib/presence.mjs';
+import { providerProcess } from '../lib/provider-processes.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -20,6 +21,8 @@ try {
     cwd: payload.cwd,
     panel: currentPanel(),
     pane: process.env.TMUX_PANE,
+    backend: process.env.FM2_CODEX_BACKEND || null,
+    providerPid: providerProcess(process.env.FM2_AGENT || 'claude'),
     source: payload.source,
   });
 } catch {

@@ -16,7 +16,10 @@
 // action is the supervisor's call; this only makes sure it is told.
 
 import { execFile } from 'node:child_process';
-import { supervisorPane } from './presence.mjs';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { dir } from './config.mjs';
+import { currentPanel, supervisorPane } from './presence.mjs';
 
 // The fact, and nothing after it. An earlier version added "its report is
 // waiting, `fm read` takes it", which is both a standing instruction the
@@ -37,7 +40,10 @@ function sendKeys(args) {
 // all are all just "not delivered" - the report is already on disk either way,
 // and the supervisor's own Stop hook still catches it at the end of its next
 // turn.
-export async function knock(task, { pane = supervisorPane(), send = sendKeys } = {}) {
+export async function knock(task, { panel = currentPanel(), pane = supervisorPane(panel), send = sendKeys } = {}) {
+  if (panel && existsSync(join(dir('panel-locks'), panel.replace(/[^A-Za-z0-9._-]/g, '-')))) {
+    return { knocked: false, reason: 'panel handoff in progress; report remains queued' };
+  }
   if (!pane) return { knocked: false, reason: 'no supervisor pane recorded' };
   const line = knockLine(task);
   // -l sends the text literally, so a report id can never be read as a key name.

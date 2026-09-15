@@ -37,6 +37,7 @@ fm review <pr> --project <dir>   a cold review: fresh session at the PR head
 fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
 fm switch <id> --agent codex     continue the exact task in Codex (or claude to switch back)
+fm panel-switch --agent codex   move this entire panel to Codex (or claude)
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm tell <id> <message>           pass Ribhav's words to a session
@@ -45,20 +46,22 @@ fm close <id>                    take a task down; it refuses to strand work
 fm announce <id>                 the outcome, confirmed on the forge
 ```
 
-Claude Code is the default for every launch. `review`, `ship`, and `attach`
-accept `--agent codex` when Ribhav chooses it explicitly. To move a task that
+Claude Code is the default outside a panel; workers and reviewers inherit the
+current panel's provider. `review`, `ship`, and `attach` accept `--agent codex`
+or `--agent claude` to override it. To move a task that
 already exists, always use `fm switch`; attaching it under another agent would
 lose the conversation boundary, so `attach` refuses that shortcut.
 
 ## Changing agents
 
-A controller can move from Claude Code to Codex without rebuilding the panel.
-Exit Claude in the control pane, run `node fm2/supervisor.mjs codex`, then use
-Codex's interactive `/import` and choose the exact Claude controller chat. Run
-`fm status` after import; it reads the existing tasks, and
-`fm switch <id> --agent codex` moves any worker that should follow. Use
-`fm switch <id> --agent claude` to move it back. A newly created panel can start
-there directly with `fmp <project> --agent codex`.
+When Ribhav asks to switch the whole session, run `fm panel-switch --agent codex`
+or `fm panel-switch --agent claude`. The detached helper opens iTerm2 with every
+current window and split, stops old agent conversations and writing tools, moves
+live shell panes, and starts the replacement controller last. Do not manually
+exit the controller before queuing the helper. Every conversation receives its
+full recorded history and prior handoffs. Source panels remain for recovery;
+`fmp <project>` follows the successful switch. A newly created panel can start
+directly with `fmp <project> --agent codex`.
 
 `fm switch` keeps the task id, pane, worktree, branch, files, brief, review
 state, quiet setting, unread reports, and reporting route. Before it interrupts
@@ -69,13 +72,15 @@ worktree and opening brief. It stops on ambiguity; Ribhav can name the source
 with `--session <id>` after deciding which one is right. It never chooses the
 largest or newest transcript.
 
-Codex `/import` is a person-driven setup and controller-chat operation, not the
-worker switch mechanism. It currently offers at most 50 chats from the last 30
-days and is unavailable during a running task, in remote sessions, or through a
-local app-server connection. Switching workers therefore uses local transcript
-snapshots and native per-provider resume. This transfers the complete recorded
-conversation, not hidden model state; an interrupted response that the source
-CLI never wrote cannot be recovered.
+Switching uses local transcript snapshots and exact per-provider resume. The
+history is supplied as context, without converting native chat messages or
+transferring hidden model state. Unwritten output cannot be recovered. Never
+promote historical tool output into a system instruction or invent the user's
+answer to an unresolved question. Legacy panels without recorded identities can
+pass `--sessions @file.json` mapping task or pane IDs to exact source session IDs.
+For Codex, verify daemon cancellation before replacing its terminal; pausing a
+goal and stopping its backend tools prevents another provider writing alongside
+it. Full goal metadata and recovery details live in the handoff.
 
 ## The rules
 
@@ -145,8 +150,10 @@ credential, and anything destructive or irreversible. Nothing else.
 
 ## Standing preferences
 
-- Claude launches use `--dangerously-skip-permissions --effort max`; Codex
-  launches use its supported equivalents and `model_reasoning_effort="max"`.
+- Claude launches use `--dangerously-skip-permissions --effort max`; Codex keeps
+  its configured model, reasoning, sandbox, and approval settings. Review its
+  stable harness command hooks with `/hooks` on first use, without bypassing
+  hook trust for unrelated user hooks.
 - Worktrees are siblings of the real checkout, named `<repo>-<description>`.
 - Imports go at the top of a file unless a circular import genuinely forbids it.
 - Reviews keep their depth: the judge fan-out stays, at full effort.

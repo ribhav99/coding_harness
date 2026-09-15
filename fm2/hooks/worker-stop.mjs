@@ -13,6 +13,7 @@ import { knock } from '../lib/knock.mjs';
 import { loadTask, saveTask } from '../lib/config.mjs';
 import { rememberSession } from '../lib/sessions.mjs';
 import { currentPanel } from '../lib/presence.mjs';
+import { providerProcess } from '../lib/provider-processes.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -42,6 +43,8 @@ try {
       cwd: payload.cwd,
       panel,
       pane: process.env.TMUX_PANE,
+      backend: process.env.FM2_CODEX_BACKEND || null,
+      providerPid: providerProcess(process.env.FM2_AGENT || 'claude'),
     });
   } catch { /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is

@@ -85,10 +85,26 @@ test('the direct controller launcher supplies explicit Claude startup hooks and 
   const { args, env } = f.args();
   assert.equal(args[args.indexOf('--resume') + 1], 'exact-claude-session');
   const settings = JSON.parse(args[args.indexOf('--settings') + 1]);
-  assert.deepEqual(Object.keys(settings.hooks), ['SessionStart']);
+  assert.deepEqual(Object.keys(settings.hooks), ['SessionStart', 'UserPromptSubmit', 'Stop']);
   assert.equal(env.FM2_TASK, 'controller:fm-one');
   assert.equal(env.FM2_PANEL, 'fm-two');
   assert.match(settings.hooks.SessionStart[0].hooks[0].command, /supervisor-start\.mjs/);
+});
+
+test('a resumed harness controller replaces legacy project hooks while preserving other project settings', (t) => {
+  const f = fixture(t);
+  const folder = join(f.home, '.claude'); mkdirSync(folder);
+  const settings = join(folder, 'settings.json');
+  const legacy = { hooks: Object.fromEntries(['Stop', 'UserPromptSubmit'].map((event) => [event, [{ hooks: [{ type: 'command', command: `exec node "$CLAUDE_PROJECT_DIR"/fm2/hooks/supervisor-${event === 'Stop' ? 'stop' : 'start'}.mjs` }] }]])) };
+  writeFileSync(settings, JSON.stringify(legacy));
+  let command = supervisorCommand({ agent: 'claude', panel: 'fm-one', cwd: f.home });
+  execFileSync('/bin/sh', ['-c', command], { env: process.env });
+  assert.equal(f.args().args[f.args().args.indexOf('--setting-sources') + 1], 'user,local');
+  assert.deepEqual(Object.keys(JSON.parse(f.args().args[f.args().args.indexOf('--settings') + 1]).hooks), ['SessionStart', 'UserPromptSubmit', 'Stop']);
+  writeFileSync(settings, JSON.stringify({ ...legacy, permissions: { deny: ['Bash(custom-command)'] } }));
+  command = supervisorCommand({ agent: 'claude', panel: 'fm-one', cwd: f.home });
+  execFileSync('/bin/sh', ['-c', command], { env: process.env });
+  assert.ok(!f.args().args.includes('--setting-sources'), 'custom project settings must remain loaded');
 });
 
 test('SessionStart records controller identity and pane without creating a worker task', (t) => {

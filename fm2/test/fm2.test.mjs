@@ -481,7 +481,7 @@ test('a task switches to Codex and back without changing its work or report rout
   const toCodex = switchTask('wo-switch', { agent: 'codex', runtime });
   assert.equal(toCodex.worktreePreserved, true);
   assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
-  assert.match(launches[0].command, /codex --dangerously-bypass-approvals-and-sandbox/);
+  assert.match(launches[0].command, /codex --no-alt-screen/);
   assert.equal(launches[0].cwd, worktree);
   const afterCodex = loadTask('wo-switch');
   assert.equal(afterCodex.agent, 'codex');
@@ -1208,7 +1208,7 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(full, /"\$\(cat '\/b\.md'\)"/);
 });
 
-test('a Codex worker uses Codex permission, effort, resume, and hook contracts', async () => {
+test('a Codex worker preserves configured settings and uses exact resume and hook contracts', async () => {
   const home = freshHome();
   const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
@@ -1216,9 +1216,8 @@ test('a Codex worker uses Codex permission, effort, resume, and hook contracts',
   writeFileSync(prompt, 'continue the same task\n');
 
   const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
-  assert.match(fresh, /\bcodex --dangerously-bypass-approvals-and-sandbox\b/);
-  assert.match(fresh, /--dangerously-bypass-hook-trust\b/);
-  assert.match(fresh, /model_reasoning_effort="max"/);
+  assert.match(fresh, /\bcodex --no-alt-screen\b/);
+  assert.doesNotMatch(fresh, /dangerously-bypass|model_reasoning_effort|--model|--sandbox|ask-for-approval/);
   assert.match(fresh, /hooks\.SessionStart=/);
   assert.match(fresh, /hooks\.Stop=/);
   assert.match(fresh, /worker-session\.mjs/);
@@ -1239,7 +1238,7 @@ test('a Codex worker uses Codex permission, effort, resume, and hook contracts',
   });
   assert.equal(invoked.status, 0, invoked.stderr);
   const actualArgs = readFileSync(argsFile, 'utf8');
-  assert.match(actualArgs, /--dangerously-bypass-approvals-and-sandbox/);
+  assert.match(actualArgs, /--no-alt-screen/);
   assert.match(actualArgs, /hooks\.SessionStart=/);
   assert.match(actualArgs, /continue the same task/);
 
@@ -1269,13 +1268,14 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
       FM2_HOME: home,
+      FM2_PANEL: 'fm-launcher-test',
       FM2_ARGS_FILE: argsFile,
     },
   });
   assert.equal(result.status, 0, result.stderr);
   const args = readFileSync(argsFile, 'utf8');
-  assert.match(args, /--dangerously-bypass-approvals-and-sandbox/);
-  assert.match(args, /model_reasoning_effort="max"/);
+  assert.doesNotMatch(args, /dangerously-bypass|model_reasoning_effort/);
+  assert.match(args, /hooks\.SessionStart=/);
   assert.match(args, /hooks\.UserPromptSubmit=/);
   assert.match(args, /supervisor-start\.mjs/);
   assert.match(args, /hooks\.Stop=/);

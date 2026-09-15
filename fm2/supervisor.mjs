@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
@@ -24,17 +24,28 @@ function tomlValue(value) {
 }
 
 export function supervisorHookConfig(agent = 'claude') {
-  const provider = normalizeAgent(agent);
+  normalizeAgent(agent);
   const start = { hooks: [{ type: 'command', command: `node ${shellQuote(join(HERE, 'hooks/supervisor-start.mjs'))}` }] };
   const stop = { hooks: [{ type: 'command', command: `node ${shellQuote(join(HERE, 'hooks/supervisor-stop.mjs'))}` }] };
-  // Claude's harness settings already install prompt/stop hooks. Add the missing
-  // startup event without running those existing hooks twice.
-  return { hooks: provider === 'claude'
-    ? { SessionStart: [start] }
-    : { SessionStart: [start], UserPromptSubmit: [start], Stop: [stop] } };
+  return { hooks: { SessionStart: [start],
+    UserPromptSubmit: [start], Stop: [stop] } };
 }
 
-function invocation({ agent = 'claude', id, panel = currentPanel(), resume = null } = {}) {
+function hasOnlyLegacyControllerHooks(cwd) {
+  try {
+    const file = join(cwd, '.claude/settings.json');
+    if (!existsSync(file)) return false;
+    const settings = JSON.parse(readFileSync(file, 'utf8'));
+    if (Object.keys(settings).some((key) => key !== 'hooks')) return false;
+    return Object.entries(settings.hooks ?? {}).every(([event, groups]) =>
+      ['UserPromptSubmit', 'Stop'].includes(event) && groups.every((group) =>
+        Object.keys(group).every((key) => key === 'hooks') && group.hooks.every((hook) =>
+          Object.keys(hook).every((key) => ['type', 'command'].includes(key))
+          && hook.type === 'command' && hook.command === `exec node "$CLAUDE_PROJECT_DIR"/fm2/hooks/supervisor-${event === 'Stop' ? 'stop' : 'start'}.mjs`)));
+  } catch { return false; }
+}
+
+function invocation({ agent = 'claude', id, panel = currentPanel(), resume = null, cwd = process.cwd() } = {}) {
   const provider = normalizeAgent(agent);
   const target = currentPanel({ panel, pane: null });
   if (!target) throw new Error('a controller needs --panel <tmux-session> or FM2_PANEL');
@@ -43,16 +54,20 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
   if (resume !== null && (typeof resume !== 'string' || !resume.trim())) throw new Error('resume needs an exact provider session id');
   const config = supervisorHookConfig(provider);
   const args = provider === 'claude'
-    ? ['--dangerously-skip-permissions', '--effort', 'max', '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
+    ? ['--dangerously-skip-permissions', '--effort', 'max',
+        ...(hasOnlyLegacyControllerHooks(cwd) ? ['--setting-sources', 'user,local'] : []),
+        '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
         ...(resume ? ['resume'] : []),
+        '--no-alt-screen',
         ...Object.entries(config.hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
         ...(resume ? [resume] : []),
       ];
   return {
     command: provider,
     args,
-    env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target },
+    env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target,
+      ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
   };
 }
 

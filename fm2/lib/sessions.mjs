@@ -7,6 +7,7 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   writeFileSync,
 } from 'node:fs';
@@ -16,6 +17,10 @@ import { homedir } from 'node:os';
 import { dir, loadTask, saveTask } from './config.mjs';
 
 const AGENTS = new Set(['claude', 'codex']);
+
+function canonicalCwd(path) {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
 
 export function normalizeAgent(agent) {
   const value = String(agent || 'claude').toLowerCase();
@@ -56,7 +61,7 @@ export function recordedSession(task, agent) {
   return String(sidecar.recorded_at || '') > String(known.recorded_at || '') ? sidecar : known;
 }
 
-export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null, panel = null, pane = null, source = null }) {
+export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null, panel = null, pane = null, source = null, backend = null, providerPid = null }) {
   if (!task || typeof sessionId !== 'string' || !sessionId.trim()) return null;
   const provider = normalizeAgent(agent);
   const recordPath = sessionRecordPath(task, provider);
@@ -67,14 +72,16 @@ export function rememberSession({ task, agent, sessionId, transcriptPath = null,
     task,
     agent: provider,
     transcript: transcriptPath ? resolve(transcriptPath) : same?.transcript ?? null,
-    cwd: cwd ? resolve(cwd) : same?.cwd ?? null,
+    cwd: cwd ? canonicalCwd(cwd) : same?.cwd ?? null,
     panel: panel ?? same?.panel ?? null,
     pane: pane ?? same?.pane ?? null,
     source: source ?? same?.source ?? null,
+    backend: backend ?? same?.backend ?? null,
+    provider_pid: providerPid ?? same?.provider_pid ?? null,
     recorded_at: new Date().toISOString(),
   };
   const temporary = `${recordPath}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(entry, null, 2));
+  writeFileSync(temporary, JSON.stringify(entry, null, 2), { mode: 0o600 });
   renameSync(temporary, recordPath);
 
   if (task.startsWith('controller:')) return entry;
@@ -106,7 +113,7 @@ function parseClaudeTranscript(path) {
   const userTexts = [];
   for (const event of events) {
     if (event.sessionId) sessionIds.add(String(event.sessionId));
-    if (event.cwd) cwds.add(resolve(event.cwd));
+    if (event.cwd) cwds.add(canonicalCwd(event.cwd));
     if (event.type === 'user') {
       const text = textFromContent(event.message?.content);
       if (text) userTexts.push(text);
@@ -132,7 +139,7 @@ function parseCodexTranscript(path) {
   for (const event of events) {
     if (event.type === 'session_meta') {
       if (event.payload?.id) sessionIds.add(String(event.payload.id));
-      if (event.payload?.cwd) cwds.add(resolve(event.payload.cwd));
+      if (event.payload?.cwd) cwds.add(canonicalCwd(event.payload.cwd));
     }
     if (event.type === 'response_item' && event.payload?.role === 'user') {
       const text = textFromContent(event.payload.content);
@@ -180,13 +187,12 @@ export function discoverSessions(agent, cwd, {
   codexRoot = join(homedir(), '.codex', 'sessions'),
 } = {}) {
   const provider = normalizeAgent(agent);
-  const wanted = resolve(cwd);
+  const wanted = canonicalCwd(cwd);
   let files;
   if (provider === 'claude') {
-    const folder = join(claudeRoot, wanted.replace(/[^A-Za-z0-9]/g, '-'));
-    files = existsSync(folder)
-      ? readdirSync(folder).filter((name) => name.endsWith('.jsonl')).map((name) => join(folder, name))
-      : [];
+    const folders = new Set([resolve(cwd), wanted].map((path) => join(claudeRoot, path.replace(/[^A-Za-z0-9]/g, '-'))));
+    files = [...folders].flatMap((folder) => existsSync(folder)
+      ? readdirSync(folder).filter((name) => name.endsWith('.jsonl')).map((name) => join(folder, name)) : []);
   } else {
     files = walkJsonl(codexRoot);
   }
@@ -201,7 +207,7 @@ function checkedRecorded(task, agent) {
   const entry = recordedSession(task, agent);
   if (!entry) return null;
   checkRecordedIdentity(task, normalizeAgent(agent), entry);
-  if (entry.cwd && resolve(entry.cwd) !== resolve(task.worktree)) {
+  if (entry.cwd && canonicalCwd(entry.cwd) !== canonicalCwd(task.worktree)) {
     throw new Error(
       `recorded ${agent} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
     );
@@ -214,7 +220,7 @@ function checkedRecorded(task, agent) {
   if (!fromFile || fromFile.metadata_conflict || !fromFile.id) {
     throw new Error(`recorded ${agent} session ${entry.id} has invalid or conflicting transcript metadata`);
   }
-  if (fromFile?.cwd && fromFile.cwd !== resolve(task.worktree)) {
+  if (fromFile?.cwd && fromFile.cwd !== canonicalCwd(task.worktree)) {
     throw new Error(
       `recorded ${agent} transcript belongs to ${fromFile.cwd}, not ${task.worktree}`,
     );
@@ -222,7 +228,7 @@ function checkedRecorded(task, agent) {
   if (fromFile?.id && fromFile.id !== entry.id) {
     throw new Error(`recorded ${agent} session id ${entry.id} does not match its transcript (${fromFile.id})`);
   }
-  return { ...entry, transcript: resolve(entry.transcript), cwd: resolve(task.worktree) };
+  return { ...entry, transcript: resolve(entry.transcript), cwd: canonicalCwd(task.worktree) };
 }
 
 function checkRecordedIdentity(task, provider, entry) {
@@ -272,8 +278,8 @@ export function resolveSession(task, agent = agentOf(task), {
       candidates = found.filter((entry) => entry.userTexts.some((text) => text.includes(brief)));
     }
   }
-  if (task.id?.startsWith('controller:') && !hasBrief) {
-    throw new Error(`controller "${task.id}" needs a recorded session or --session <exact-id>`);
+  if ((task.id?.startsWith('controller:') || task.id?.startsWith('pane-')) && !hasBrief) {
+    throw new Error(`session "${task.id}" needs a recorded session or --session <exact-id>`);
   }
   if (candidates.length === 1) return candidates[0];
   if (candidates.length === 0) {
@@ -293,7 +299,7 @@ export function resumableSession(task, agent) {
   const entry = recordedSession(task, provider);
   if (!entry) return null;
   checkRecordedIdentity(task, provider, entry);
-  if (entry.cwd && resolve(entry.cwd) !== resolve(task.worktree)) {
+  if (entry.cwd && canonicalCwd(entry.cwd) !== canonicalCwd(task.worktree)) {
     throw new Error(
       `recorded ${provider} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
     );

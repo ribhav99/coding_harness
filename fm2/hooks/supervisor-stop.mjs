@@ -16,6 +16,7 @@
 import { pending } from '../lib/notify.mjs';
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
 import { controllerId, rememberSession } from '../lib/sessions.mjs';
+import { providerProcess } from '../lib/provider-processes.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -40,6 +41,8 @@ try {
   rememberSession({
     task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
     cwd: payload.cwd, panel, pane: process.env.TMUX_PANE,
+    backend: process.env.FM2_CODEX_BACKEND || null,
+    providerPid: providerProcess(agent),
   });
 } catch { /* never hold up a turn for bookkeeping */ }
 

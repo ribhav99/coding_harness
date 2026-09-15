@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync, writeFileSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { notifyDir, dir } from './config.mjs';
+import { notifyDir, dir, loadTask } from './config.mjs';
 
 // Claude Code writes the transcript as JSONL, one event per line. The last
 // assistant message is the worker's final word before it stopped.
@@ -44,14 +44,14 @@ export function lastAssistantMessage(transcriptPath, { maxChars = 4000 } = {}) {
 
 // A notification is a file. Files survive a crashed supervisor, arrive in order,
 // and need no process to be running to receive them.
-export function record({ task, text, cwd = null }) {
+export function record({ task, text, cwd = null, panel = process.env.FM2_PANEL || loadTask(task)?.panel || null }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = join(notifyDir(), `${stamp}-${task}.json`);
-  writeFileSync(file, JSON.stringify({ task, text, cwd, at: new Date().toISOString() }, null, 2));
+  writeFileSync(file, JSON.stringify({ task, text, cwd, panel, at: new Date().toISOString() }, null, 2));
   return file;
 }
 
-export function pending() {
+export function pending(panel = undefined) {
   return readdirSync(notifyDir())
     .filter((f) => f.endsWith('.json'))
     .sort()
@@ -63,14 +63,15 @@ export function pending() {
         return null;
       }
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((item) => panel === undefined || (item.panel ?? loadTask(item.task)?.panel ?? null) === panel);
 }
 
 // Read is a move, not a delete: a supervisor that crashes mid-turn has already
 // consumed the notification, and losing what a worker said is worse than seeing
 // it twice. The archive is where it went.
-export function drain() {
-  const items = pending();
+export function drain(panel = undefined) {
+  const items = pending(panel);
   const archive = dir('notify-read');
   for (const item of items) {
     try { renameSync(item.file, join(archive, item.file.split('/').pop())); } catch { /* already gone */ }
@@ -94,8 +95,8 @@ export function hasUnread(task) {
   return pending().some((item) => item.task === task);
 }
 
-export function count() {
-  return readdirSync(notifyDir()).filter((f) => f.endsWith('.json')).length;
+export function count(panel = undefined) {
+  return pending(panel).length;
 }
 
 // Whether the supervisor has any report at all that it has not taken.
@@ -115,6 +116,6 @@ export function count() {
 // Scoping to the queue keeps the guarantee that mattered - a stop is never
 // silently dropped, because every report is still recorded - and gives up only
 // the duplicate tap on the shoulder.
-export function anyUnread() {
-  return count() > 0;
+export function anyUnread(panel = undefined) {
+  return count(panel) > 0;
 }
