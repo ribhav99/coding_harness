@@ -4,9 +4,11 @@ Use this procedure only with a nonempty `FM2_PANEL` or `FM2_TASK`. The native
 Codex app procedure is a separate mode; do not create sidebar tasks to replace
 the terminal sessions the user is managing here.
 
-If `FM2_TASK` is set, you are the named worker or reviewer even when `FM2_PANEL`
-is also inherited. Follow that task's brief and report to its controller. The
-controller rules below apply when `FM2_PANEL` is set without `FM2_TASK`.
+If `FM2_TASK` begins with `controller:`, you are the controller; that ID remains
+stable across panel switches. The controller rules also apply with `FM2_PANEL`
+and no `FM2_TASK`. Any other nonempty `FM2_TASK` makes you the named worker or
+reviewer even when `FM2_PANEL` is inherited. Follow that task's brief and report
+to its controller.
 
 ## Delegate and follow work
 
@@ -27,7 +29,8 @@ not build a poller or ask workers for updates by sending them prompts.
 | Close completed work | `fm close <id>` |
 
 Use `--agent codex` or `--agent claude` when the user chooses the worker's
-provider; the existing Claude default is unchanged when no provider is chosen.
+provider. Otherwise workers inherit the current panel's provider; outside a
+panel, the default remains Claude.
 Use `fm caps` to establish optional forge, tracker, and Slack capabilities.
 Preserve existing task identity and worktrees instead of creating duplicates.
 

@@ -6,11 +6,13 @@ names, not a second user-facing command.
 
 ## Session ownership
 
-`FM2_TASK` identifies a worker or reviewer. Its startup brief owns the worktree,
-task identity, report paths, and requested scope. Implement or review there;
-do not dispatch the same assignment as another `fm ship` task. A controller has
-`FM2_PANEL` and no `FM2_TASK`; it delegates through `fm` using the CLI firstmate
-procedure. If both markers are inherited, the worker identity takes precedence.
+An `FM2_TASK` value beginning with `controller:` identifies the controller; its
+ID stays stable when the panel changes providers. A session with `FM2_PANEL`
+and no `FM2_TASK` is also a controller. Controllers delegate through `fm` using
+the CLI firstmate procedure. Any other nonempty `FM2_TASK` identifies a worker
+or reviewer, even when `FM2_PANEL` is inherited. Its startup brief owns the
+worktree, task identity, report paths, and requested scope. Implement or review
+there; do not dispatch the same assignment as another `fm ship` task.
 
 Use `fm` for terminal task lifecycle and messages, and `surface` for the full
 review's decision page. Do not substitute app sidebar tasks, app navigation,
