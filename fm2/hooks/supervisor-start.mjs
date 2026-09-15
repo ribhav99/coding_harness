@@ -1,22 +1,26 @@
 #!/usr/bin/env node
-// The supervisor's UserPromptSubmit hook: a turn is beginning.
-//
-// Its only job is to record where the supervisor is, so a worker that stops
-// knows where to knock. Stop does the same, but a supervisor that has just been
-// started has not stopped yet — and that first stretch is exactly when the
-// panel is filling up with workers about to report.
-//
-// Never blocks and never fails loudly, for the same reason the worker's hook
-// does not: Ribhav's turn must not be held up by bookkeeping, and a broken
-// hook must not stop a session from starting.
 
-import { recordSupervisor } from '../lib/presence.mjs';
+import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
+import { controllerId, rememberSession } from '../lib/sessions.mjs';
+
+let raw = '';
+process.stdin.setEncoding('utf8');
+for await (const chunk of process.stdin) raw += chunk;
 
 try {
-  recordSupervisor(process.env.TMUX_PANE);
+  const payload = JSON.parse(raw || '{}');
+  const panel = currentPanel();
+  const task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
+  const agent = process.env.FM2_AGENT || 'claude';
+  if (task && !task.startsWith('controller:')) process.exit(0);
+  recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
+  rememberSession({
+    task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
+    cwd: payload.cwd, panel, pane: process.env.TMUX_PANE, source: payload.source,
+  });
 } catch {
-  // At worst a worker's knock goes undelivered and its report waits for the
-  // next Stop, which is where it would have waited anyway.
+  // Provider bookkeeping must not block a session or expose transcript contents.
 }
 
+if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
 process.exit(0);

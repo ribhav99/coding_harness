@@ -7,8 +7,10 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  renameSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { dir, loadTask, saveTask } from './config.mjs';
@@ -25,7 +27,17 @@ export function agentOf(task) {
   return normalizeAgent(task?.agent ?? 'claude');
 }
 
+export function controllerId(panel) {
+  if (typeof panel !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(panel)) {
+    throw new Error('a controller needs an explicit panel name');
+  }
+  return `controller:${panel}`;
+}
+
 function sessionRecordPath(task, agent) {
+  if (typeof task !== 'string' || !/^(?:controller:)?[A-Za-z0-9_.-]+$/.test(task) || ['.', '..'].includes(task)) {
+    throw new Error('invalid provider-session task identity');
+  }
   return join(dir('sessions', task), `${normalizeAgent(agent)}.json`);
 }
 
@@ -44,21 +56,33 @@ export function recordedSession(task, agent) {
   return String(sidecar.recorded_at || '') > String(known.recorded_at || '') ? sidecar : known;
 }
 
-export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null }) {
-  if (!task || !sessionId) return null;
+export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null, panel = null, pane = null, source = null }) {
+  if (!task || typeof sessionId !== 'string' || !sessionId.trim()) return null;
   const provider = normalizeAgent(agent);
+  const recordPath = sessionRecordPath(task, provider);
+  const previous = readJson(recordPath);
+  const same = previous?.id === sessionId ? previous : null;
   const entry = {
-    id: String(sessionId),
-    transcript: transcriptPath ? resolve(transcriptPath) : null,
-    cwd: cwd ? resolve(cwd) : null,
+    id: sessionId,
+    task,
+    agent: provider,
+    transcript: transcriptPath ? resolve(transcriptPath) : same?.transcript ?? null,
+    cwd: cwd ? resolve(cwd) : same?.cwd ?? null,
+    panel: panel ?? same?.panel ?? null,
+    pane: pane ?? same?.pane ?? null,
+    source: source ?? same?.source ?? null,
     recorded_at: new Date().toISOString(),
   };
-  writeFileSync(sessionRecordPath(task, provider), JSON.stringify(entry, null, 2));
+  const temporary = `${recordPath}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(entry, null, 2));
+  renameSync(temporary, recordPath);
 
+  if (task.startsWith('controller:')) return entry;
   const known = loadTask(task);
   if (known) {
     saveTask({
       ...known,
+      ...(pane && agentOf(known) === provider ? { pane } : {}),
       sessions: { ...(known.sessions ?? {}), [provider]: entry },
     });
   }
@@ -76,6 +100,7 @@ function textFromContent(content) {
 
 function parseClaudeTranscript(path) {
   const events = readJsonLines(path);
+  if (events.length === 0) return null;
   const sessionIds = new Set();
   const cwds = new Set();
   const userTexts = [];
@@ -100,6 +125,7 @@ function parseClaudeTranscript(path) {
 
 function parseCodexTranscript(path) {
   const events = readJsonLines(path);
+  if (events.length === 0) return null;
   const sessionIds = new Set();
   const cwds = new Set();
   const userTexts = [];
@@ -174,6 +200,7 @@ export function discoverSessions(agent, cwd, {
 function checkedRecorded(task, agent) {
   const entry = recordedSession(task, agent);
   if (!entry) return null;
+  checkRecordedIdentity(task, normalizeAgent(agent), entry);
   if (entry.cwd && resolve(entry.cwd) !== resolve(task.worktree)) {
     throw new Error(
       `recorded ${agent} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
@@ -184,6 +211,9 @@ function checkedRecorded(task, agent) {
   }
   const parse = normalizeAgent(agent) === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
   const fromFile = parse(entry.transcript);
+  if (!fromFile || fromFile.metadata_conflict || !fromFile.id) {
+    throw new Error(`recorded ${agent} session ${entry.id} has invalid or conflicting transcript metadata`);
+  }
   if (fromFile?.cwd && fromFile.cwd !== resolve(task.worktree)) {
     throw new Error(
       `recorded ${agent} transcript belongs to ${fromFile.cwd}, not ${task.worktree}`,
@@ -193,6 +223,12 @@ function checkedRecorded(task, agent) {
     throw new Error(`recorded ${agent} session id ${entry.id} does not match its transcript (${fromFile.id})`);
   }
   return { ...entry, transcript: resolve(entry.transcript), cwd: resolve(task.worktree) };
+}
+
+function checkRecordedIdentity(task, provider, entry) {
+  if (entry && (!entry.id || (entry.task && entry.task !== task.id) || (entry.agent && entry.agent !== provider))) {
+    throw new Error(`recorded ${provider} session has conflicting task or provider identity`);
+  }
 }
 
 // Find the source conversation without relying on recency. Hook-recorded
@@ -205,6 +241,7 @@ export function resolveSession(task, agent = agentOf(task), {
 } = {}) {
   const provider = normalizeAgent(agent);
   const rawKnown = recordedSession(task, provider);
+  checkRecordedIdentity(task, provider, rawKnown);
   let known = null;
   let knownError = null;
   if (!explicit || rawKnown?.id === explicit) {
@@ -227,9 +264,16 @@ export function resolveSession(task, agent = agentOf(task), {
   }
 
   let candidates = found;
+  let hasBrief = false;
   if (task.brief && existsSync(task.brief)) {
     const brief = readFileSync(task.brief, 'utf8').trim();
-    if (brief) candidates = found.filter((entry) => entry.userTexts.some((text) => text.includes(brief)));
+    if (brief) {
+      hasBrief = true;
+      candidates = found.filter((entry) => entry.userTexts.some((text) => text.includes(brief)));
+    }
+  }
+  if (task.id?.startsWith('controller:') && !hasBrief) {
+    throw new Error(`controller "${task.id}" needs a recorded session or --session <exact-id>`);
   }
   if (candidates.length === 1) return candidates[0];
   if (candidates.length === 0) {
@@ -243,16 +287,20 @@ export function resolveSession(task, agent = agentOf(task), {
 
 // A prior target session is resumed only when hooks recorded its exact id and
 // cwd. Returning null starts a new session; it never means "resume the newest
-// one". Its transcript is not required here because the target CLI owns the
-// native resume. It becomes required before that session can be a switch source.
+// one". A supplied transcript must still agree with that identity before launch.
 export function resumableSession(task, agent) {
   const provider = normalizeAgent(agent);
   const entry = recordedSession(task, provider);
   if (!entry) return null;
+  checkRecordedIdentity(task, provider, entry);
   if (entry.cwd && resolve(entry.cwd) !== resolve(task.worktree)) {
     throw new Error(
       `recorded ${provider} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
     );
+  }
+  if (entry.transcript) return checkedRecorded(task, provider);
+  if (!entry.cwd) {
+    throw new Error(`recorded ${provider} session has no verified task and working-directory identity`);
   }
   return entry;
 }

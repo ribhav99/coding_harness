@@ -4,6 +4,7 @@
 // also writes a sidecar keyed by the stable fm task id.
 
 import { rememberSession } from '../lib/sessions.mjs';
+import { currentPanel } from '../lib/presence.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -17,11 +18,13 @@ try {
     sessionId: payload.session_id,
     transcriptPath: payload.transcript_path,
     cwd: payload.cwd,
+    panel: currentPanel(),
+    pane: process.env.TMUX_PANE,
+    source: payload.source,
   });
 } catch {
   // Session identity improves recovery, but bookkeeping never blocks startup.
 }
 
-// Codex requires JSON from SessionStart command hooks; Claude accepts it too.
 if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
 process.exit(0);

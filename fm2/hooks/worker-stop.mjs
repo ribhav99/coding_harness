@@ -12,6 +12,7 @@ import { record, lastAssistantMessage, anyUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
 import { loadTask, saveTask } from '../lib/config.mjs';
 import { rememberSession } from '../lib/sessions.mjs';
+import { currentPanel } from '../lib/presence.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -31,6 +32,7 @@ function done() {
 try {
   const payload = JSON.parse(raw || '{}');
   const task = process.env.FM2_TASK || 'unknown';
+  const panel = currentPanel();
   try {
     rememberSession({
       task,
@@ -38,6 +40,8 @@ try {
       sessionId: payload.session_id,
       transcriptPath: payload.transcript_path,
       cwd: payload.cwd,
+      panel,
+      pane: process.env.TMUX_PANE,
     });
   } catch { /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is
@@ -50,7 +54,7 @@ try {
   // different, and here is the one moment its live pane is known.
   const here = process.env.TMUX_PANE;
   const known = loadTask(task);
-  if (here && known && known.pane !== here) {
+  if (here && known && known.pane !== here && (known.agent || 'claude') === (process.env.FM2_AGENT || 'claude')) {
     try { saveTask({ ...known, pane: here }); } catch { /* bookkeeping never blocks a turn */ }
   }
   // A task Ribhav is running himself. He is already in that pane reading the
@@ -65,8 +69,8 @@ try {
   // question is queue-wide, not about this task: `fm read` takes everything
   // waiting, so a supervisor with any report unread has already been told to
   // look, and this stop will be in its hands when it does.
-  const alreadyWaiting = anyUnread();
-  if (text) record({ task, text, cwd: payload.cwd ?? null });
+  const alreadyWaiting = anyUnread(panel);
+  if (text) record({ task, text, cwd: payload.cwd ?? null, panel });
   // Then say so, here, at the one moment it is known to have happened.
   //
   // The supervisor's own Stop hook can only block a turn that is ending, so it
@@ -81,7 +85,7 @@ try {
   // teaches it to distrust the next one. Stopping is the report and the last
   // message is the content; with no content there is no report, and `fm status`
   // is where a quiet session is found.
-  if (text && !alreadyWaiting) await knock(task);
+  if (text && !alreadyWaiting) await knock(task, { panel });
 } catch {
   // Deliberately silent. There is nothing a worker can do about this, and
   // failing here would make a reporting bug look like a work bug.
