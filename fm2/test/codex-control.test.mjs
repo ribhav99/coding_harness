@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -116,6 +116,47 @@ test('an identity mismatch while verifying the interrupt prevents further cleanu
   assert.ok(f.calls.every(call => !call.method.startsWith('thread/backgroundTerminals/')));
 });
 
+function worktrees(t) {
+  const directory = mkdtempSync('/tmp/fm-control-cwd-');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const source = join(directory, 'source');
+  const other = join(directory, 'other');
+  const alias = join(directory, 'source-link');
+  mkdirSync(source); mkdirSync(other);
+  symlinkSync(source, alias, 'dir');
+  return { source, other, alias };
+}
+
+test('expected worktree mismatches refuse shutdown before any mutation', async t => {
+  const paths = worktrees(t);
+  const record = session('source', { cwd: paths.other });
+  const f = daemon([record]);
+  await assert.rejects(interruptSession('source', { control: f.control, expectedCwd: paths.source }), /different worktree/u);
+  assert.deepEqual(f.calls, [{ method: 'thread/read', params: { threadId: 'source' } }]);
+  assert.deepEqual(f.sessions.get('source'), record);
+});
+
+test('equivalent worktree symlinks are accepted on either side of the identity check', async t => {
+  const paths = worktrees(t);
+  for (const [cwd, expectedCwd] of [[paths.source, paths.alias], [paths.alias, paths.source]]) {
+    const f = daemon([session('source', { cwd })]);
+    await interruptSession('source', { control: f.control, expectedCwd });
+    assert.equal(f.sessions.get('source').status.type, 'idle');
+    assert.deepEqual(f.sessions.get('source').terminals, []);
+  }
+});
+
+test('final verification refuses a worktree change even when the same thread remains idle', async t => {
+  const paths = worktrees(t);
+  const f = daemon([session('source', { cwd: paths.source })], {
+    afterCall({ method, sessions }) {
+      if (method === 'thread/list') sessions.get('source').cwd = paths.other;
+    },
+  });
+  await assert.rejects(interruptSession('source', { control: f.control, expectedCwd: paths.source }), /different worktree/u);
+  assert.equal(f.sessions.get('source').status.type, 'idle');
+});
+
 test('unknown goal protocol fails closed instead of assuming autonomous work is stopped', async () => {
   const f = daemon([session('source')]);
   const original = f.control.call;
@@ -200,6 +241,18 @@ test('a session loaded during shutdown cannot retain background writers based on
   if (error) assert.match(error.message, /resumed|writer|background|loaded|changed/u);
   assert.ok(error instanceof Error || f.sessions.get('source').terminals.length === 0,
     'A loaded source needs writer cleanup even when the first read saw an unloaded session');
+});
+
+test('final verification catches a background writer appearing after cleanup without an active turn', async () => {
+  const f = daemon([session('source'), session('child', { parentThreadId: 'source' })], {
+    afterCall({ method, params, sessions }) {
+      if (method === 'turn/interrupt' && params.threadId === 'child') {
+        sessions.get('source').terminals.push({ id: 'late-writer' });
+      }
+    },
+  });
+  await assert.rejects(interruptSession('source', { control: f.control }), /background tools are still running/u);
+  assert.equal(f.sessions.get('source').status.type, 'idle');
 });
 
 function serverFrame(payload, { opcode = 1, final = true } = {}) {
