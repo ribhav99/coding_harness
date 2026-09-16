@@ -3,3 +3,5 @@ done: PR https://github.com/ribhav99/fitness_agent/pull/307
 done: self-review complete
 done: #307 rebased onto release/2.2.0, MERGEABLE + all checks green
 done: sim visual proof captured; #307 updated with before/after screenshots
+done: picker modal proof and interaction recording added; #307 clean with all checks green
+done: #307 rebased onto current release/2.2.0; current Jest gate and all CI checks green

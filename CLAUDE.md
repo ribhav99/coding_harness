@@ -37,7 +37,8 @@ fm review <pr> --project <dir>   a cold review: fresh session at the PR head
 fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
 fm switch <id> --agent codex     continue the exact task in Codex (or claude to switch back)
-fm panel-switch --agent codex   move this entire panel to Codex (or claude)
+fm reload --agent codex          replace every session in THIS panel, in its own pane
+fm panel-switch --agent codex   build a SEPARATE panel on the other provider
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm tell <id> <message>           pass Ribhav's words to a session
@@ -54,24 +55,40 @@ lose the conversation boundary, so `attach` refuses that shortcut.
 
 ## Changing agents
 
-When Ribhav asks to switch the whole session, run `fm panel-switch --agent codex`
-or `fm panel-switch --agent claude`. The detached helper opens iTerm2 with every
-current window and split, stops old agent conversations and writing tools, moves
-live shell panes, and starts the replacement controller last. Do not manually
-exit the controller before queuing the helper. Every conversation receives its
-full recorded history and prior handoffs. Source panels remain for recovery;
-`fmp <project>` follows the successful switch. A newly created panel can start
-directly with `fmp <project> --agent codex`.
+When Ribhav asks to convert this session — "switch everything to Codex", "put
+this panel on Claude" — that is `fm reload`, and it is almost always what he
+means:
 
-**Run `./install --check` before the first switch on a machine, and fix what it
-reports.** Three things decide whether a Codex session can work at all, and each
-one fails as a session that looks alive and does nothing: the CLI and its helper
-binaries have to be on PATH (`codex` resolves them next to itself, and without
-`codex-code-mode-host` a session has no shell); the repository has to be trusted
-by Codex, which is what lets the reporting hooks load at all; and the first
-session with a changed hook set asks once — take *Trust all*, never *continue
-without trusting*, which yields a worker that runs, stops, and silently never
-reports. `codex/README.md` has the detail and the approval-policy choice.
+```sh
+fm reload --agent codex                  every worker and reviewer, in place
+fm reload --agent codex --controller-only  ... and then this pane, last
+```
+
+Each session is replaced in the pane it already occupies, carrying its own
+conversation. No window, split, or panel is created. Run the workers first and
+the controller last, because the controller reload replaces the session running
+it. Add `--fresh` when a session's exact identity is not recorded — an
+interrupted switch, or a panel closed out from under its sessions — and it will
+start from the conversation preserved on disk instead of handing the running one
+over. The agent is always named; never let it default.
+
+`fm panel-switch` is a different operation and not the one to reach for here. It
+BUILDS A SECOND PANEL and leaves the original for recovery, which is right when a
+switch might fail and wrong when the panel is the one Ribhav is looking at: it
+opens another set of iTerm2 windows, and closing those kills the sessions that
+were just moved into them. Use it only when he asks for a separate panel. A new
+panel can also start directly on a provider with `fmp <project> --agent codex`.
+
+**Run `./install --check` on a new machine first, and fix what it reports.** Two
+things decide whether a Codex session can work at all, and both fail as a session
+that looks alive and does nothing. The CLI and its helper binaries have to be on
+PATH — `codex` resolves them next to itself, and without `codex-code-mode-host` a
+session has no shell and will try to finish its task through a document viewer.
+And the repository has to be trusted by Codex, which is what lets the reporting
+hooks load at all; untrusted, a worker runs, stops, and silently never reports,
+so `fm read` stays empty and the fleet looks idle. `install` supplies the first
+and reports the second. Trust is keyed on the git repository root and covers
+every worktree beside it. `codex/README.md` has the detail.
 
 `fm switch` keeps the task id, pane, worktree, branch, files, brief, review
 state, quiet setting, unread reports, and reporting route. Before it interrupts
@@ -160,10 +177,13 @@ credential, and anything destructive or irreversible. Nothing else.
 
 ## Standing preferences
 
-- Claude launches use `--dangerously-skip-permissions --effort max`; Codex keeps
-  its configured model, reasoning, sandbox, and approval settings. Review its
-  stable harness command hooks with `/hooks` on first use, without bypassing
-  hook trust for unrelated user hooks.
+- Every launch names what it runs on rather than inheriting a default. Claude:
+  `--dangerously-skip-permissions --effort max --model opus`. Codex:
+  `gpt-5.6-sol` at ultra effort, approvals off, full access, and its own hooks
+  trusted — all passed at launch, not read from `~/.codex/config.toml`. That
+  file belongs to the desktop app, and an unattended pane is not a desktop app:
+  its defaults sandbox the session and stop it to ask a human before the first
+  command outside the workspace.
 - Worktrees are siblings of the real checkout, named `<repo>-<description>`.
 - Imports go at the top of a file unless a circular import genuinely forbids it.
 - Reviews keep their depth: the judge fan-out stays, at full effort.

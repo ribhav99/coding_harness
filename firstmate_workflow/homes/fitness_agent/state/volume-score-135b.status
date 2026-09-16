@@ -1,3 +1,5 @@
 working: setup done, branch created, reading codebase
 working: setup verified, codebase surveyed, designing volume score
 done: PR https://github.com/ribhav99/fitness_agent/pull/309
+working: rebasing PR #309 onto current release/2.2.0 and revalidating
+done: PR https://github.com/ribhav99/fitness_agent/pull/309 rebased and mergeable; 54/54 mobile tests and all CI pass; live simulator proof unavailable after the mandatory guard was killed twice under memory pressure

@@ -149,11 +149,6 @@ node -e '
     console.log(`        [projects."${repo}"]`);
     console.log(`        trust_level = "trusted"`);
   }
-  if (!/^approval_policy\s*=/m.test(config) || !/^sandbox_mode\s*=/m.test(config)) {
-    console.log("  note  no approval_policy/sandbox_mode set: a Codex worker will stop and");
-    console.log("        ask a human on its first command outside its workspace, and fm status");
-    console.log("        from inside that sandbox reports every task DEAD. See codex/README.md.");
-  }
 ' "$REPO"
 
 printf '\nthis machine can reach:\n'

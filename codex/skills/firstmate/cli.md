@@ -38,32 +38,44 @@ Send worker messages for the user's instruction, an authorized handoff, or the
 user's answer to a worker's question. Do not supply an answer on the user's
 behalf. Carry forward decisions already made instead of asking again.
 
-## Switch the whole panel
+## Convert this panel to the other provider
 
-When the user asks to move this whole terminal session between providers, use:
+When the user asks to move this whole terminal session between providers, that
+is `fm reload`. It replaces each session in the pane it already occupies,
+carrying that session's own conversation, and creates no window, split, or panel.
 
 ```sh
-fm panel-switch --agent codex
-fm panel-switch --agent claude
+fm reload --agent claude                     every worker and reviewer, in place
+fm reload --agent claude --controller-only     ... and then this pane, last
 ```
 
-This starts a background handoff of the controller and its saved worker/reviewer
-sessions. The handoff preserves saved transcripts, worktrees, task state, and
-window splits, and quiesces the old provider before its replacement continues.
-Follow the command's returned handoff status; verify completion before reporting
-that the panel has switched. Do not manually relaunch the controller, run
-`/import`, recreate splits, or switch workers one by one to imitate this command.
-For a request affecting only one worker, use `fm switch <id> --agent <provider>`.
+Run the workers first and the controller last, because the controller reload
+replaces the session issuing it. Name the agent every time; a defaulted agent
+once converted a whole panel back to the provider it started on. Add `--fresh`
+when a session's exact identity is not recorded — after an interrupted switch, or
+a panel closed out from under its sessions — and it starts from the conversation
+preserved on disk rather than handing the running one over.
 
-**Run `./install --check` before the first switch on a machine, and fix what it
-reports.** Three things decide whether a Codex session can work at all, and each
-one fails as a session that looks alive and does nothing: the CLI and its helper
-binaries have to be on PATH (`codex` resolves them next to itself, and without
-`codex-code-mode-host` a session has no shell); the repository has to be trusted
-by Codex, which is what lets the reporting hooks load at all; and the first
-session with a changed hook set asks once — take *Trust all*, never *continue
-without trusting*, which yields a worker that runs, stops, and silently never
-reports. `codex/README.md` has the detail and the approval-policy choice.
+`fm panel-switch` is a different operation: it BUILDS A SECOND PANEL and leaves
+the original for recovery. That is right when a switch might fail and wrong when
+the panel is the one the user is looking at — it opens another set of iTerm2
+windows, and closing those kills the sessions just moved into them. Use it only
+when a separate panel is what was asked for.
+
+Do not manually relaunch the controller, run `/import`, or recreate splits to
+imitate either command. For a request affecting only one worker, use
+`fm switch <id> --agent <provider>`.
+
+**Run `./install --check` on a new machine first, and fix what it reports.** Two
+things decide whether a Codex session can work at all, and both fail as a session
+that looks alive and does nothing. The CLI and its helper binaries have to be on
+PATH — `codex` resolves them next to itself, and without `codex-code-mode-host` a
+session has no shell and will try to finish its task through a document viewer.
+And the repository has to be trusted by Codex, which is what lets the reporting
+hooks load at all; untrusted, a worker runs, stops, and silently never reports,
+so `fm read` stays empty and the fleet looks idle. `install` supplies the first
+and reports the second. Trust is keyed on the git repository root and covers
+every worktree beside it. `codex/README.md` has the detail.
 
 Saved transcripts provide recorded context, not hidden state or native chat
 conversion. Do not claim an unwritten interrupted response was transferred.

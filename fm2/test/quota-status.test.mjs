@@ -24,11 +24,11 @@ function rateLimits() {
 test('quota status includes remaining usage and reset time for every available window', () => {
   assert.equal(
     formatQuotaStatus(rateLimits(), { now: NOW }),
-    '5h 80% left · reset 1h 1m | weekly 25% left · reset 2d 3h',
+    '5h 20% used · resets in 1h 1m | weekly 75% used · resets in 2d 3h 0m',
   );
   assert.equal(
     formatQuotaStatus({ primary: rateLimits().secondary, secondary: null }, { now: NOW }),
-    'weekly 25% left · reset 2d 3h',
+    'weekly 75% used · resets in 2d 3h 0m',
     'an unavailable five-hour window should be omitted',
   );
   assert.equal(
@@ -69,7 +69,7 @@ test('a panel uses its controller transcript and renders nothing without quota d
   }));
   assert.equal(
     quotaStatusForPanel('fm-fixture', { fm2Home, now: NOW }),
-    '5h 80% left · reset 1h 1m | weekly 25% left · reset 2d 3h',
+    '5h 20% used · resets in 1h 1m | weekly 75% used · resets in 2d 3h 0m',
   );
   assert.equal(quotaStatusForPanel('unknown', { fm2Home, now: NOW }), '');
 });
@@ -119,7 +119,7 @@ test('a panel keeps the newest live snapshot for each distinct model limit', (t)
   }, { live: false });
   assert.equal(
     quotaStatusForPanel('fm-fixture', { fm2Home, now: NOW }),
-    'Codex weekly 30% left · reset 2d 3h || GPT 5.3 Spark 5h 80% left · reset 1h 1m | weekly 25% left · reset 2d 3h',
+    'Codex weekly 70% used · resets in 2d 3h 0m || GPT 5.3 Spark 5h 20% used · resets in 1h 1m | weekly 75% used · resets in 2d 3h 0m',
   );
 });
 

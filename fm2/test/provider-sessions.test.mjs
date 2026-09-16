@@ -80,7 +80,7 @@ test('controller commands deliver exact identity, full resume prompt, and named 
   assert.ok(args.includes('model_reasoning_effort="ultra"'));
   assert.ok(args.includes('approval_policy="never"'));
   assert.ok(args.includes('sandbox_mode="danger-full-access"'));
-  assert.ok(args.includes('tui.status_line=["project-name","git-branch","model-with-reasoning","fast-mode","context-used","five-hour-limit","weekly-limit"]'));
+  assert.ok(args.includes('tui.status_line=["project-name","git-branch","model-with-reasoning","fast-mode","context-used"]'));
   assert.ok(args.includes('--dangerously-bypass-hook-trust'));
   assert.ok(args.every((arg) => !/--last/.test(arg)));
   const next = supervisorCommand({ agent: 'codex', panel: 'fm-one' });

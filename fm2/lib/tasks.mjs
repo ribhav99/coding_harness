@@ -186,8 +186,6 @@ export const CODEX_STATUS_LINE = [
   'model-with-reasoning',
   'fast-mode',
   'context-used',
-  'five-hour-limit',
-  'weekly-limit',
 ];
 // The hook prompt is the harness's own hooks being offered back to it.
 //

@@ -74,15 +74,13 @@ A launch names its model, reasoning effort, approval policy, sandbox, and native
 status line outright, the same way the Claude path names `--model opus`: a
 default is not a choice. They are passed as `-c` overrides rather than flags,
 because `codex` and `codex resume` do not accept the same flags and `-c` works on
-both. The footer mirrors the useful fields in the Claude status line: project,
-branch, model and effort, fast mode, context use, and five-hour and weekly
-limits. Codex leaves out any field that is unavailable for the current session.
-Its native limit fields show percentages but not reset times, so fm also adds
-the available account windows and their live reset countdowns to the existing
-tmux status bar. The shared panel bar aggregates the account and model-family
-windows reported by live Codex sessions, so every worker and reviewer can see
-all currently available limits; an unavailable five-hour window is omitted
-rather than shown as zero.
+both. The native footer mirrors the non-quota fields in the Claude status line:
+project, branch, model and effort, fast mode, and context use. Codex's native
+limit fields report only the percentage left and cannot show a reset countdown,
+so fm puts quota usage in the existing tmux status bar instead. That shared bar
+shows the percentage used and a live days/hours/minutes countdown, aggregating
+the account and model-family windows reported by live Codex sessions. An
+unavailable five-hour window is omitted rather than shown as zero.
 
 ```
 codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="ultra" \
@@ -112,8 +110,18 @@ exactly like a dead fleet.
 
 ## Switching a panel that is already running
 
-`fm panel-switch --agent codex` replaces every session in a panel. Two things
-that bite on a panel which has been up for a while:
+`fm reload --agent codex` replaces every session **in the panel you are looking
+at**, each in its own pane, and creates no window, split, or panel. Workers
+first, then `--controller-only` for the pane running the controller, because that
+one replaces the session issuing it.
+
+`fm panel-switch --agent codex` is the other operation: it builds a SECOND panel
+and leaves the original for recovery. That protects you when a switch might fail,
+and it is the wrong tool for converting the panel in front of you — it opens
+another set of iTerm2 windows, and closing those kills the sessions just moved
+into them.
+
+Two things bite on a panel which has been up for a while:
 
 - **A session started before session recording needs its id passed in.** The
   switch refuses with `needs a recorded session or --session <exact-id>` rather
@@ -169,9 +177,9 @@ Examples:
   continues monitoring after the coordinating turn ends.
 
 In a terminal controller, “switch this whole session to Codex” routes to
-`fm panel-switch --agent codex`; `--agent claude` switches back. The command
-hands off saved conversations and existing task worktrees in the background.
-It does not convert hidden model state or require manually importing chats.
+`fm reload --agent codex`; `--agent claude` switches back. Each session is
+replaced where it already sits and is handed its own saved conversation. It does
+not convert hidden model state or require manually importing chats.
 
 `firstmate` and `full-review` have separate app and CLI procedures. The other
 entrypoints retain the same implementation, evidence, and document rules while

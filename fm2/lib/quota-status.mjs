@@ -123,12 +123,13 @@ function countdown(seconds) {
   if (minutes >= 1440) {
     const days = Math.floor(minutes / 1440);
     const hours = Math.floor((minutes % 1440) / 60);
-    return `${days}d${hours ? ` ${hours}h` : ''}`;
+    const rest = minutes % 60;
+    return `${days}d ${hours}h ${rest}m`;
   }
   if (minutes >= 60) {
     const hours = Math.floor(minutes / 60);
     const rest = minutes % 60;
-    return `${hours}h${rest ? ` ${rest}m` : ''}`;
+    return `${hours}h ${rest}m`;
   }
   return `${minutes}m`;
 }
@@ -141,8 +142,8 @@ export function formatQuotaStatus(rateLimits, { now = Math.floor(Date.now() / 10
       && all.findIndex((candidate) => candidate?.window_minutes === window.window_minutes) === index)
     .sort((left, right) => left.window_minutes - right.window_minutes);
   return windows.map((window) => {
-    const left = Math.max(0, Math.min(100, Math.round(100 - window.used_percent)));
-    return `${windowName(window.window_minutes)} ${left}% left · reset ${countdown(window.resets_at - now)}`;
+    const used = Math.max(0, Math.min(100, Math.round(window.used_percent)));
+    return `${windowName(window.window_minutes)} ${used}% used · resets in ${countdown(window.resets_at - now)}`;
   }).join(' | ');
 }
 
