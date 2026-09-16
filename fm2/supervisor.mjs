@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
+import { CODEX_MODEL } from './lib/tasks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +61,12 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
     : [
         ...(resume ? ['resume'] : []),
         '--no-alt-screen',
+        // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
+        // the desktop app's own settings are the wrong ones for a harness pane.
+        '-c', `model=${JSON.stringify(CODEX_MODEL)}`,
+        '-c', 'model_reasoning_effort="ultra"',
+        '-c', 'approval_policy="never"',
+        '-c', 'sandbox_mode="danger-full-access"',
         ...Object.entries(config.hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
         ...(resume ? [resume] : []),
       ];

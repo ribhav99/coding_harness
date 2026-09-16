@@ -55,7 +55,7 @@ process.stdout.write(panel + '\\n');\n`);
   return { home, setPanes, transcript, hook, args: () => JSON.parse(readFileSync(values.FM2_TEST_ARGS, 'utf8')) };
 }
 
-test('controller commands deliver exact identity and full resume prompt without replacing Codex preferences', (t) => {
+test('controller commands deliver exact identity, full resume prompt, and a named model and permissions', (t) => {
   const f = fixture(t);
   const brief = join(f.home, "handoff ' brief.md");
   const prompt = 'Read the preserved fixture history.\nKeep its unresolved request.';
@@ -72,7 +72,15 @@ test('controller commands deliver exact identity and full resume prompt without 
   assert.ok(args.some((arg) => arg.startsWith('hooks.SessionStart=')));
   assert.ok(args.some((arg) => arg.startsWith('hooks.Stop=')));
   assert.ok(args.some((arg) => arg.startsWith('hooks.UserPromptSubmit=')));
-  assert.ok(args.every((arg) => !/dangerously|model_reasoning_effort|sandbox|approval|--model|--last/.test(arg)));
+  // The controller is launched on a named model at a named effort, and without
+  // the approval gate that would otherwise stop an unattended pane on its first
+  // command outside the workspace. `--last` is still never used: a resume names
+  // its session exactly or does not happen.
+  assert.ok(args.includes('model="gpt-5.6-sol"'));
+  assert.ok(args.includes('model_reasoning_effort="ultra"'));
+  assert.ok(args.includes('approval_policy="never"'));
+  assert.ok(args.includes('sandbox_mode="danger-full-access"'));
+  assert.ok(args.every((arg) => !/--last/.test(arg)));
   const next = supervisorCommand({ agent: 'codex', panel: 'fm-one' });
   execFileSync('/bin/sh', ['-c', next], { env: process.env });
   assert.deepEqual(f.args().args, args.slice(1, -2), 'panel changes should reuse the same hook definitions and trust');

@@ -1242,7 +1242,7 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(full, /"\$\(cat '\/b\.md'\)"/);
 });
 
-test('a Codex worker preserves configured settings and uses exact resume and hook contracts', async () => {
+test('a Codex worker names its model, effort and permissions and uses exact resume and hook contracts', async () => {
   const home = freshHome();
   const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
@@ -1251,7 +1251,14 @@ test('a Codex worker preserves configured settings and uses exact resume and hoo
 
   const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
   assert.match(fresh, /\bcodex --no-alt-screen\b/);
-  assert.doesNotMatch(fresh, /dangerously-bypass|model_reasoning_effort|--model|--sandbox|ask-for-approval/);
+  // Said outright, never inherited. The desktop app's config is the wrong
+  // configuration for an unattended pane: its default approval policy stops a
+  // worker to ask a human before its first command outside the workspace, and
+  // its model follows whatever the app is pointed at today.
+  assert.match(fresh, /-c model="gpt-5\.6-sol"/);
+  assert.match(fresh, /-c model_reasoning_effort="ultra"/);
+  assert.match(fresh, /-c approval_policy="never"/);
+  assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
   assert.match(fresh, /hooks\.SessionStart=/);
   assert.match(fresh, /hooks\.Stop=/);
   assert.match(fresh, /worker-session\.mjs/);
@@ -1308,7 +1315,10 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   });
   assert.equal(result.status, 0, result.stderr);
   const args = readFileSync(argsFile, 'utf8');
-  assert.doesNotMatch(args, /dangerously-bypass|model_reasoning_effort/);
+  assert.match(args, /model="gpt-5\.6-sol"/);
+  assert.match(args, /model_reasoning_effort="ultra"/);
+  assert.match(args, /approval_policy="never"/);
+  assert.match(args, /sandbox_mode="danger-full-access"/);
   assert.match(args, /hooks\.SessionStart=/);
   assert.match(args, /hooks\.UserPromptSubmit=/);
   assert.match(args, /supervisor-start\.mjs/);

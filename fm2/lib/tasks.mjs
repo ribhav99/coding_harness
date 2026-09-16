@@ -159,6 +159,31 @@ function tomlValue(value) {
   throw new Error('unsupported hook configuration value');
 }
 
+// What a Codex worker is launched on, said outright rather than inherited.
+//
+// This is the same rule the Claude path already follows with `--model opus`: a
+// default is not a choice. These used to come from ~/.codex/config.toml on the
+// premise that the harness should not override the machine's own settings, and
+// that reads well until you put a real worker on it. The machine's settings are
+// the desktop app's settings, and they are wrong for an unattended pane in two
+// ways that both look like the worker being broken:
+//
+//   - with no approval policy, Codex sandboxes the session and stops to ask a
+//     human before its first command outside the workspace. A worker whose whole
+//     point is running unattended waits forever. Worse, `fm status` from inside
+//     that sandbox cannot reach the tmux socket and reports every task DEAD.
+//   - the model follows whatever the app is pointed at today.
+//
+// Passed as `-c` rather than as flags because `codex` and `codex resume` do not
+// take the same flags, and `-c` is accepted by both.
+export const CODEX_MODEL = 'gpt-5.6-sol';
+const CODEX_SESSION_FLAGS = [
+  `-c model=${JSON.stringify(CODEX_MODEL)}`,
+  '-c model_reasoning_effort="ultra"',
+  '-c approval_policy="never"',
+  '-c sandbox_mode="danger-full-access"',
+].join(' ');
+
 function codexHookFlags(settingsFile) {
   const config = JSON.parse(readFileSync(settingsFile, 'utf8'));
   return Object.entries(config.hooks ?? {})
@@ -246,7 +271,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
     );
   }
 
-  const flags = `--no-alt-screen ${codexHookFlags(settingsFile)}`;
+  const flags = `--no-alt-screen ${CODEX_SESSION_FLAGS} ${codexHookFlags(settingsFile)}`;
   if (resume) return `${env} codex resume ${flags} ${shellQuote(resume)}${prompt}`;
   return `${env} codex ${flags}${prompt}`;
 }

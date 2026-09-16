@@ -70,28 +70,29 @@ forever and the fleet looks idle.
 
 ## What a Codex worker inherits, and why it matters
 
-A launch carries only `--no-alt-screen` and its hook configuration; the model,
-reasoning effort, approval policy and sandbox all come from `~/.codex/config.toml`.
-That is deliberate and the tests pin it — the harness does not override the
-settings the machine already has. So that file *is* the worker configuration:
-`model` and `model_reasoning_effort` there are what every worker runs on.
+A launch names its model, reasoning effort, approval policy and sandbox
+outright, the same way the Claude path names `--model opus`: a default is not a
+choice. They are passed as `-c` overrides rather than flags, because `codex` and
+`codex resume` do not accept the same flags and `-c` works on both.
 
-Two of those settings decide whether an autonomous worker is autonomous at all.
-With no `approval_policy` and no `sandbox_mode` in that file, Codex defaults to a
-workspace sandbox and asks before stepping outside it, and a worker put on a task
-then stops and waits for a human on its first real command. The standing
-preference for this harness is the opposite — every agent launch is
-permissionless — and for Codex that means:
-
-```toml
-# ~/.codex/config.toml
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
+```
+codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="ultra" \
+      -c approval_policy="never" -c sandbox_mode="danger-full-access" -c hooks.…
 ```
 
-Set it deliberately or not at all, but know which you have chosen. It is a
-machine-wide setting: it reaches the desktop app and every Codex session on the
-machine, not only the ones `fm` starts.
+These used to be inherited from `~/.codex/config.toml`, on the reasonable premise
+that the harness should not override the machine's own settings. Putting a real
+worker on it showed why that is wrong here: the machine's settings are the
+*desktop app's* settings, and an unattended pane is not a desktop app. With no
+approval policy Codex sandboxes the session and stops to ask a human before its
+first command outside the workspace, so a worker whose whole point is running
+unattended waits forever — and `fm status` from inside that sandbox cannot reach
+the tmux socket and reports every task DEAD, which is a confident wrong answer
+rather than an error.
+
+A session that is already running can be moved with `/permissions` → *Full
+Access*, which is the per-session form of the same thing. Nothing needs it now
+that launches carry it, but it is how an already-open pane is rescued.
 
 The sandbox also breaks `fm` itself from inside a worker. `fm status` run in a
 sandboxed session cannot reach the tmux socket at `/private/tmp/tmux-501/default`
