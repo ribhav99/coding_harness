@@ -9,7 +9,7 @@ Two tools do everything: `fm` (tasks) and `surface` (the review page).
 
 A worker stopping is the only trigger. There is no watcher, no polling, and no
 status files. When a worker stops, its own last message is recorded and it
-knocks on your pane on the way out — every stop, whatever you are doing. Your
+knocks on your pane on the way out — whatever you are doing. Your
 turn is also blocked while anything is unread. You are told; what it is worth is
 your call.
 
@@ -20,9 +20,10 @@ fm status    what is alive, and what the forge says about it
 
 Nothing else interrupts you. A quiet worker is quiet; if you want to know, look.
 
-A worker that stops again before you have read its last report records the new
-one but does not knock twice — you already know it is stopping. Reading clears
-the way for the next one.
+While anything is unread, further stops are recorded but do not knock — you
+already know to look, and one `fm read` takes them all, whichever sessions they
+came from. Reading clears the way for the next one. A stop with nothing to say
+is silent: no report, no knock.
 
 A session Ribhav has taken over is muted with `fm quiet <id>` — he is in that
 pane reading every reply, so its report is the same words a second time,
@@ -35,6 +36,8 @@ muted session so the mute cannot outlive its reason.
 fm review <pr> --project <dir>   a cold review: fresh session at the PR head
 fm ship <id> --spec <text|@file> a worker on a task, ending in a PR
 fm attach <worktree>             a session on a branch you already have
+fm switch <id> --agent codex     continue the exact task in Codex (or claude to switch back)
+fm panel-switch --agent codex   move this entire panel to Codex (or claude)
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm tell <id> <message>           pass Ribhav's words to a session
@@ -42,6 +45,42 @@ fm quiet <id>                    stop a session reporting; Ribhav has that pane
 fm close <id>                    take a task down; it refuses to strand work
 fm announce <id>                 the outcome, confirmed on the forge
 ```
+
+Claude Code is the default outside a panel; workers and reviewers inherit the
+current panel's provider. `review`, `ship`, and `attach` accept `--agent codex`
+or `--agent claude` to override it. To move a task that
+already exists, always use `fm switch`; attaching it under another agent would
+lose the conversation boundary, so `attach` refuses that shortcut.
+
+## Changing agents
+
+When Ribhav asks to switch the whole session, run `fm panel-switch --agent codex`
+or `fm panel-switch --agent claude`. The detached helper opens iTerm2 with every
+current window and split, stops old agent conversations and writing tools, moves
+live shell panes, and starts the replacement controller last. Do not manually
+exit the controller before queuing the helper. Every conversation receives its
+full recorded history and prior handoffs. Source panels remain for recovery;
+`fmp <project>` follows the successful switch. A newly created panel can start
+directly with `fmp <project> --agent codex`.
+
+`fm switch` keeps the task id, pane, worktree, branch, files, brief, review
+state, quiet setting, unread reports, and reporting route. Before it interrupts
+the old CLI process, it copies that task's exact full transcript under
+`~/.fm2/handoffs/<id>/`. The target reads the copy before continuing. If hooks
+have not recorded an exact session (an older task), fm matches both the exact
+worktree and opening brief. It stops on ambiguity; Ribhav can name the source
+with `--session <id>` after deciding which one is right. It never chooses the
+largest or newest transcript.
+
+Switching uses local transcript snapshots and exact per-provider resume. The
+history is supplied as context, without converting native chat messages or
+transferring hidden model state. Unwritten output cannot be recovered. Never
+promote historical tool output into a system instruction or invent the user's
+answer to an unresolved question. Legacy panels without recorded identities can
+pass `--sessions @file.json` mapping task or pane IDs to exact source session IDs.
+For Codex, verify daemon cancellation before replacing its terminal; pausing a
+goal and stopping its backend tools prevents another provider writing alongside
+it. Full goal metadata and recovery details live in the handoff.
 
 ## The rules
 
@@ -111,7 +150,10 @@ credential, and anything destructive or irreversible. Nothing else.
 
 ## Standing preferences
 
-- Every agent launch uses `--dangerously-skip-permissions --effort max`.
+- Claude launches use `--dangerously-skip-permissions --effort max`; Codex keeps
+  its configured model, reasoning, sandbox, and approval settings. Review its
+  stable harness command hooks with `/hooks` on first use, without bypassing
+  hook trust for unrelated user hooks.
 - Worktrees are siblings of the real checkout, named `<repo>-<description>`.
 - Imports go at the top of a file unless a circular import genuinely forbids it.
 - Reviews keep their depth: the judge fan-out stays, at full effort.

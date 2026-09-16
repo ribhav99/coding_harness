@@ -82,6 +82,25 @@ export function branchIsMerged(repo, branch) {
   }
 }
 
+// The PR a branch opened, once it has landed.
+//
+// `prForBranch` asks only for open ones, which is right when you are looking for
+// something to work on and exactly wrong when you are looking for something to
+// put away: a merged PR is invisible to it, and merged is precisely when the
+// task wants closing. A ship task carries no PR number of its own - the worker
+// opens the PR, so `fm` never learns the number - which leaves the branch as the
+// only thread back to it.
+export function landedPrForBranch(repo, branch) {
+  if (!repo || !branch) return null;
+  try {
+    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number', '--limit', '1']));
+    return rows.length ? rows[0].number : null;
+  } catch {
+    // No `gh`, no network, no answer - and an unanswered question is not a yes.
+    return null;
+  }
+}
+
 // The same question asked of a PR rather than a branch.
 //
 // A review worktree is detached, so it has no branch to ask about - and a review

@@ -34,6 +34,7 @@ Nothing else can interrupt. Not idleness, not staleness, not a heartbeat.
 fm review <pr> [--project <dir>]   open a cold review on a PR
 fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
+fm switch <id> --agent codex       move the same task to Codex (or claude)
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -42,6 +43,84 @@ fm close <id> [--force]            take a task down, refusing to strand work
 fm announce <id>                   the outcome, confirmed on the forge
 fm caps                            what this machine can reach
 ```
+
+Claude Code remains the default outside a panel. A panel's workers and reviewers
+inherit its provider; `--agent claude|codex` overrides it for a specific launch.
+
+## Switching Claude Code and Codex
+
+`fm switch <id> --agent codex` and `fm switch <id> --agent claude` replace the
+CLI process in that task's existing pane. The task id, worktree, branch, current
+files, brief/report path, PR metadata, mute, and unread notifications stay on
+the same record. Dirty files and commits that have not been pushed are neither
+cleaned nor moved.
+
+Every harness-launched session has `SessionStart` and `Stop` hooks. SessionStart
+records the provider's exact session id, transcript path, and cwd. Stop feeds
+the provider's `last_assistant_message` into the existing fm report queue. A
+switch first copies the full source transcript and a manifest to
+`~/.fm2/handoffs/<id>/`, then stops the old CLI and its tools and starts the
+target in the same worktree. If the task used the target provider before, fm
+resumes that exact session and gives it the transcript containing everything
+that happened since.
+
+Older Claude tasks predate the identity hook. For those, fm requires one local
+transcript matching the exact worktree and opening brief. Multiple matches are
+an error rather than a recency guess; after Ribhav identifies it, pass
+`--session <source-id>`. Switching does not call the source provider, so it also
+works when that provider is timing out. The transcript only contains events the
+old CLI had already written; hidden model state and an unwritten partial answer
+cannot transfer.
+
+Tell firstmate to “switch this panel to Codex” or “switch this panel to Claude
+Code.” It runs the same public command:
+
+```sh
+fm panel-switch --agent codex
+fm panel-switch --agent claude
+```
+
+The switch runs in a detached helper so replacing the control conversation does
+not kill the handoff. It opens an iTerm2 control-mode tab, recreates every tmux
+window and split, and moves shell panes with their running processes. Each
+replacement conversation reads its complete saved source transcript and prior
+handoffs, and resumes its exact earlier conversation in the target provider
+when available. These are history files supplied as context; they do not become
+converted native message bubbles or transfer hidden model state.
+
+The old agents stop before replacements begin. Harness-launched Codex uses an
+embedded backend so the lifecycle hooks retain their exact task and pane identity;
+the helper verifies that its provider process and tools exit. When adopting a
+shared daemon session, it verifies exact thread identity and cwd, cancels its turn,
+pauses an active goal, and stops its background tools and descendant conversations.
+Independent shell/server panes remain running as they move.
+Goal metadata stays in the handoff; interrupted commands continue from their
+actual files and output. A failed launch attempts to restore the original
+provider conversations and leaves complete recovery records under
+`~/.fm2/panel-handoffs/`. The source panel remains for recovery; `fmp <project>`
+follows its successful switch to the active panel.
+
+A new panel starts with `fmp <project> --agent codex`; plain `fmp` starts Claude.
+For legacy conversations without an exact SessionStart record, identify their
+source session explicitly using `--sessions @file.json` (keys are task IDs or
+pane IDs; values are exact provider session IDs). Ambiguous history refuses
+before stopping a source.
+
+iTerm2's **Settings → General → tmux → When attaching, restore windows as…**
+controls whether tmux windows become native tabs or separate windows. Choose
+tabs in a new window for a complete panel grouped together. The harness uses
+the supported `tmux -CC` integration and preserves that preference.
+
+Codex keeps its configured model, reasoning, sandbox, and approval settings.
+On first use, inspect and trust the harness command hooks with `/hooks` in the
+control pane and a worker pane. Hook definitions stay stable across task IDs
+and panels. Skipped hooks cannot report or record exact session IDs. The
+shared-daemon handoff requires a Codex CLI exposing the current app-server
+control protocol; if it cannot verify cancellation, it refuses to start another
+provider.
+
+The hook fields and output shapes follow the current official
+[Codex hooks contract](https://learn.chatgpt.com/docs/hooks).
 
 ## The knock
 

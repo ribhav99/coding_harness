@@ -14,27 +14,48 @@
 // by the worker's own hook instead. See lib/knock.mjs.
 
 import { pending } from '../lib/notify.mjs';
-import { recordSupervisor } from '../lib/presence.mjs';
+import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
+import { controllerId, rememberSession } from '../lib/sessions.mjs';
+import { providerProcess } from '../lib/provider-processes.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
 for await (const chunk of process.stdin) raw += chunk;
 
-// Where the supervisor lives, so a stopping worker knows where to knock. Written
-// on every stop rather than once, because a supervisor can be restarted into a
-// new pane and a stale id knocks on somebody else's door.
-try { recordSupervisor(process.env.TMUX_PANE); } catch { /* never hold up a turn for bookkeeping */ }
-
-let items = [];
-try {
-  items = pending();
-} catch {
-  // If the notify directory cannot be read, let the turn end. A supervisor that
-  // cannot stop is worse than one that misses a report it can still read later.
+function done() {
+  if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
   process.exit(0);
 }
 
-if (items.length === 0) process.exit(0);
+// Where the supervisor lives, so a stopping worker knows where to knock. Written
+// on every stop rather than once, because a supervisor can be restarted into a
+// new pane and a stale id knocks on somebody else's door.
+let panel = null;
+try {
+  const payload = JSON.parse(raw || '{}');
+  panel = currentPanel();
+  const task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
+  if (task && !task.startsWith('controller:')) done();
+  const agent = process.env.FM2_AGENT || 'claude';
+  recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
+  rememberSession({
+    task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
+    cwd: payload.cwd, panel, pane: process.env.TMUX_PANE,
+    backend: process.env.FM2_CODEX_BACKEND || null,
+    providerPid: providerProcess(agent),
+  });
+} catch { /* never hold up a turn for bookkeeping */ }
+
+let items = [];
+try {
+  items = pending(panel);
+} catch {
+  // If the notify directory cannot be read, let the turn end. A supervisor that
+  // cannot stop is worse than one that misses a report it can still read later.
+  done();
+}
+
+if (items.length === 0) done();
 
 const lines = items.map((item) => {
   const first = String(item.text || '').split('\n').find((l) => l.trim()) || '(no text)';

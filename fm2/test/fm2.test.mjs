@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -15,6 +15,8 @@ const ROOT = dirname(HERE);
 function freshHome() {
   const home = mkdtempSync(join(tmpdir(), 'fm2-home-'));
   process.env.FM2_HOME = home;
+  process.env.CLAUDE_SKILLS_DIR = join(home, 'claude-skills');
+  process.env.CODEX_SKILLS_DIR = join(home, 'codex-skills');
   return home;
 }
 
@@ -184,6 +186,42 @@ test('a worker stopping records its own words, and never fails the worker', asyn
   assert.equal(broken.code, 0, 'a missing transcript failed the worker');
 });
 
+test('Codex startup records exact identity and Codex stop reports through the same task route', async () => {
+  const home = freshHome();
+  const worktree = mkdtempSync(join(tmpdir(), 'fm2-codex-wt-'));
+  const transcript = join(home, 'codex.jsonl');
+  const session = '44444444-4444-4444-4444-444444444444';
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'session_meta', payload: { id: session, cwd: worktree } })}\n`,
+  );
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  const { pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  saveTask({ id: 'wo-codex-report', pane: '%1', worktree, agent: 'codex' });
+
+  const env = { FM2_HOME: home, FM2_TASK: 'wo-codex-report', FM2_AGENT: 'codex' };
+  const started = runHook('worker-session.mjs', {
+    session_id: session,
+    transcript_path: transcript,
+    cwd: worktree,
+  }, env);
+  assert.equal(started.code, 0);
+  assert.equal(started.stdout.trim(), '{}', 'Codex SessionStart did not receive valid JSON output');
+  assert.equal(loadTask('wo-codex-report').sessions.codex.id, session);
+
+  const stopped = runHook('worker-stop.mjs', {
+    session_id: session,
+    transcript_path: transcript,
+    cwd: worktree,
+    last_assistant_message: 'PR is ready: https://example.test/pr/1',
+  }, env);
+  assert.equal(stopped.code, 0);
+  assert.equal(stopped.stdout.trim(), '{}', 'Codex Stop did not receive valid JSON output');
+  assert.equal(pending().length, 1);
+  assert.equal(pending()[0].task, 'wo-codex-report');
+  assert.match(pending()[0].text, /PR is ready/);
+});
+
 test('telling a session with no pane sends nothing and says so', async () => {
   const home = freshHome();
   const { saveTask } = await import(join(ROOT, 'lib/config.mjs'));
@@ -232,6 +270,79 @@ test('a task with a report still unread does not knock again', async () => {
   drain();
   const { hasUnread } = await import(join(ROOT, 'lib/notify.mjs'));
   assert.equal(hasUnread('wo-9'), false, 'reading did not clear the way for the next knock');
+});
+
+// A fake tmux on PATH, so a hook running as a real subprocess can be asked
+// whether it actually knocked. Without this the only observable is "no pane
+// recorded", which cannot tell a suppressed knock from a failed one.
+function tmuxSpy(home) {
+  const bin = join(home, 'bin');
+  mkdirSync(bin, { recursive: true });
+  const log = join(home, 'tmux.log');
+  writeFileSync(join(bin, 'tmux'), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${log}\nexit 0\n`);
+  execFileSync('chmod', ['+x', join(bin, 'tmux')]);
+  return {
+    PATH: `${bin}:${process.env.PATH}`,
+    knocks: () =>
+      (existsSync(log) ? readFileSync(log, 'utf8') : '')
+        .split('\n')
+        .filter((l) => l.includes('stopped.')),
+  };
+}
+
+test('several workers stopping together knock once, and all of them are recorded', async () => {
+  const home = freshHome();
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  recordSupervisor('%7');
+  const spy = tmuxSpy(home);
+
+  const transcript = join(home, 'many.jsonl');
+  const write = (text) =>
+    writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } })}\n`);
+
+  // Six sessions once stopped inside the same half-minute. Each knock typed a
+  // line into the supervisor's pane, the first `fm read` handed over every
+  // report at once, and the five lines behind it each cost a turn to discover
+  // there was nothing left to take.
+  for (const task of ['wo-a', 'wo-b', 'wo-c']) {
+    write(`${task} is done`);
+    runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: task, PATH: spy.PATH });
+  }
+
+  const { pending, drain } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(pending().length, 3, 'a stop went unrecorded - the knock may be deduped, the report never');
+  assert.equal(spy.knocks().length, 1, 'every stop knocked again, so reading once left stale taps queued');
+  assert.match(spy.knocks()[0], /wo-a/, 'the one knock was not the first stop');
+
+  // Reading takes all three, and the queue being empty makes the next stop news.
+  assert.equal(drain().length, 3);
+  write('wo-a again');
+  runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-a', PATH: spy.PATH });
+  assert.equal(spy.knocks().length, 2, 'reading did not clear the way for the next knock');
+});
+
+test('a stop with nothing to say records nothing and knocks on nobody', async () => {
+  const home = freshHome();
+  const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
+  recordSupervisor('%7');
+  const spy = tmuxSpy(home);
+
+  // A turn that ended on a tool call, with no final message in the payload
+  // either. Stopping is the report and the last message is the content, so
+  // there is no report here - and a knock would send the supervisor to `fm read`
+  // for "nothing new".
+  const transcript = join(home, 'silent.jsonl');
+  writeFileSync(
+    transcript,
+    `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash' }] } })}\n`,
+  );
+
+  const result = runHook('worker-stop.mjs', { transcript_path: transcript }, { FM2_HOME: home, FM2_TASK: 'wo-mute', PATH: spy.PATH });
+  assert.equal(result.code, 0, 'a contentless stop failed the hook');
+
+  const { pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  assert.equal(pending().length, 0, 'an empty report was recorded');
+  assert.equal(spy.knocks().length, 0, 'knocked with nothing behind it');
 });
 
 test('a quiet task reports nothing and knocks on nobody', async () => {
@@ -303,6 +414,145 @@ function makeProject() {
   g('commit', '-qm', 'init');
   return project;
 }
+
+test('a task switches to Codex and back without changing its work or report route', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin]);
+  execFileSync('git', ['-C', project, 'remote', 'add', 'origin', origin]);
+  execFileSync('git', ['-C', project, 'push', '-q', 'origin', 'HEAD:refs/heads/main']);
+
+  const worktree = join(dirname(project), 'thing-wo-switch');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-switch', worktree]);
+  writeFileSync(join(worktree, 'unpushed.txt'), 'must survive\n');
+  execFileSync('git', ['-C', worktree, 'add', 'unpushed.txt']);
+  execFileSync('git', ['-C', worktree, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'unpushed work']);
+  writeFileSync(join(worktree, 'README.md'), '# dirty and must survive\n');
+  writeFileSync(join(worktree, 'untracked.txt'), 'also must survive\n');
+
+  const briefDir = join(home, 'briefs', 'wo-switch');
+  mkdirSync(briefDir, { recursive: true });
+  const brief = join(briefDir, 'brief.md');
+  writeFileSync(brief, 'Build this exact feature.\n');
+  const claudeSession = '11111111-1111-1111-1111-111111111111';
+  const claudeTranscript = join(home, 'claude.jsonl');
+  writeFileSync(
+    claudeTranscript,
+    [
+      JSON.stringify({ sessionId: claudeSession, cwd: worktree, type: 'user', message: { content: 'Build this exact feature.' } }),
+      JSON.stringify({ sessionId: claudeSession, cwd: worktree, type: 'assistant', message: { content: [{ type: 'text', text: 'Waiting on Ribhav to choose A or B.' }] } }),
+      '',
+    ].join('\n'),
+  );
+
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  const { record, pending } = await import(join(ROOT, 'lib/notify.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  saveTask({
+    id: 'wo-switch',
+    project,
+    worktree,
+    pane: '%7',
+    brief,
+    branch: 'wo-switch',
+    kind: 'ship',
+    agent: 'claude',
+    sessions: {
+      claude: { id: claudeSession, transcript: claudeTranscript, cwd: worktree, recorded_at: '2026-01-01' },
+    },
+  });
+  record({ task: 'wo-switch', text: 'Waiting on Ribhav to choose A or B.', cwd: worktree });
+
+  const launches = [];
+  let interrupts = 0;
+  const runtime = {
+    available: () => true,
+    alive: () => true,
+    interrupt: () => { interrupts += 1; },
+    replace: (pane, cwd, command) => { launches.push({ pane, cwd, command }); return pane; },
+    open: () => { throw new Error('a live switch must reuse its pane'); },
+    clear: () => {},
+    assert: () => {},
+  };
+  const beforeHead = execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const beforeStatus = execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1'], { encoding: 'utf8' });
+
+  const toCodex = switchTask('wo-switch', { agent: 'codex', runtime });
+  assert.equal(toCodex.worktreePreserved, true);
+  assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
+  assert.match(launches[0].command, /codex --no-alt-screen/);
+  assert.equal(launches[0].cwd, worktree);
+  const afterCodex = loadTask('wo-switch');
+  assert.equal(afterCodex.agent, 'codex');
+  assert.equal(afterCodex.id, 'wo-switch');
+  assert.equal(afterCodex.worktree, worktree);
+  assert.equal(afterCodex.brief, brief);
+  assert.equal(afterCodex.sessions.claude.id, claudeSession);
+  assert.ok(
+    existsSync(join(home, 'codex-skills', 'full-review', 'SKILL.md')),
+    'Codex did not receive the same harness skills',
+  );
+  const firstManifest = JSON.parse(readFileSync(toCodex.manifest, 'utf8'));
+  assert.equal(firstManifest.source.id, claudeSession);
+  assert.equal(firstManifest.reporting.task, 'wo-switch');
+  assert.equal(firstManifest.reporting.unread.length, 1, 'the pending decision was dropped from the handoff');
+  assert.equal(readFileSync(firstManifest.source.transcript_snapshot, 'utf8'), readFileSync(claudeTranscript, 'utf8'));
+
+  const codexSession = '22222222-2222-2222-2222-222222222222';
+  const codexTranscript = join(home, 'codex.jsonl');
+  writeFileSync(
+    codexTranscript,
+    [
+      JSON.stringify({ type: 'session_meta', payload: { id: codexSession, cwd: worktree } }),
+      JSON.stringify({ type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text: 'Continue from the handoff.' }] } }),
+      '',
+    ].join('\n'),
+  );
+  const started = runHook('worker-session.mjs', {
+    session_id: codexSession,
+    transcript_path: codexTranscript,
+    cwd: worktree,
+  }, { FM2_HOME: home, FM2_TASK: 'wo-switch', FM2_AGENT: 'codex' });
+  assert.equal(started.code, 0);
+  const stopped = runHook('worker-stop.mjs', {
+    session_id: codexSession,
+    transcript_path: codexTranscript,
+    cwd: worktree,
+    last_assistant_message: 'Implemented the selected path; tests pass.',
+  }, { FM2_HOME: home, FM2_TASK: 'wo-switch', FM2_AGENT: 'codex' });
+  assert.equal(stopped.code, 0);
+  assert.ok(pending().some((item) => item.task === 'wo-switch' && /tests pass/.test(item.text)));
+
+  const toClaude = switchTask('wo-switch', { agent: 'claude', runtime });
+  assert.equal(toClaude.resumed, claudeSession, 'switching back did not resume the exact prior Claude chat');
+  assert.match(launches[1].command, /claude --dangerously-skip-permissions/);
+  assert.match(launches[1].command, new RegExp(`--resume '${claudeSession}'`));
+  const back = loadTask('wo-switch');
+  assert.equal(back.agent, 'claude');
+  assert.equal(back.sessions.codex.id, codexSession);
+  assert.equal(back.brief, brief, 'switching providers changed the report path');
+  assert.equal(interrupts, 2);
+
+  assert.equal(execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), beforeHead);
+  assert.equal(execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1'], { encoding: 'utf8' }), beforeStatus);
+  assert.equal(readFileSync(join(worktree, 'unpushed.txt'), 'utf8'), 'must survive\n');
+  assert.equal(readFileSync(join(worktree, 'untracked.txt'), 'utf8'), 'also must survive\n');
+
+  let touched = false;
+  assert.throws(
+    () => switchTask('wo-switch', {
+      agent: 'codex',
+      runtime: {
+        available: () => false,
+        alive: () => true,
+        interrupt: () => { touched = true; },
+      },
+    }),
+    /codex is not installed/,
+  );
+  assert.equal(touched, false, 'the source was interrupted before target availability was known');
+});
 
 test('a task with uncommitted work refuses to close', async () => {
   const home = freshHome();
@@ -460,34 +710,47 @@ test('reopening a task keeps everything but the pane', async () => {
   assert.deepEqual(reopened(null, fresh), fresh);
 });
 
-// Reopening a branch you have worked on should carry its conversation, and the
-// id that names it is a filename under a folder derived from the cwd. Two things
-// are easy to get wrong: the encoding (underscores become dashes, same as
-// slashes), and which file wins.
-test('the last conversation in a worktree is found by cwd, newest first', async () => {
+// A worktree can have several conversations. Recency is not identity: a quick
+// unrelated chat opened later in the same folder must not steal a task.
+test('a legacy Claude session is selected by exact cwd and brief, never newest', async () => {
   freshHome();
-  const { lastSessionFor } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { resolveSession } = await import(join(ROOT, 'lib/sessions.mjs'));
 
   const root = mkdtempSync(join(tmpdir(), 'fm2-projects-'));
   const wt = join(tmpdir(), 'fitness_agent-fm-volume_score');
-  // Underscores are dashed exactly like the separators, which is what made
-  // fitness_agent-marketing resolve to ...-fitness-agent-marketing.
   const folder = join(root, wt.replace(/[^A-Za-z0-9]/g, '-'));
   mkdirSync(folder, { recursive: true });
+  const brief = join(freshHome(), 'brief.md');
+  writeFileSync(brief, 'Implement the exact assigned change.\n');
 
-  assert.equal(lastSessionFor(wt, root), null, 'an empty folder claimed a conversation');
+  const wanted = '11111111-1111-1111-1111-111111111111';
+  const unrelated = '22222222-2222-2222-2222-222222222222';
+  writeFileSync(
+    join(folder, `${wanted}.jsonl`),
+    `${JSON.stringify({ sessionId: wanted, cwd: wt, type: 'user', message: { content: 'Implement the exact assigned change.' } })}\n`,
+  );
+  writeFileSync(
+    join(folder, `${unrelated}.jsonl`),
+    `${JSON.stringify({ sessionId: unrelated, cwd: wt, type: 'user', message: { content: 'Unrelated scratch question' } })}\n`,
+  );
 
-  const older = join(folder, '11111111-1111-1111-1111-111111111111.jsonl');
-  const newer = join(folder, '22222222-2222-2222-2222-222222222222.jsonl');
-  writeFileSync(older, '{}\n');
-  writeFileSync(newer, '{}\n');
-  utimesSync(older, new Date(1e9), new Date(1e9));
-  utimesSync(newer, new Date(2e9), new Date(2e9));
+  const task = { id: 'volume-score', worktree: wt, brief };
+  assert.equal(resolveSession(task, 'claude', { claudeRoot: root }).id, wanted);
+  assert.equal(
+    resolveSession({ id: 'scratch', worktree: wt }, 'claude', { claudeRoot: root, explicit: unrelated }).id,
+    unrelated,
+  );
 
-  assert.equal(lastSessionFor(wt, root), '22222222-2222-2222-2222-222222222222');
-  // A worktree nobody has opened has nothing to resume, and saying so is how
-  // `fm attach --resume` refuses instead of coming up cold and looking resumed.
-  assert.equal(lastSessionFor(join(tmpdir(), 'never-opened'), root), null);
+  const duplicate = '33333333-3333-3333-3333-333333333333';
+  writeFileSync(
+    join(folder, `${duplicate}.jsonl`),
+    `${JSON.stringify({ sessionId: duplicate, cwd: wt, type: 'user', message: { content: 'Implement the exact assigned change.' } })}\n`,
+  );
+  assert.throws(
+    () => resolveSession(task, 'claude', { claudeRoot: root }),
+    /ambiguous Claude history|ambiguous claude history/i,
+    'two plausible histories were silently ordered by time',
+  );
 });
 
 // A review worktree sits on a detached PR head with no branch of its own. Asking
@@ -765,6 +1028,49 @@ test('a branch the forge says has nothing open is still null', async () => {
   }
 });
 
+// --- a landed ship task says so ---------------------------------------------
+//
+// `fm status` marks a session whose PR has merged, so a missed close is visible.
+// It only ever fired for reviews, which carry a PR number; a ship task does not -
+// the worker opens the PR, so `fm` only knows the branch. Ribhav had to spot the
+// leftovers himself twice in one day. The branch is the thread back, and it has
+// to be asked about MERGED PRs: the open-PR lookup goes blind at exactly the
+// moment the answer becomes yes.
+
+test('a ship task whose branch has landed is found by the branch, not a PR number', async () => {
+  const { landedPrForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?landed`);
+
+  const argsFile = join(mkdtempSync(join(tmpdir(), 'fm2-args-')), 'argv');
+  const bin = fakeGh(`#!/bin/sh\nprintf '%s\\n' "$*" > ${argsFile}\necho '[{"number":390}]'\n`);
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(landedPrForBranch('o/r', 'ribhav/revert-348'), 390, 'a landed branch read as having nothing');
+    const asked = readFileSync(argsFile, 'utf8');
+    assert.match(asked, /--state merged/, 'the open-PR lookup was reused, which cannot see a merged PR');
+    assert.match(asked, /--head ribhav\/revert-348/, 'the branch was not the thing asked about');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
+test('a branch with nothing merged, or no branch at all, is not called landed', async () => {
+  const { landedPrForBranch } = await import(`${join(ROOT, 'lib/forge.mjs')}?unlanded`);
+
+  const bin = fakeGh('#!/bin/sh\necho "[]"\n');
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    assert.equal(landedPrForBranch('o/r', 'still-open'), null, 'an open PR was reported as landed');
+    // A review worktree is detached, so it has no branch - and a task read before
+    // its project resolves has no repo. Neither is a merge.
+    assert.equal(landedPrForBranch('o/r', null), null, 'a detached worktree was reported as landed');
+    assert.equal(landedPrForBranch(null, 'b'), null, 'a task with no repo was reported as landed');
+  } finally {
+    process.env.PATH = path;
+  }
+});
+
 // --- attach finds its own project -------------------------------------------
 //
 // `fm attach <worktree>` defaulted --project to the supervisor's cwd, so
@@ -888,8 +1194,9 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(cmd, /--model opus\b/, 'the launch left the model to the CLI default');
   assert.match(cmd, /--effort max\b/);
   assert.match(cmd, /--dangerously-skip-permissions\b/);
-  assert.match(cmd, /--settings "\/s\.json"/);
-  assert.match(cmd, /FM2_TASK="wo-9"/, 'the hook could not find its task');
+  assert.match(cmd, /--settings '\/s\.json'/);
+  assert.match(cmd, /FM2_TASK='wo-9'/, 'the hook could not find its task');
+  assert.match(cmd, /FM2_AGENT='claude'/);
 
   // An idle pane and a resumed one differ only in these two flags, and both are
   // easy to pass by accident: an empty brief would start a turn on nothing, and
@@ -897,6 +1204,80 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.doesNotMatch(cmd, /--resume/);
   assert.doesNotMatch(cmd, /\$\(cat/);
   const full = launchCommand({ id: 'wo-9', settingsFile: '/s.json', briefPath: '/b.md', resume: 'abc' });
-  assert.match(full, /--resume "abc"/);
-  assert.match(full, /"\$\(cat "\/b\.md"\)"/);
+  assert.match(full, /--resume 'abc'/);
+  assert.match(full, /"\$\(cat '\/b\.md'\)"/);
+});
+
+test('a Codex worker preserves configured settings and uses exact resume and hook contracts', async () => {
+  const home = freshHome();
+  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const settings = writeWorkerSettings('wo-codex', 'codex');
+  const prompt = join(home, 'prompt.md');
+  writeFileSync(prompt, 'continue the same task\n');
+
+  const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
+  assert.match(fresh, /\bcodex --no-alt-screen\b/);
+  assert.doesNotMatch(fresh, /dangerously-bypass|model_reasoning_effort|--model|--sandbox|ask-for-approval/);
+  assert.match(fresh, /hooks\.SessionStart=/);
+  assert.match(fresh, /hooks\.Stop=/);
+  assert.match(fresh, /worker-session\.mjs/);
+  assert.match(fresh, /worker-stop\.mjs/);
+  assert.match(fresh, /FM2_AGENT='codex'/);
+  assert.doesNotMatch(fresh, /claude --/);
+
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
+  const argsFile = join(home, 'worker-args');
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+  const invoked = spawnSync('/bin/sh', ['-c', fresh], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FM2_ARGS_FILE: argsFile },
+  });
+  assert.equal(invoked.status, 0, invoked.stderr);
+  const actualArgs = readFileSync(argsFile, 'utf8');
+  assert.match(actualArgs, /--no-alt-screen/);
+  assert.match(actualArgs, /hooks\.SessionStart=/);
+  assert.match(actualArgs, /continue the same task/);
+
+  const resumed = launchCommand({
+    agent: 'codex',
+    id: 'wo-codex',
+    settingsFile: settings,
+    briefPath: prompt,
+    resume: '44444444-4444-4444-4444-444444444444',
+  });
+  assert.match(resumed, /codex resume /);
+  assert.match(resumed, /'44444444-4444-4444-4444-444444444444'/);
+});
+
+test('the Codex controller launcher passes native hooks to the real CLI boundary', () => {
+  const home = freshHome();
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-codex-bin-'));
+  const argsFile = join(home, 'codex-args');
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+  const result = spawnSync(process.execPath, [join(ROOT, 'supervisor.mjs'), 'codex'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      FM2_HOME: home,
+      FM2_PANEL: 'fm-launcher-test',
+      FM2_ARGS_FILE: argsFile,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const args = readFileSync(argsFile, 'utf8');
+  assert.doesNotMatch(args, /dangerously-bypass|model_reasoning_effort/);
+  assert.match(args, /hooks\.SessionStart=/);
+  assert.match(args, /hooks\.UserPromptSubmit=/);
+  assert.match(args, /supervisor-start\.mjs/);
+  assert.match(args, /hooks\.Stop=/);
+  assert.match(args, /supervisor-stop\.mjs/);
 });

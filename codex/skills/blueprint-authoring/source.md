@@ -1,0 +1,1 @@
+../../../skills/blueprints/blueprint-authoring.md

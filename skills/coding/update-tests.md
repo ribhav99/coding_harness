@@ -7,6 +7,8 @@ description: Routes a finished change to the right test layer and writes, update
 
 The code is written. This decides what tests it needs, at which layer, and writes them.
 
+**If the repository carries its own copy of this skill** — `.claude/skills/update-tests/SKILL.md` — read and follow that one instead. A personal copy of a skill is loaded ahead of the project's, so without this line a project's own procedure, and whatever it has learned since, never runs.
+
 The hard part is not writing tests — it is not writing the wrong ones. Left alone, an agent writes an end-to-end test for everything, because end-to-end feels thorough. It is the slowest, flakiest, most expensive layer, and for most changes it proves less than a five-line unit test would. This skill exists to route.
 
 ## When to use
@@ -114,12 +116,37 @@ Maintenance is bidirectional. A suite that only grows becomes a graveyard nobody
 
 ## Step 5 — keep the ledger honest
 
-If the project keeps a test-plan or coverage document, update it in the same commit:
+A plan claiming coverage the tests do not have is worse than no plan, because it is believed.
 
-- new e2e spec → add its section, and tag spec and section with the same stable id so coverage is mechanically checkable rather than a matter of opinion
-- removed spec → remove its section
+If the project keeps a plan describing product behaviour, updating it is part of the change — not follow-up work. Four moves, in the same commit:
 
-A plan claiming coverage the specs do not have is worse than no plan, because it is believed.
+- **New behaviour** → describe it in the plan, in the product's own words. What a person does, what the product does back. A behaviour nobody wrote down is a behaviour nobody agreed to.
+- **New test** → claim the section it proves, with whatever stable-id marker the project uses, so coverage is mechanically checkable rather than a matter of opinion. Put the marker on the file that **actually proves** the behaviour, not the one whose name matches the section's title — those drift apart, and a claim on the wrong file reads as coverage while proving something else.
+- **Changed behaviour** → correct the plan's claim and record the correction where the project keeps them. The plan is a document the product can disprove; that is normal, and hiding it is what makes a plan rot. When it is the product that is wrong, fix it in this change with a test that fails without the fix. When that fix is not this change's to make, write the step as what the product does today, mark it as a defect with the work order that fixes it — in whatever form the project's plan defines — and open that work order. A defect nobody tracks, written as a step, reads exactly like agreed behaviour.
+- **Removed surface** → the section goes with its tests.
+
+Then run the coverage gate, if the project has one. A marker you did not verify is a claim, not a fact — the gate is what turns it into one.
+
+Where the project has **no** plan, say so in the output rather than inventing a document nobody asked for.
+
+### Stale sentences live in the sections you did not open
+
+Those four moves cover the sections you know you touched. The ones that go stale are the others: a change to one screen alters what other sections say about the same thing, and none of them carries the id you were editing. A discount that now applies before tax changes what the cart, the receipt and the refund sections say about totals — and the section you edited is the only one of those you would think to reread.
+
+No gate can tell whether a sentence is still true. A coverage gate checks what a script can see — ids, markers, exact strings, at best whether what the plan names still exists — so a plan describing a product that no longer exists can pass every one. A green gate means the ledger is well-formed, not that it is current.
+
+So search the plan for what the diff changed, not for the sections you edited:
+
+- **Whatever the diff removed or reworded** — copy, a control's name, a route, an endpoint, a state. Grep the plan for the old words; every hit is a sentence to re-read.
+- **Whatever the diff changed the behaviour of**, by the word a person would use for it — "total", "draft", "the cart" — across the whole plan, not only this screen's sections.
+- **The sections claimed by every test file the diff touched**, edited as well as new. A test that had to change usually proves a behaviour that did.
+- **Whatever shared part the diff changed** — a request client, a default, an error handler, a guard or a lock that many screens pass through. Search by what those screens do with it — their failure messages, their refreshes, the steps that come after the lock — because the plan describes the effect in product words and never names the part.
+
+Where the project's coverage gate already does the mechanical half — naming what the plan still mentions that is gone, or listing the sections a touched test claims — start from its output. What it cannot do is read.
+
+Read each hit against the code as it is now — steps, outcomes and notes, because a note explaining *why* is a claim too — and correct what no longer holds, recording each correction like any other. The search narrows where a stale sentence can hide; it does not prove there is none.
+
+Then check from the other side: **every section you touched is still walked by a test that claims it.** A section can stay true while its test stops proving it. Add a step to a section and the test that walked the old flow still passes, still carries the tag, and proves nothing about the new step. Either that test walks the step, or the step gets its own situation and a test that does.
 
 ## Step 6 — verify
 
@@ -139,8 +166,15 @@ deleted
   e2e/legacy-cart.spec.ts         surface removed in this PR
 unstated
   src/services/matching.py:120    new deviation threshold has no defined value — needs a decision before it can be asserted
+plan
+  CART-02                         corrected  the discount now applies before tax (changelog)
+  RECEIPT-01                      walked     its only test never reached the new step — test added
+  INVOICE-04                      defect     the total skips the second discount — marked, WO-412 opened
+  REFUND-03                       re-read    still true
 verified
   make test-backend  ✅  142 passed
 ```
+
+Name every section the staleness search reached, the ones still true included. A section the output never mentions is indistinguishable from one nobody read. `corrected` means a sentence was false and the correction is recorded; `walked` means a step no claiming test reached now has one; `defect` means the product is wrong and the step is marked with the work order that fixes it; `re-read` means it still holds.
 
 Flag anything you routed to a layer that does not exist in this project yet. That is a gap in the project's test setup, and it is worth more than the test you would have written around it.

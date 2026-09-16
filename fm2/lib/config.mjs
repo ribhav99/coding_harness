@@ -103,6 +103,8 @@ export function capabilities({ refresh = false } = {}) {
   const caps = {
     git: have('git'),
     tmux: have('tmux'),
+    claude: have('claude'),
+    codex: have('codex'),
     gh: false,
     slack: false,
   };

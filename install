@@ -59,8 +59,7 @@ command_link "$REPO/fm2/bin-fm"          fm
 command_link "$REPO/fm2/bin-fmp"         fmp
 command_link "$REPO/surface/bin-surface" surface
 
-# Claude Code discovers a skill as <name>/SKILL.md, so the link is the file
-# inside a directory named for the skill - not the directory itself.
+# Claude uses file links; Codex uses complete entrypoint folders and references.
 # Skills go through the same code fm uses at every launch, so there is one
 # implementation and it cannot drift from what a worker actually gets.
 printf '\nskills:\n'
@@ -70,20 +69,27 @@ if [ "$CHECK" = 1 ]; then
     const { realpathSync, lstatSync } = await import("node:fs");
     const { join } = await import("node:path");
     let stale = 0;
-    for (const [name, target] of repoSkills(process.argv[1])) {
-      const link = join(skillsRoot(), name, "SKILL.md");
-      let cur = null;
-      try { if (lstatSync(link).isSymbolicLink()) cur = realpathSync(link); } catch {}
-      if (cur !== realpathSync(target)) { console.log(`  TODO  ${name} -> ${cur ?? "missing"}`); stale++; }
+    for (const agent of ["claude"]) {
+      for (const [name, target] of repoSkills(process.argv[1])) {
+        const link = join(skillsRoot(agent), name, "SKILL.md");
+        let cur = null;
+        try { if (lstatSync(link).isSymbolicLink()) cur = realpathSync(link); } catch {}
+        if (cur !== realpathSync(target)) { console.log(`  TODO  ${agent}:${name} -> ${cur ?? "missing"}`); stale++; }
+      }
     }
-    console.log(`  ${stale === 0 ? "ok    all" : stale + " stale of"} ${repoSkills(process.argv[1]).length} skill(s)`);
+    console.log(`  ${stale === 0 ? "ok    all" : stale + " stale of"} ${repoSkills(process.argv[1]).length} Claude skill link(s)`);
   ' "$REPO"
+  node "$REPO/codex/install.mjs" --check
 else
   node -e '
     const { syncSkills, repoSkills } = await import(process.argv[1] + "/fm2/lib/skills.mjs");
-    const fixed = syncSkills({ repo: process.argv[1] });
-    for (const n of fixed) console.log(`  ok    ${n}`);
-    console.log(`  ${repoSkills(process.argv[1]).length} skill(s), ${fixed.length} relinked`);
+    let total = 0;
+    for (const agent of ["claude", "codex"]) {
+      const fixed = syncSkills({ repo: process.argv[1], agent });
+      total += fixed.length;
+      for (const n of fixed) console.log(`  ok    ${agent}:${n}`);
+    }
+    console.log(`  ${repoSkills(process.argv[1]).length} skill(s) for both providers, ${total} relinked`);
   ' "$REPO"
 fi
 
@@ -135,5 +141,5 @@ printf '\nnot handled here (per machine, never in the repo):\n'
 printf '  - the Software Factory MCP server, in the global mcpServers of ~/.claude.json\n'
 printf '  - anything a project needs to build; the harness only launches sessions\n'
 
-printf '\nsupervisor hooks come with the repo (.claude/settings.json, via $CLAUDE_PROJECT_DIR).\n'
-printf 'run firstmate from this checkout so they resolve.\n'
+printf '\nBoth providers receive controller lifecycle hooks from fm2/supervisor.mjs.\n'
+printf 'Start with fmp <project> [--agent codex]; Claude remains the default.\n'

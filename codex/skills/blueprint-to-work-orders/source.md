@@ -1,0 +1,1 @@
+../../../skills/work-orders/blueprint-to-work-orders.md

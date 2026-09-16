@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fmp - open (or re-attach to) a project's control panel.
 #
-#   fmp <project>   create/attach the project's tmux session and start firstmate
+#   fmp <project> [--agent claude|codex]
+#                   create/attach the project's tmux session and start firstmate
 #   fmp             list the projects it can see
 #
 # One session per project:
@@ -13,10 +14,9 @@
 #
 # All three exist from the moment the panel does, empty or not.
 #
-# firstmate's pane sits in the harness repo, not the project, because the Stop
-# hook resolves through $CLAUDE_PROJECT_DIR and that must be the harness checkout.
-# The project is where the right-hand shell opens, and what `fm --project` points
-# at.
+# firstmate's pane sits in the harness repo to load its controller instructions.
+# The launcher supplies absolute lifecycle hooks. The right-hand shell opens in
+# the project, which is also what `fm --project` points at.
 #
 # Unlike the version this replaces there are no per-project homes. fm2 keeps one
 # home (~/.fm2) and every task records its own project, so a project is just a
@@ -26,6 +26,7 @@
 #   FM_REPO          the harness checkout
 #   FM_PROJECTS      where projects live      (default ~/Desktop/everything)
 #   FMP_CLAUDE_CMD   how firstmate is started
+#   FMP_CODEX_CMD    how a Codex firstmate is started
 #   FMP_NO_ATTACH=1  build the panel and leave it detached, printing its name
 
 set -eu
@@ -63,12 +64,23 @@ list_projects() {
 command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux)"
 
 if [ $# -eq 0 ]; then
-  printf 'usage: fmp <project>\n\nprojects:\n'
+  printf 'usage: fmp <project> [--agent claude|codex]\n\nprojects:\n'
   list_projects
   exit 0
 fi
 
 PROJECT=$1
+shift
+FMP_AGENT=claude
+FMP_AGENT_EXPLICIT=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --agent) [ $# -ge 2 ] || die '--agent needs claude or codex'; FMP_AGENT=$2; FMP_AGENT_EXPLICIT=1; shift 2 ;;
+    *) die "unknown option '$1'" ;;
+  esac
+done
+case "$FMP_AGENT" in claude|codex) ;; *) die "unknown agent '$FMP_AGENT' (use claude or codex)" ;; esac
+FMP_CODEX_CMD="${FMP_CODEX_CMD:-node \"$FM_REPO/fm2/supervisor.mjs\" codex}"
 case "$PROJECT" in
   ''|*[!A-Za-z0-9._-]*) die "unsafe project name '$PROJECT'" ;;
 esac
@@ -90,6 +102,20 @@ attach() {
 # Already running: go there. Never rebuild a live session - task panes and their
 # worktrees live in it.
 if tmux has-session -t "=$SES" 2>/dev/null; then
+  FMP_HOPS=0
+  while [ "$FMP_HOPS" -lt 30 ]; do
+    FMP_NEXT=$(tmux show-option -qv -t "$SES" @fm-successor 2>/dev/null || true)
+    [ -n "$FMP_NEXT" ] || break
+    tmux has-session -t "=$FMP_NEXT" 2>/dev/null || break
+    SES=$FMP_NEXT
+    FMP_HOPS=$((FMP_HOPS + 1))
+  done
+  if [ "$FMP_AGENT_EXPLICIT" = 1 ]; then
+    FMP_LIVE_AGENT=$(tmux show-option -qv -t "$SES" @fm-agent 2>/dev/null || true)
+    if [ "${FMP_LIVE_AGENT:-claude}" != "$FMP_AGENT" ]; then
+      exec node "$FM_REPO/fm2/cli.mjs" panel-switch --panel "$SES" --agent "$FMP_AGENT"
+    fi
+  fi
   # But say so if it was built against a different checkout. A panel outlives the
   # repo it was started from: move the harness, or clone it somewhere else on a
   # second machine, and `fmp` still finds the old session and takes you to panes
@@ -160,9 +186,21 @@ done
 
 # control: firstmate on the left, a project shell on the right.
 tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
+tmux set-option -t "$SES" @fm-agent "$FMP_AGENT"
+tmux set-environment -t "$SES" FM2_PANEL "$SES"
+tmux set-environment -t "$SES" FM2_AGENT "$FMP_AGENT"
+tmux set-environment -t "$SES" PATH "$PATH"
 
 LEFT=$(tmux list-panes -t "$SES:control" -F '#{pane_id}' | head -1)
-tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+if [ "$FMP_AGENT" = codex ]; then
+  tmux send-keys -t "$LEFT" "$FMP_CODEX_CMD" C-m
+else
+  if [ "$FMP_CLAUDE_CMD" = 'claude --dangerously-skip-permissions --effort max' ]; then
+    tmux send-keys -t "$LEFT" "node \"$FM_REPO/fm2/supervisor.mjs\" claude" C-m
+  else
+    tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+  fi
+fi
 
 tmux select-window -t "$SES:control"
 tmux select-pane -t "$LEFT"

@@ -1,0 +1,1 @@
+../../../skills/requirements/req-coverage-judge.md
