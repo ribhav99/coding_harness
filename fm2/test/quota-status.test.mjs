@@ -21,7 +21,7 @@ function rateLimits() {
   };
 }
 
-test('quota status includes remaining usage and reset time for every available window', () => {
+test('quota status includes used percentage and full reset time for every available window', () => {
   assert.equal(
     formatQuotaStatus(rateLimits(), { now: NOW }),
     '5h 20% used · resets in 1h 1m | weekly 75% used · resets in 2d 3h 0m',

@@ -453,6 +453,78 @@ function makeProject() {
   return project;
 }
 
+// Same agent in and out is a reload: the session is replaced in its own pane so
+// it picks up launch settings that changed after it started. This was refused as
+// a mistake, which left no way to relaunch a session short of bouncing it through
+// the other provider or moving the whole panel — and moving the panel builds a
+// new one.
+
+test('a session reloads onto the same agent, in its own pane, carrying its conversation', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const worktree = join(dirname(project), 'thing-wo-reload');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-reload', worktree]);
+  writeFileSync(join(worktree, 'in-progress.txt'), 'must survive a reload\n');
+
+  const session = '33333333-3333-3333-3333-333333333333';
+  const transcript = join(home, 'codex-live.jsonl');
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: 'session_meta', payload: { id: session, cwd: worktree } }),
+      JSON.stringify({ type: 'response_item', payload: { role: 'user', content: [{ type: 'input_text', text: 'Carry on.' }] } }),
+      '',
+    ].join('\n'),
+  );
+
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  saveTask({
+    id: 'wo-reload',
+    project,
+    worktree,
+    pane: '%21',
+    brief: null,
+    branch: 'wo-reload',
+    kind: 'ship',
+    agent: 'codex',
+    sessions: { codex: { id: session, transcript, cwd: worktree, recorded_at: '2026-01-01' } },
+  });
+
+  const launches = [];
+  const runtime = {
+    available: () => true,
+    alive: () => true,
+    interrupt: () => {},
+    replace: (pane, cwd, command) => { launches.push({ pane, cwd, command }); return pane; },
+    open: () => { throw new Error('a reload must never open a pane'); },
+    clear: () => {},
+    assert: () => {},
+  };
+
+  const reloaded = switchTask('wo-reload', { agent: 'codex', runtime });
+  assert.equal(reloaded.from, 'codex');
+  assert.equal(reloaded.to, 'codex');
+  assert.equal(launches.length, 1);
+  assert.equal(launches[0].pane, '%21', 'the reload did not reuse the task\'s own pane');
+  assert.equal(launches[0].cwd, worktree);
+  // The settings that made this worth doing at all.
+  assert.match(launches[0].command, /-c model="gpt-5\.6-sol"/);
+  assert.match(launches[0].command, /-c approval_policy="never"/);
+
+  const after = loadTask('wo-reload');
+  assert.equal(after.agent, 'codex');
+  assert.equal(after.worktree, worktree);
+  assert.equal(after.pane, '%21');
+  assert.equal(
+    readFileSync(join(worktree, 'in-progress.txt'), 'utf8'),
+    'must survive a reload\n',
+    'a reload disturbed the work in the worktree',
+  );
+  const manifest = JSON.parse(readFileSync(reloaded.manifest, 'utf8'));
+  assert.equal(manifest.source.id, session, 'the reload did not carry the conversation it replaced');
+});
+
 test('a task switches to Codex and back without changing its work or report route', async () => {
   const home = freshHome();
   const project = makeProject();
