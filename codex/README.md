@@ -6,6 +6,69 @@ and progress through its native tools. A marked terminal session uses `fm` for
 its controller and workers and `surface` for review decisions. Neither mode
 assumes the Python planning orchestrator is running.
 
+## Before the first Codex session on a machine
+
+Three things have to be true, and none of them announce themselves. Each one
+fails as a pane that looks perfectly alive and never does anything.
+
+**1. `codex` has to be on PATH.** It ships inside the desktop app rather than as
+its own command, so nothing finds it by default: `fm caps` reports
+`"codex": false`, and a panel switch refuses with `codex is not installed`.
+
+```sh
+ln -sfn "/Applications/ChatGPT.app/Contents/Resources/codex" /opt/homebrew/bin/codex
+codex --version   # codex-cli 0.154.0-alpha.6.1
+```
+
+**2. The repository has to be trusted in Codex.** A Codex session in an untrusted
+directory stops on `Do you trust the contents of this directory?` and waits.
+Nothing here answers it — the harness clears Claude's dialogs and deliberately
+leaves Codex's own trust and approval prompts to Codex.
+
+That prompt is not cosmetic. Trusting is what allows **project-local config,
+hooks, and exec policies to load**, and the hooks are the entire reporting
+mechanism. An untrusted session that someone waves through by hand still comes
+up with no `Stop` hook, so it never reports and `fm read` stays empty forever —
+indistinguishable from a quiet fleet.
+
+Trust is keyed on the **git repository root** and covers every worktree beside
+it, so one answer covers a whole project. Either run `codex` once in the repo and
+answer `1`, or write it directly:
+
+```toml
+# ~/.codex/config.toml
+[projects."/absolute/path/to/repo"]
+trust_level = "trusted"
+```
+
+Check what is already trusted with `grep -A1 '^\[projects' ~/.codex/config.toml`.
+
+**3. The skills have to be installed for Codex**, not just for Claude:
+`node codex/install.mjs`, then `--check`.
+
+A launch carries only `--no-alt-screen` and its hook configuration; the model,
+reasoning effort, approval policy and sandbox all come from `~/.codex/config.toml`.
+That is deliberate and the tests pin it — the harness does not override the
+settings the machine already has. So check that file is what you want before
+putting workers on it; `model` and `model_reasoning_effort` there are what every
+worker will run on.
+
+## Switching a panel that is already running
+
+`fm panel-switch --agent codex` replaces every session in a panel. Two things
+that bite on a panel which has been up for a while:
+
+- **A session started before session recording needs its id passed in.** The
+  switch refuses with `needs a recorded session or --session <exact-id>` rather
+  than guess. Find it under `~/.claude/projects/<slugified-cwd>/` and pass a
+  map: `--sessions @file`, keyed by pane id (`{"%4": "<uuid>"}`). Resist picking
+  the newest file by hand when several sessions share a working directory — the
+  controller's own transcript is often not the most recently written one.
+- **Test with one session before moving a whole panel.** `fm switch <id> --agent
+  codex` moves a single task and is the cheap way to find a machine-level
+  problem. A panel switch stops every pane in the panel before it starts
+  anything, so a problem found there is found nine times.
+
 Install from this checkout with Node.js:
 
 ```sh

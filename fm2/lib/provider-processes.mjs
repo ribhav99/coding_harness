@@ -104,16 +104,42 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
       try { process.kill(child.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
       try { process.kill(child.pid, 'SIGCONT'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     }
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      const alive = new Set(processTable().map((entry) => entry.pid));
-      if (children.every((entry) => !alive.has(entry.pid))) {
-        tmux(['respawn-pane', '-k', '-t', pane.id, '-c', pane.cwd]);
-        if (codexState) return { ...interrupt(), goal: codexState.goal, children_before_stop: codexState.children };
-        return null;
+    // Four seconds was not enough for a real Claude session to finish exiting,
+    // and giving up was worse than waiting: the processes are SIGSTOPped at this
+    // point, and a provider that has been backgrounded on its pane's tty cannot
+    // be revived by the SIGCONT in the `finally`. It reads the terminal, takes
+    // SIGTTIN, and stops again immediately - so the pane was left holding a
+    // frozen session that no signal would restore and nothing would clean up.
+    // That is what happened on the first real panel switch: `ps` showed state
+    // `T` with `tpgid` pointing at the shell, and it had to be found and killed
+    // by hand.
+    //
+    // So: a generous grace for a clean exit, and then SIGKILL rather than a
+    // refusal. This is not a worker's work being discarded - the transcript was
+    // copied before anything was signalled, and killing a provider that is
+    // already being deliberately replaced strands nothing. A frozen pane does.
+    const gone = (waitMs) => {
+      for (let attempt = 0; attempt * 100 < waitMs; attempt += 1) {
+        const alive = new Set(processTable().map((entry) => entry.pid));
+        if (children.every((entry) => !alive.has(entry.pid))) return true;
+        execFileSync('sleep', ['0.1']);
       }
-      execFileSync('sleep', ['0.1']);
+      return false;
+    };
+    if (!gone(15_000)) {
+      for (const child of [...children].reverse()) {
+        try { process.kill(child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      if (!gone(5_000)) {
+        throw new Error(
+          `provider tools in pane ${pane.id} survived SIGKILL; no replacement was started. ` +
+            `Still running: ${children.map((entry) => entry.pid).join(', ')}`,
+        );
+      }
     }
-    throw new Error(`provider tools in pane ${pane.id} did not exit; no replacement was started`);
+    tmux(['respawn-pane', '-k', '-t', pane.id, '-c', pane.cwd]);
+    if (codexState) return { ...interrupt(), goal: codexState.goal, children_before_stop: codexState.children };
+    return null;
   } finally {
     for (const pid of frozen) { try { process.kill(pid, 'SIGCONT'); } catch {} }
   }
