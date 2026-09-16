@@ -99,6 +99,33 @@ attach() {
   if [ -n "${TMUX:-}" ]; then tmux switch-client -t "$SES"; else tmux attach-session -t "$SES"; fi
 }
 
+# An iTerm pane launched by fmp owns the panel it displays. Secondary clients
+# (for example Termius on an iPhone or iPad) may attach at the same time, but
+# they must not keep the panel alive after its owning iTerm pane closes.
+#
+# destroy-unattached cannot express that distinction: every attached client is
+# equal to tmux, so a phone would prevent the session from becoming unattached.
+# The owner therefore destroys its exact session explicitly when its attachment
+# returns. Clearing the traps first keeps signals and EXIT from running cleanup
+# twice. A secondary fmp attachment never installs this trap.
+cleanup_owned_panel() {
+  trap - EXIT INT TERM HUP
+  tmux kill-session -t "=$SES" >/dev/null 2>&1 || true
+}
+
+own_panel() {
+  trap cleanup_owned_panel EXIT INT TERM HUP
+}
+
+# switch-client returns immediately, so an fmp invoked from inside tmux cannot
+# use its shell process as a lifetime owner. Preserve the previous behavior for
+# that path: once the switch succeeds, return the session to tmux's configured
+# destroy-unattached policy instead of killing the newly selected session.
+release_panel_to_tmux_lifecycle() {
+  trap - EXIT INT TERM HUP
+  tmux set-option -t "=$SES" -u destroy-unattached >/dev/null 2>&1 || true
+}
+
 # Already running: go there. Never rebuild a live session - task panes and their
 # worktrees live in it.
 if tmux has-session -t "=$SES" 2>/dev/null; then
@@ -129,6 +156,13 @@ if tmux has-session -t "=$SES" 2>/dev/null; then
     printf '     attaching to it anyway - it may hold live work.\n' >&2
     printf '     to rebuild against this checkout: tmux kill-session -t %s && fmp %s\n' "$SES" "$PROJECT" >&2
   fi
+  # A deliberately detached panel (FMP_NO_ATTACH) has no owner yet. Its first
+  # external fmp attachment becomes the owner. A session which already has a
+  # client is being viewed secondarily and must retain its existing owner.
+  if [ -z "${TMUX:-}" ] &&
+     [ "$(tmux display-message -p -t "=$SES:" '#{session_attached}' 2>/dev/null || true)" = 0 ]; then
+    own_panel
+  fi
   attach
   exit 0
 fi
@@ -153,10 +187,15 @@ fi
 tmux new-session -d -s "$SES" -n control -c "$FM_REPO" \
   \; set-option -t "$SES" destroy-unattached off
 
-# From here the session is protected by its own setting, not the global one. The
-# trap unsets it, handing the session back to the global rule at exactly the
-# moment attach returns and it loses its client.
-trap 'tmux set-option -t "$SES" -u destroy-unattached >/dev/null 2>&1 || true' EXIT INT TERM HUP
+# From here the session is protected by its own setting, not the global one. An
+# external fmp invocation blocks in attach-session and can own the panel until
+# that client closes. An invocation already inside tmux uses switch-client,
+# which returns immediately, so it retains the launcher's prior lifecycle.
+if [ -z "${TMUX:-}" ]; then
+  own_panel
+else
+  trap release_panel_to_tmux_lifecycle EXIT INT TERM HUP
+fi
 
 # Number from 1 even on a machine whose tmux config does not say so. Every call
 # is failure-tolerant; none of it is worth aborting a launch over.
@@ -214,7 +253,6 @@ if [ -n "${FMP_NO_ATTACH:-}" ]; then
   exit 0
 fi
 
-# Not restored here: the session is still unattached, and handing it back to the
-# global rule now would destroy it on the spot. The trap does it after attach
-# returns - exactly when it loses its client and should die.
+# The owner trap destroys the exact panel after attach returns. It deliberately
+# does not rely on the session becoming completely unattached.
 attach

@@ -106,6 +106,31 @@ source session explicitly using `--sessions @file.json` (keys are task IDs or
 pane IDs; values are exact provider session IDs). Ambiguous history refuses
 before stopping a source.
 
+## Termius and other secondary terminals
+
+An `fmp` project panel is one tmux session, so use one Termius tab per project.
+The controller, workers, and reviews remain tmux windows and panes inside that
+terminal; Termius does not turn each inner pane into a separate app tab.
+
+After connecting to the Mac with ordinary SSH, attach only to the existing
+panel and keep the phone or tablet out of tmux's size calculation:
+
+```sh
+tmux attach-session -f ignore-size -t '=fm-fitness_agent'
+```
+
+Replace the target with the panel shown by `tmux list-sessions`. Do not use
+`-d`, which would detach the owning iTerm client, or `new-session -A`, which can
+silently recreate a panel that its owner intentionally closed. Closing Termius
+only disconnects that secondary view. Closing the owning iTerm pane explicitly
+destroys the panel and disconnects every secondary client with it.
+
+There is no harness-specific mobile UI or daemon. On each Mac, install this
+checkout normally, enable macOS Remote Login, make the Mac reachable through
+the private network (for example Tailscale), and authorize the Termius SSH key.
+Once those machine prerequisites exist, the same attach command works for every
+project and every device.
+
 iTerm2's **Settings → General → tmux → When attaching, restore windows as…**
 controls whether tmux windows become native tabs or separate windows. Choose
 tabs in a new window for a complete panel grouped together. The harness uses
