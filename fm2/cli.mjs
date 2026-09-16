@@ -10,6 +10,7 @@
 //                                      also how a task whose pane died is reopened
 //   fm switch <id> --agent <name>      move the same task between claude and codex
 //   fm reload --agent <name> [--fresh] replace every session in this panel, in place
+//                     [--controller-only]  ... or just the one running this
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -29,12 +30,13 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask,
-  launchCommand, writeWorkerSettings, tmux } from './lib/tasks.mjs';
+  launchCommand, writeWorkerSettings, tmux, preserveSession } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
-import { agentOf, normalizeAgent, resolveSession } from './lib/sessions.mjs';
+import { supervisorCommand } from './supervisor.mjs';
+import { agentOf, normalizeAgent, resolveSession, controllerId } from './lib/sessions.mjs';
 import { queuePanelSwitch } from './lib/panel-switch.mjs';
-import { currentPanel } from './lib/presence.mjs';
+import { currentPanel, supervisorPane } from './lib/presence.mjs';
 import { discoverSessions } from './lib/sessions.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -377,6 +379,24 @@ if (command === 'reload') {
   // back on Claude" without saying so - which is exactly what it did once.
   const agent = selectedAgent(arg('--agent') ?? die('usage: fm reload --agent claude|codex [--panel <session>]'));
   const panel = arg('--panel') ?? currentPanel();
+  // The control pane is not a task, so it is never in the list and never
+  // replaced by accident - a reload of the workers must not take out the session
+  // running it. `--controller-only` is how it is asked for, and it is the last
+  // thing anyone should run in a panel: it replaces the conversation issuing it.
+  if (process.argv.includes('--controller-only')) {
+    const target = panel ?? die('a controller reload needs --panel <session> or a panel of its own');
+    const pane = supervisorPane(target) ?? process.env.TMUX_PANE
+      ?? die(`no control pane recorded for ${target}`);
+    const cwd = process.cwd();
+    const id = controllerId(target);
+    const task = { id, worktree: cwd, project: cwd, brief: null, agent: agentOf({ agent: process.env.FM2_AGENT }) };
+    const source = resolveSession(task, task.agent, { explicit: arg('--session') });
+    const preserved = preserveSession(task, source, agent);
+    const command = supervisorCommand({ agent, id, panel: target, briefPath: preserved.promptPath, cwd });
+    process.stdout.write(`${id}\t${task.agent} -> ${agent}\t${pane}\tcarried ${source.id}\n`);
+    tmux(['respawn-pane', '-k', '-t', pane, '-c', cwd, command]);
+    process.exit(0);
+  }
   const tasks = allTasks().filter((task) => paneAlive(task.pane)
     && (!panel || (task.panel ?? panel) === panel));
   if (!tasks.length) die(`no live task in ${panel ?? 'this panel'} to reload`);
