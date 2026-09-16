@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -191,6 +191,47 @@ test('a recorded session with stale or conflicting transcript metadata cannot be
   assert.throws(() => resumableSession(task, 'codex'), /invalid or conflicting/);
   rmSync(path);
   assert.throws(() => resumableSession(task, 'codex'), /no readable full transcript/);
+});
+
+// A session is not pinned to one directory. A worker that runs `cd mobile` and
+// carries on records a second cwd, and that used to make its whole transcript
+// invisible: `fm switch` refused the session even when handed its exact id,
+// because the transcript was never a candidate. A sibling directory is still a
+// different project and must still be refused.
+
+test('a worker that worked in a subdirectory of its worktree keeps its session', (t) => {
+  const f = fixture(t);
+  const worktree = mkdtempSync(join(tmpdir(), 'fm2-wt-'));
+  const root = join(f.home, 'projects', worktree.replace(/[^A-Za-z0-9]/g, '-'));
+  mkdirSync(root, { recursive: true });
+  const write = (id, cwds) => writeFileSync(
+    join(root, `${id}.jsonl`),
+    cwds.map((cwd) => JSON.stringify({ sessionId: id, cwd, type: 'user', message: { content: 'go' } })).join('\n') + '\n',
+  );
+
+  // Real directories on both sides: canonicalCwd resolves a path that exists and
+  // falls back to a merely-normalized one that does not, and on macOS those two
+  // differ (/var vs /private/var) for the same place.
+  const nested = join(worktree, 'mobile');
+  mkdirSync(nested, { recursive: true });
+  const sibling = `${worktree}-other`;
+  mkdirSync(sibling, { recursive: true });
+
+  // Worked at the root, then inside it. Still one session, still this worktree.
+  write('nested-session', [worktree, nested, worktree]);
+  const task = { id: 'wo-nested', worktree, agent: 'claude' };
+  const resolved = resolveSession(task, 'claude', { claudeRoot: join(f.home, 'projects'), explicit: 'nested-session' });
+  assert.equal(resolved.id, 'nested-session');
+  assert.equal(resolved.cwd, realpathSync(worktree), 'the session was tied to the subdirectory it visited');
+
+  // A sibling is a different project, and `-other` must not read as inside it.
+  rmSync(join(root, 'nested-session.jsonl'));
+  write('strayed-session', [worktree, sibling]);
+  assert.throws(
+    () => resolveSession(task, 'claude', { claudeRoot: join(f.home, 'projects'), explicit: 'strayed-session' }),
+    /belongs to/,
+    'a transcript that strayed into a sibling worktree was accepted',
+  );
 });
 
 test('controller history never adopts the only unrelated conversation in the shared harness cwd', (t) => {

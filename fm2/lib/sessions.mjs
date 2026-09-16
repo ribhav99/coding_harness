@@ -105,6 +105,26 @@ function textFromContent(content) {
     .join('\n');
 }
 
+// The working directory a transcript belongs to, and whether its records
+// actually disagree about that.
+//
+// A session is not pinned to one directory: a worker that runs `cd mobile` and
+// keeps going records a second cwd, and `marketing` had recorded sixteen events
+// from `fitness_agent-marketing/marketing`. Treating any second value as a
+// conflict made that session unresolvable - `fm switch` refused it even when
+// handed the exact id, because the transcript was never a candidate at all.
+//
+// So the root is the shallowest directory recorded, and it is a conflict only
+// when something sits OUTSIDE it. A nested path is a worker moving around its
+// own worktree; a sibling path is a transcript that belongs somewhere else, and
+// the trailing slash is what keeps `repo-other` from counting as inside `repo`.
+function transcriptRoot(cwds) {
+  const all = [...cwds];
+  if (all.length === 0) return { cwd: null, conflict: false };
+  const root = all.reduce((shallowest, path) => (path.length < shallowest.length ? path : shallowest));
+  return { cwd: root, conflict: !all.every((path) => path === root || path.startsWith(`${root}/`)) };
+}
+
 function parseClaudeTranscript(path) {
   const events = readJsonLines(path);
   if (events.length === 0) return null;
@@ -121,11 +141,12 @@ function parseClaudeTranscript(path) {
   }
   const filenameId = basename(path, '.jsonl');
   if (sessionIds.size > 1) return null;
+  const root = transcriptRoot(cwds);
   return {
     id: [...sessionIds][0] ?? filenameId,
     transcript: resolve(path),
-    cwd: cwds.size === 1 ? [...cwds][0] : null,
-    metadata_conflict: cwds.size > 1,
+    cwd: root.conflict ? null : root.cwd,
+    metadata_conflict: root.conflict,
     userTexts,
   };
 }
@@ -148,11 +169,12 @@ function parseCodexTranscript(path) {
   }
   if (sessionIds.size > 1) return null;
   const filenameId = basename(path, '.jsonl').match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)?.[1] ?? null;
+  const root = transcriptRoot(cwds);
   return {
     id: [...sessionIds][0] ?? filenameId,
     transcript: resolve(path),
-    cwd: cwds.size === 1 ? [...cwds][0] : null,
-    metadata_conflict: cwds.size > 1,
+    cwd: root.conflict ? null : root.cwd,
+    metadata_conflict: root.conflict,
     userTexts,
   };
 }
