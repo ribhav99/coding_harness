@@ -15,10 +15,25 @@ fails as a pane that looks perfectly alive and never does anything.
 its own command, so nothing finds it by default: `fm caps` reports
 `"codex": false`, and a panel switch refuses with `codex is not installed`.
 
+Link its helpers too, in the same directory. `codex` resolves them **next to
+itself**, so a lone symlink sends it looking in `/opt/homebrew/bin` and finding
+nothing:
+
 ```sh
-ln -sfn "/Applications/ChatGPT.app/Contents/Resources/codex" /opt/homebrew/bin/codex
+R="/Applications/ChatGPT.app/Contents/Resources"
+for b in codex codex-code-mode-host codex_chronicle rg; do ln -sfn "$R/$b" "/opt/homebrew/bin/$b"; done
 codex --version   # codex-cli 0.154.0-alpha.6.1
+codex doctor      # search should read `found`, not `cannot find binary path`
 ```
+
+`codex-code-mode-host` is the one that matters most, and its absence is the
+least obvious failure in this whole document. Codex runs shell commands through
+it; without it the session has **no shell at all** and says only `Code mode will
+fail closed` in a startup banner nobody reads. The worker then tries to complete
+its task through whatever tools remain — a real one asked permission to open
+TextEdit, then Finder, to read a file it should have `cat`'d — and reported
+itself blocked. It reported correctly, which is the only reason this was cheap
+to find.
 
 **2. The repository has to be trusted in Codex.** A Codex session in an untrusted
 directory stops on `Do you trust the contents of this directory?` and waits.
@@ -46,12 +61,42 @@ Check what is already trusted with `grep -A1 '^\[projects' ~/.codex/config.toml`
 **3. The skills have to be installed for Codex**, not just for Claude:
 `node codex/install.mjs`, then `--check`.
 
+**4. The hooks have to be trusted, once.** The first session launched with a new
+or changed hook set stops on `Hooks need review` and offers three answers. Take
+`Trust all and continue`. `Continue without trusting (hooks won't run)` is the
+quiet catastrophe: the session runs perfectly, does the work, stops — and never
+reports, because reporting *is* the Stop hook. `fm read` says `nothing new`
+forever and the fleet looks idle.
+
+## What a Codex worker inherits, and why it matters
+
 A launch carries only `--no-alt-screen` and its hook configuration; the model,
 reasoning effort, approval policy and sandbox all come from `~/.codex/config.toml`.
 That is deliberate and the tests pin it — the harness does not override the
-settings the machine already has. So check that file is what you want before
-putting workers on it; `model` and `model_reasoning_effort` there are what every
-worker will run on.
+settings the machine already has. So that file *is* the worker configuration:
+`model` and `model_reasoning_effort` there are what every worker runs on.
+
+Two of those settings decide whether an autonomous worker is autonomous at all.
+With no `approval_policy` and no `sandbox_mode` in that file, Codex defaults to a
+workspace sandbox and asks before stepping outside it, and a worker put on a task
+then stops and waits for a human on its first real command. The standing
+preference for this harness is the opposite — every agent launch is
+permissionless — and for Codex that means:
+
+```toml
+# ~/.codex/config.toml
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+```
+
+Set it deliberately or not at all, but know which you have chosen. It is a
+machine-wide setting: it reaches the desktop app and every Codex session on the
+machine, not only the ones `fm` starts.
+
+The sandbox also breaks `fm` itself from inside a worker. `fm status` run in a
+sandboxed session cannot reach the tmux socket at `/private/tmp/tmux-501/default`
+and reports **every task DEAD** — a confident, completely wrong answer that looks
+exactly like a dead fleet.
 
 ## Switching a panel that is already running
 
