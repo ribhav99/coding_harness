@@ -131,6 +131,13 @@ the private network (for example Tailscale), and authorize the Termius SSH key.
 Once those machine prerequisites exist, the same attach command works for every
 project and every device.
 
+Panels opened before this owner lifecycle was installed do not need to restart.
+Open a second iTerm tab and run `fmp <project> --owner`; after it attaches to the
+existing panel, close the original iTerm tab. The new tab is now the owner and
+all tmux windows, panes, processes, and scrollback stayed in the same session.
+Use `--owner` only for this deliberate transfer: closing any owning tab destroys
+the panel, even when another client is attached.
+
 iTerm2's **Settings → General → tmux → When attaching, restore windows as…**
 controls whether tmux windows become native tabs or separate windows. Choose
 tabs in a new window for a complete panel grouped together. The harness uses

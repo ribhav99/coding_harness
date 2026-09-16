@@ -103,4 +103,16 @@ test('the owning fmp pane controls panel lifetime while secondary clients may di
   await waitFor(() => clients().length === 2, 'the replacement secondary client did not attach');
   tmux(['detach-client', '-t', ownerClient]);
   await waitFor(() => !hasSession(), 'a secondary client kept the panel alive after its owner detached');
+
+  tmux(['new-session', '-d', '-s', session, '-n', 'control', '-c', project]);
+  launch([tmuxPath, 'attach-session', '-f', 'ignore-size', '-t', `=${session}`]);
+  await waitFor(() => clients().length === 1, 'the legacy client did not attach');
+  const legacyClient = clients()[0];
+
+  launch(['/bin/bash', join(ROOT, 'bin-fmp'), 'fixture', '--owner'], ownerEnv);
+  await waitFor(() => clients().length === 2, 'the explicit owner did not attach');
+  const adoptedOwner = clients().find((client) => client !== legacyClient);
+  assert.ok(adoptedOwner);
+  tmux(['detach-client', '-t', adoptedOwner]);
+  await waitFor(() => !hasSession(), 'an explicitly adopted panel outlived its new owner');
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fmp - open (or re-attach to) a project's control panel.
 #
-#   fmp <project> [--agent claude|codex]
+#   fmp <project> [--agent claude|codex] [--owner]
 #                   create/attach the project's tmux session and start firstmate
 #   fmp             list the projects it can see
 #
@@ -64,7 +64,7 @@ list_projects() {
 command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux)"
 
 if [ $# -eq 0 ]; then
-  printf 'usage: fmp <project> [--agent claude|codex]\n\nprojects:\n'
+  printf 'usage: fmp <project> [--agent claude|codex] [--owner]\n\nprojects:\n'
   list_projects
   exit 0
 fi
@@ -73,13 +73,17 @@ PROJECT=$1
 shift
 FMP_AGENT=claude
 FMP_AGENT_EXPLICIT=0
+FMP_OWNER_EXPLICIT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent) [ $# -ge 2 ] || die '--agent needs claude or codex'; FMP_AGENT=$2; FMP_AGENT_EXPLICIT=1; shift 2 ;;
+    --owner) FMP_OWNER_EXPLICIT=1; shift ;;
     *) die "unknown option '$1'" ;;
   esac
 done
 case "$FMP_AGENT" in claude|codex) ;; *) die "unknown agent '$FMP_AGENT' (use claude or codex)" ;; esac
+[ "$FMP_OWNER_EXPLICIT" = 0 ] || [ -z "${TMUX:-}" ] || die '--owner must be run outside tmux'
+[ "$FMP_OWNER_EXPLICIT" = 0 ] || [ -z "${FMP_NO_ATTACH:-}" ] || die '--owner cannot be combined with FMP_NO_ATTACH'
 FMP_CODEX_CMD="${FMP_CODEX_CMD:-node \"$FM_REPO/fm2/supervisor.mjs\" codex}"
 case "$PROJECT" in
   ''|*[!A-Za-z0-9._-]*) die "unsafe project name '$PROJECT'" ;;
@@ -158,9 +162,10 @@ if tmux has-session -t "=$SES" 2>/dev/null; then
   fi
   # A deliberately detached panel (FMP_NO_ATTACH) has no owner yet. Its first
   # external fmp attachment becomes the owner. A session which already has a
-  # client is being viewed secondarily and must retain its existing owner.
-  if [ -z "${TMUX:-}" ] &&
-     [ "$(tmux display-message -p -t "=$SES:" '#{session_attached}' 2>/dev/null || true)" = 0 ]; then
+  # client is being viewed secondarily unless --owner explicitly adopts it;
+  # that flag lets panels created by an older launcher migrate without restart.
+  if [ -z "${TMUX:-}" ] && { [ "$FMP_OWNER_EXPLICIT" = 1 ] ||
+     [ "$(tmux display-message -p -t "=$SES:" '#{session_attached}' 2>/dev/null || true)" = 0 ]; }; then
     own_panel
   fi
   attach
