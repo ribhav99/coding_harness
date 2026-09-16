@@ -28,6 +28,7 @@ import { branchIsMerged, prIsMerged, repoOf } from './forge.mjs';
 import { pending } from './notify.mjs';
 import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
 import { currentPanel } from './presence.mjs';
+import { configurePanelQuotaStatus } from './quota-status.mjs';
 import {
   agentOf,
   normalizeAgent,
@@ -837,6 +838,11 @@ export function switchTask(id, {
         runtime.assert(task.pane, id, from);
       } catch { /* the preserved handoff is the recovery point */ }
     }
+    // A Codex target can run SessionStart and install the shared bar before a
+    // later launch assertion fails. Once that target is verified stopped,
+    // reconcile to the still-recorded source provider without hiding the
+    // original switch failure.
+    if (targetStopped) configurePanelQuotaStatus(task.panel, from);
     throw new Error(
       `could not switch "${id}" to ${to}: ${error.message}. ` +
         `The source transcript is preserved at ${preserved.snapshot}`,
@@ -861,6 +867,10 @@ export function switchTask(id, {
       },
     },
   });
+  // SessionStart runs before a provider switch commits the task's new agent.
+  // Reconcile after that commit so switching the final Codex worker to Claude
+  // restores the panel's original tmux status immediately.
+  configurePanelQuotaStatus(updated.panel, to);
   return {
     task: updated,
     from,
@@ -1001,6 +1011,9 @@ export function closeTask(id, { force = false } = {}) {
     try { git(task.project, ['worktree', 'remove', '--force', task.worktree]); } catch { /* already removed */ }
   }
   removeTask(id);
+  // Closing the final Codex worker in a mixed panel has the same cleanup need
+  // as switching it. A Codex controller or another Codex task keeps the bar.
+  configurePanelQuotaStatus(task.panel, 'claude');
   return task;
 }
 

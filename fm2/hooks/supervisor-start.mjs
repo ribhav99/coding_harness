@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
+import { configurePanelQuotaStatus } from '../lib/quota-status.mjs';
 import { controllerId, rememberSession } from '../lib/sessions.mjs';
 import { providerProcess } from '../lib/provider-processes.mjs';
 
@@ -21,6 +22,7 @@ try {
     backend: process.env.FM2_CODEX_BACKEND || null,
     providerPid: providerProcess(agent),
   });
+  configurePanelQuotaStatus(panel, agent);
 } catch {
   // Provider bookkeeping must not block a session or expose transcript contents.
 }

@@ -77,6 +77,12 @@ because `codex` and `codex resume` do not accept the same flags and `-c` works o
 both. The footer mirrors the useful fields in the Claude status line: project,
 branch, model and effort, fast mode, context use, and five-hour and weekly
 limits. Codex leaves out any field that is unavailable for the current session.
+Its native limit fields show percentages but not reset times, so fm also adds
+the available account windows and their live reset countdowns to the existing
+tmux status bar. The shared panel bar aggregates the account and model-family
+windows reported by live Codex sessions, so every worker and reviewer can see
+all currently available limits; an unavailable five-hour window is omitted
+rather than shown as zero.
 
 ```
 codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="ultra" \
