@@ -2,7 +2,7 @@
 // not their reset countdown. Every Codex transcript already records both values
 // in token_count events, so fm adds the missing countdown to tmux's existing
 // session status bar. Quotas are account-wide but may differ by model family,
-// so the panel aggregates the freshest live snapshot for each reported limit.
+// so fm aggregates the freshest recent snapshot for each reported limit.
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -13,8 +13,10 @@ import {
   readFileSync,
   readSync,
   readdirSync,
+  statSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
@@ -22,6 +24,7 @@ import { normalizeAgent } from './sessions.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, 'quota-status.mjs');
 const MAX_TRANSCRIPT_TAIL = 16 * 1024 * 1024;
+const TRANSCRIPT_LOOKBACK_MS = 32 * 24 * 60 * 60 * 1000;
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -46,6 +49,33 @@ function sessionRecords(panel, fm2Home) {
     records.push(record);
   }
   return records;
+}
+
+// Quota is account-wide, not panel-wide. A Codex task in the app (or a
+// subagent) can spend it while every fm pane is idle, so panel sidecars alone
+// can remain stale indefinitely. Look at the bounded set of rollout files that
+// were active recently and merge their snapshots with the panel's. The panel
+// records remain the durable fallback; this scan only supplies fresher facts.
+function recentCodexTranscripts(codexHome, nowMs) {
+  const cutoff = nowMs - TRANSCRIPT_LOOKBACK_MS;
+  const found = [];
+  const visit = (directory) => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+      try {
+        if (statSync(path).mtimeMs >= cutoff) found.push(path);
+      } catch { /* a rollout can move while an archive is completing */ }
+    }
+  };
+  visit(join(codexHome, 'sessions'));
+  visit(join(codexHome, 'archived_sessions'));
+  return found;
 }
 
 function panelHasCodexSession(panel, fm2Home) {
@@ -155,11 +185,21 @@ function displayLimitName(rateLimits) {
     .replaceAll('-', ' ');
 }
 
-export function quotaStatusForPanel(panel, { fm2Home = home(), now } = {}) {
+export function quotaStatusForPanel(panel, {
+  fm2Home = home(),
+  codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
+  now,
+} = {}) {
   if (typeof panel !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(panel)) return '';
   const newest = new Map();
-  for (const record of sessionRecords(panel, fm2Home)) {
-    const snapshot = latestRateLimitSnapshot(record.transcript);
+  const panelTranscripts = sessionRecords(panel, fm2Home).map((record) => record.transcript);
+  if (!panelTranscripts.length) return '';
+  const transcripts = new Set([
+    ...panelTranscripts,
+    ...recentCodexTranscripts(codexHome, Number.isFinite(now) ? now * 1000 : Date.now()),
+  ]);
+  for (const transcript of transcripts) {
+    const snapshot = latestRateLimitSnapshot(transcript);
     if (!snapshot) continue;
     const key = snapshot.rateLimits.limit_id || snapshot.rateLimits.limit_name || 'codex';
     const previous = newest.get(key);
@@ -186,14 +226,19 @@ export function quotaStatusForPanel(panel, { fm2Home = home(), now } = {}) {
 export function codexStatusRight(panel, {
   base = '#[fg=colour245]%H:%M ',
   fm2Home = home(),
+  codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
   node = process.execPath,
   script = SCRIPT,
 } = {}) {
-  const quota = `#(${shellQuote(node)} ${shellQuote(script)} ${shellQuote(panel)} ${shellQuote(fm2Home)})`;
+  const quota = `#(${shellQuote(node)} ${shellQuote(script)} ${shellQuote(panel)} ${shellQuote(fm2Home)} ${shellQuote(codexHome)})`;
   return `#[fg=colour216]${quota} #[default]${base}`;
 }
 
-export function configurePanelQuotaStatus(panel, agent, { fm2Home = home(), run = execFileSync } = {}) {
+export function configurePanelQuotaStatus(panel, agent, {
+  fm2Home = home(),
+  codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
+  run = execFileSync,
+} = {}) {
   if (typeof panel !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(panel)) return false;
   let provider;
   try { provider = normalizeAgent(agent); } catch { return false; }
@@ -228,7 +273,7 @@ export function configurePanelQuotaStatus(panel, agent, { fm2Home = home(), run 
         set(['-t', panel, '@fm-quota-status-length-local', preserveLocalLength ? '1' : '0']);
         set(['-t', panel, '@fm-quota-status-active', '1']);
       }
-      set(['-t', panel, 'status-right', codexStatusRight(panel, { base, fm2Home })]);
+      set(['-t', panel, 'status-right', codexStatusRight(panel, { base, fm2Home, codexHome })]);
       set(['-t', panel, 'status-right-length', String(Math.max(160, Number(baseLength) || 0))]);
     } else {
       const active = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-active']) === '1';
@@ -260,5 +305,8 @@ export function configurePanelQuotaStatus(panel, agent, { fm2Home = home(), run 
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.stdout.write(quotaStatusForPanel(process.argv[2], { fm2Home: process.argv[3] || home() }));
+  process.stdout.write(quotaStatusForPanel(process.argv[2], {
+    fm2Home: process.argv[3] || home(),
+    codexHome: process.argv[4] || process.env.CODEX_HOME || join(homedir(), '.codex'),
+  }));
 }

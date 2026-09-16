@@ -81,7 +81,8 @@ project, branch, model and effort, fast mode, and context use. Codex's native
 limit fields report only the percentage left and cannot show a reset countdown,
 so fm puts quota usage in the existing tmux status bar instead. That shared bar
 shows the percentage used and a live days/hours/minutes countdown, aggregating
-the account and model-family windows reported by live Codex sessions. An
+the account and model-family windows reported by Codex sessions on the
+machine, including app tasks and subagents outside the fm panel. An
 unavailable five-hour window is omitted rather than shown as zero.
 
 ```

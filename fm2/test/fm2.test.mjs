@@ -70,15 +70,22 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
   const { knock } = await import(join(ROOT, 'lib/knock.mjs'));
 
   const sent = [];
-  const send = async (args) => { sent.push(args); return true; };
+  const events = [];
+  const send = async (args) => {
+    sent.push(args);
+    events.push(args.at(-1) === 'Enter' ? 'submit' : 'type');
+    return true;
+  };
+  const wait = async (milliseconds) => { events.push(`wait:${milliseconds}`); };
 
   // Panel named explicitly, like the hook tests: run from inside a pane, a bare
   // currentPanel() answers about the REAL panel, and supervisorPane() then
   // refuses a recorded pane that does not live in it. That made this test depend
   // on whether a pane called %3 happened to exist on the developer's machine.
   recordSupervisor('%3', { panel: null });
-  const first = await knock('pr-9', { panel: null, send });
+  const first = await knock('pr-9', { panel: null, send, wait });
   assert.equal(first.knocked, true);
+  assert.deepEqual(events, ['type', 'wait:250', 'submit'], 'Enter raced Codex\'s paste detector');
   assert.equal(sent[0][2], '%3', 'the knock went to the wrong pane');
   assert.match(sent[0][4], /pr-9/, 'the knock did not name the task that stopped');
   // The fact and the option to ignore it, and nothing that tells the supervisor
@@ -89,7 +96,7 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
 
   // No state says "already told them" - every stop is its own knock, because
   // every stop is its own report.
-  const second = await knock('pr-9', { panel: null, send });
+  const second = await knock('pr-9', { panel: null, send, wait });
   assert.equal(second.knocked, true, 'a second stop went unannounced');
 });
 

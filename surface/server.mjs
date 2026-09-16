@@ -51,17 +51,26 @@ function json(res, status, obj) {
 // Push one line into the reviewer's pane. This is the whole notification
 // mechanism: the reviewer is a stopped session, and typing into its pane is
 // exactly what Ribhav would do by hand.
-function wakePane(pane, line) {
+function sendKeys(args) {
   return new Promise((resolve) => {
-    if (!pane) return resolve({ woke: false, reason: 'no pane recorded for this review' });
-    execFile('tmux', ['send-keys', '-t', pane, '-l', line], (err) => {
-      if (err) return resolve({ woke: false, reason: err.message });
-      execFile('tmux', ['send-keys', '-t', pane, 'Enter'], (err2) => {
-        if (err2) return resolve({ woke: false, reason: err2.message });
-        resolve({ woke: true });
-      });
-    });
+    execFile('tmux', args, (error) => resolve(error));
   });
+}
+
+// Codex treats a rapid literal key stream as a paste and suppresses submission
+// for 120ms afterward. Without a gap, Enter becomes a newline and Ribhav's
+// decision sits visibly in the composer without ever waking the reviewer.
+const SUBMIT_SETTLE_MS = 250;
+const settleComposer = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function wakePane(pane, line, { send = sendKeys, wait = settleComposer } = {}) {
+  if (!pane) return { woke: false, reason: 'no pane recorded for this review' };
+  const typed = await send(['send-keys', '-t', pane, '-l', line]);
+  if (typed) return { woke: false, reason: typed.message };
+  await wait(SUBMIT_SETTLE_MS);
+  const submitted = await send(['send-keys', '-t', pane, 'Enter']);
+  if (submitted) return { woke: false, reason: submitted.message };
+  return { woke: true };
 }
 
 async function readBody(req, limit = 2 * 1024 * 1024) {

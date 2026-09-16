@@ -71,7 +71,22 @@ test('content is escaped, so a finding cannot inject markup', () => {
 
 // --- the server refuses what it must ----------------------------------------
 
-const { validate } = await import(join(ROOT, 'server.mjs'));
+const { validate, wakePane } = await import(join(ROOT, 'server.mjs'));
+
+test('waking a Codex reviewer lets its paste detector settle before submitting', async () => {
+  const events = [];
+  const send = async (args) => {
+    events.push(args.at(-1) === 'Enter' ? 'submit' : 'type');
+    return null;
+  };
+  const wait = async (milliseconds) => { events.push(`wait:${milliseconds}`); };
+
+  assert.deepEqual(
+    await wakePane('%7', 'Ribhav decided.', { send, wait }),
+    { woke: true },
+  );
+  assert.deepEqual(events, ['type', 'wait:250', 'submit']);
+});
 
 // Ribhav's rule: review sessions do not touch review branches. On their own
 // projects, where they are the only developer, applying an approved fix is the

@@ -35,12 +35,24 @@ function sendKeys(args) {
   });
 }
 
+// Codex detects a rapid stream of literal key events as a paste and keeps Enter
+// in "insert a newline" mode for 120ms after the burst. Sending Enter in the
+// next tmux process used to strand the whole knock in the composer. A quarter
+// second clears that window while remaining imperceptible for Claude panes.
+const SUBMIT_SETTLE_MS = 250;
+const settleComposer = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 // Never throws and never blocks for long. A worker's turn must not be held up by
 // the supervisor's bookkeeping, so a missing pane, a dead session or no tmux at
 // all are all just "not delivered" - the report is already on disk either way,
 // and the supervisor's own Stop hook still catches it at the end of its next
 // turn.
-export async function knock(task, { panel = currentPanel(), pane = supervisorPane(panel), send = sendKeys } = {}) {
+export async function knock(task, {
+  panel = currentPanel(),
+  pane = supervisorPane(panel),
+  send = sendKeys,
+  wait = settleComposer,
+} = {}) {
   if (panel && existsSync(join(dir('panel-locks'), panel.replace(/[^A-Za-z0-9._-]/g, '-')))) {
     return { knocked: false, reason: 'panel handoff in progress; report remains queued' };
   }
@@ -50,6 +62,7 @@ export async function knock(task, { panel = currentPanel(), pane = supervisorPan
   if (!(await send(['send-keys', '-t', pane, '-l', line]))) {
     return { knocked: false, reason: 'the supervisor pane did not take the line' };
   }
+  await wait(SUBMIT_SETTLE_MS);
   if (!(await send(['send-keys', '-t', pane, 'Enter']))) {
     return { knocked: false, reason: 'the line was typed but never submitted' };
   }
