@@ -63,6 +63,16 @@ full recorded history and prior handoffs. Source panels remain for recovery;
 `fmp <project>` follows the successful switch. A newly created panel can start
 directly with `fmp <project> --agent codex`.
 
+**Run `./install --check` before the first switch on a machine, and fix what it
+reports.** Three things decide whether a Codex session can work at all, and each
+one fails as a session that looks alive and does nothing: the CLI and its helper
+binaries have to be on PATH (`codex` resolves them next to itself, and without
+`codex-code-mode-host` a session has no shell); the repository has to be trusted
+by Codex, which is what lets the reporting hooks load at all; and the first
+session with a changed hook set asks once — take *Trust all*, never *continue
+without trusting*, which yields a worker that runs, stops, and silently never
+reports. `codex/README.md` has the detail and the approval-policy choice.
+
 `fm switch` keeps the task id, pane, worktree, branch, files, brief, review
 state, quiet setting, unread reports, and reporting route. Before it interrupts
 the old CLI process, it copies that task's exact full transcript under

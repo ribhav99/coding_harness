@@ -59,6 +59,40 @@ command_link "$REPO/fm2/bin-fm"          fm
 command_link "$REPO/fm2/bin-fmp"         fmp
 command_link "$REPO/surface/bin-surface" surface
 
+# The Codex CLI ships inside the desktop app rather than as its own command, so
+# nothing finds it by default and `fm caps` reports codex: false.
+#
+# Its helpers have to come too, and that is the part that is easy to miss:
+# `codex` resolves them NEXT TO ITSELF, so linking the CLI alone sends it looking
+# in $BIN and finding nothing. Without `codex-code-mode-host` a session has no
+# shell at all - it prints `Code mode will fail closed` in a startup banner and
+# then tries to finish the job through whatever tools remain, which is how a real
+# worker ended up asking permission to open TextEdit to read a file.
+#
+# Only ever supplied when missing. `rg` in particular is commonly installed
+# already, and relinking someone's ripgrep to the one inside an app bundle is not
+# this script's business.
+provide() { # provide <target> <name>
+  local target=$1 name=$2
+  if command -v "$name" >/dev/null 2>&1; then
+    ok "$name (already on PATH)"
+    return
+  fi
+  [ -x "$target" ] || { todo "$name is not on PATH and is not at $target"; return; }
+  link "$target" "$BIN/$name" "$name"
+}
+
+CODEX_RESOURCES="${CODEX_RESOURCES:-/Applications/ChatGPT.app/Contents/Resources}"
+if [ -d "$CODEX_RESOURCES" ]; then
+  for helper in codex codex-code-mode-host codex_chronicle rg; do
+    provide "$CODEX_RESOURCES/$helper" "$helper"
+  done
+elif command -v codex >/dev/null 2>&1; then
+  ok 'codex (already on PATH)'
+else
+  todo 'codex is not installed - install the desktop app, or set CODEX_RESOURCES'
+fi
+
 # Claude uses file links; Codex uses complete entrypoint folders and references.
 # Skills go through the same code fm uses at every launch, so there is one
 # implementation and it cannot drift from what a worker actually gets.
@@ -92,6 +126,35 @@ else
     console.log(`  ${repoSkills(process.argv[1]).length} skill(s) for both providers, ${total} relinked`);
   ' "$REPO"
 fi
+
+# A Codex session in an untrusted directory stops on a trust prompt and waits,
+# and nothing in the harness answers it - Codex owns its own dialogs. Worse, that
+# prompt is what gates project-local hooks loading at all, so a session waved
+# through by hand still comes up with no Stop hook: it works, it stops, and it
+# never reports. Trust is keyed on the git repository ROOT and covers every
+# worktree beside it, so one entry covers a whole project.
+printf '\ncodex project trust:\n'
+node -e '
+  const { readFileSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { join } = await import("node:path");
+  let config = "";
+  try { config = readFileSync(join(homedir(), ".codex", "config.toml"), "utf8"); } catch {}
+  const repo = process.argv[1];
+  const trusted = new RegExp(`^\\[projects\\."${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\]`, "m").test(config);
+  if (trusted) console.log(`  ok    ${repo}`);
+  else {
+    console.log(`  TODO  ${repo} is not trusted by Codex`);
+    console.log(`        run codex once there and answer 1, or add to ~/.codex/config.toml:`);
+    console.log(`        [projects."${repo}"]`);
+    console.log(`        trust_level = "trusted"`);
+  }
+  if (!/^approval_policy\s*=/m.test(config) || !/^sandbox_mode\s*=/m.test(config)) {
+    console.log("  note  no approval_policy/sandbox_mode set: a Codex worker will stop and");
+    console.log("        ask a human on its first command outside its workspace, and fm status");
+    console.log("        from inside that sandbox reports every task DEAD. See codex/README.md.");
+  }
+' "$REPO"
 
 printf '\nthis machine can reach:\n'
 for cmd in git tmux node gh; do

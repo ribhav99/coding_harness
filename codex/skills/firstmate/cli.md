@@ -54,6 +54,17 @@ Follow the command's returned handoff status; verify completion before reporting
 that the panel has switched. Do not manually relaunch the controller, run
 `/import`, recreate splits, or switch workers one by one to imitate this command.
 For a request affecting only one worker, use `fm switch <id> --agent <provider>`.
+
+**Run `./install --check` before the first switch on a machine, and fix what it
+reports.** Three things decide whether a Codex session can work at all, and each
+one fails as a session that looks alive and does nothing: the CLI and its helper
+binaries have to be on PATH (`codex` resolves them next to itself, and without
+`codex-code-mode-host` a session has no shell); the repository has to be trusted
+by Codex, which is what lets the reporting hooks load at all; and the first
+session with a changed hook set asks once — take *Trust all*, never *continue
+without trusting*, which yields a worker that runs, stops, and silently never
+reports. `codex/README.md` has the detail and the approval-policy choice.
+
 Saved transcripts provide recorded context, not hidden state or native chat
 conversion. Do not claim an unwritten interrupted response was transferred.
 
