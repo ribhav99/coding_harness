@@ -177,11 +177,20 @@ function tomlValue(value) {
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
 export const CODEX_MODEL = 'gpt-5.6-sol';
+// The hook prompt is the harness's own hooks being offered back to it.
+//
+// Codex asks once per changed hook set, and the wrong answer is available and
+// quiet: `continue without trusting` yields a session that works, stops, and
+// never reports, because reporting IS the Stop hook. Eight panes asked at once
+// after a reload. These hook files are written by writeWorkerSettings moments
+// earlier from this checkout, so the source is already vetted - which is the
+// stated condition for this flag.
 const CODEX_SESSION_FLAGS = [
   `-c model=${JSON.stringify(CODEX_MODEL)}`,
   '-c model_reasoning_effort="ultra"',
   '-c approval_policy="never"',
   '-c sandbox_mode="danger-full-access"',
+  '--dangerously-bypass-hook-trust',
 ].join(' ');
 
 function codexHookFlags(settingsFile) {
@@ -725,7 +734,12 @@ export function switchTask(id, {
   if (!task) throw new Error(`no task "${id}"`);
   const from = agentOf(task);
   const to = normalizeAgent(agent);
-  if (from === to) throw new Error(`task "${id}" is already running with ${to}`);
+  // Same agent in and out is a RELOAD, not a mistake: the session is replaced in
+  // its own pane so it picks up launch settings that have changed since it
+  // started - a different model, or approvals that are no longer asked for.
+  // Refusing it meant the only way to re-launch a session was to bounce it
+  // through the other provider and back, or to move the whole panel, which
+  // builds a new one. Everything else is identical, conversation included.
   if (!runtime.available(to)) throw new Error(`cannot switch "${id}": ${to} is not installed`);
 
   const source = resolveSession(task, from, { explicit: session, claudeRoot, codexRoot });

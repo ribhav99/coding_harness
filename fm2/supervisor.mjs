@@ -67,6 +67,9 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         '-c', 'model_reasoning_effort="ultra"',
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',
+        // Its own hooks, written from this checkout moments ago; see
+        // CODEX_SESSION_FLAGS in lib/tasks.mjs.
+        '--dangerously-bypass-hook-trust',
         ...Object.entries(config.hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
         ...(resume ? [resume] : []),
       ];

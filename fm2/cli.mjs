@@ -9,6 +9,7 @@
 //                        [--resume]    carrying on the exact recorded conversation
 //                                      also how a task whose pane died is reopened
 //   fm switch <id> --agent <name>      move the same task between claude and codex
+//   fm reload --agent <name> [--fresh] replace every session in this panel, in place
 //   fm handoff <id>                    close a finished ship task, open its cold review
 //   fm read                            take the worker reports you have not read
 //   fm status                          what is alive, and what the forge says
@@ -22,17 +23,19 @@
 // is the only trigger; it knocks on the supervisor's pane as it goes, and
 // `fm read` is how its words reach you.
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask,
+  launchCommand, writeWorkerSettings, tmux } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 import { agentOf, normalizeAgent, resolveSession } from './lib/sessions.mjs';
 import { queuePanelSwitch } from './lib/panel-switch.mjs';
 import { currentPanel } from './lib/presence.mjs';
+import { discoverSessions } from './lib/sessions.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -342,6 +345,95 @@ if (command === 'panel-switch') {
   process.exit(0);
 }
 
+// The conversation a task is holding right now, named exactly.
+//
+// Prefers what the hooks recorded; falls back to the transcripts that claim this
+// task's own working directory, newest first. Returns null when there is nothing
+// to name, which leaves the ordinary resolution to say so.
+function liveSession(task) {
+  const provider = task.agent ?? 'claude';
+  const recorded = task.sessions?.[provider]?.id;
+  if (recorded) return recorded;
+  const found = discoverSessions(provider, task.worktree);
+  if (!found.length) return null;
+  return found
+    .map((entry) => ({ id: entry.id, at: statSync(entry.transcript).mtimeMs }))
+    .sort((a, b) => b.at - a.at)[0].id;
+}
+
+// --- reload --------------------------------------------------------------
+// Every session in THIS panel, replaced where it already sits.
+//
+// `panel-switch` builds a new panel and leaves the old one for recovery, which
+// is right when a switch might fail and wrong when the panel is the one Ribhav
+// is looking at: it opened a second set of windows across the desktop and the
+// tab he was working in was not the one that came back. This never creates a
+// window, a split, or a panel. Each task's pane is respawned in place, carrying
+// its own conversation, in the order it appears.
+
+if (command === 'reload') {
+  // Named, never inferred. The panel's recorded agent is what it was STARTED
+  // with, so defaulting to it turns "reload onto Codex" into "put everything
+  // back on Claude" without saying so - which is exactly what it did once.
+  const agent = selectedAgent(arg('--agent') ?? die('usage: fm reload --agent claude|codex [--panel <session>]'));
+  const panel = arg('--panel') ?? currentPanel();
+  const tasks = allTasks().filter((task) => paneAlive(task.pane)
+    && (!panel || (task.panel ?? panel) === panel));
+  if (!tasks.length) die(`no live task in ${panel ?? 'this panel'} to reload`);
+  // Stop what is there and start from the conversation already preserved on
+  // disk, instead of handing the running session over.
+  //
+  // Handing over is better when it works, because it captures whatever the
+  // session said since its last handoff. It cannot work when the running session
+  // is not the one any record names - a switch that was interrupted, or a panel
+  // that was closed out from under its sessions - and then the handover step
+  // chases a session that no longer exists and the pane can never be reloaded at
+  // all. The conversation is not lost either way: it is in the handoff.
+  const fresh = process.argv.includes('--fresh');
+  let failed = 0;
+  if (fresh) {
+    for (const task of tasks) {
+      try {
+        const handoff = (task.handoffs ?? []).at(-1);
+        const promptPath = handoff ? join(dirname(handoff), 'continue.md') : null;
+        const settingsFile = writeWorkerSettings(task.id, agent, panel ?? '');
+        const command = launchCommand({
+          agent,
+          id: task.id,
+          settingsFile,
+          panel: panel ?? '',
+          briefPath: promptPath && existsSync(promptPath) ? promptPath : null,
+        });
+        tmux(['respawn-pane', '-k', '-t', task.pane, '-c', task.worktree, command]);
+        saveTask({ ...task, agent, panel: panel ?? task.panel ?? null, resumed: null });
+        process.stdout.write(`${task.id}\t${agentOf(task)} -> ${agent}\t${task.pane}${promptPath ? '\tcarried its handoff' : '\tno handoff to carry'}\n`);
+      } catch (error) {
+        failed += 1;
+        process.stdout.write(`${task.id}\tFAILED\t${error.message.split('\n')[0]}\n`);
+      }
+    }
+    process.stdout.write(`\n${tasks.length - failed} of ${tasks.length} replaced on ${agent}; no panel was created\n`);
+    process.exit(failed ? 1 : 0);
+  }
+  for (const task of tasks) {
+    // The running session is being replaced, so its identity is named here
+    // rather than proved from the pane. Without this a session whose exact id
+    // hooks never recorded - anything older than session recording, or anything
+    // an interrupted switch left half-written - can never be reloaded at all.
+    let session = null;
+    try { session = liveSession(task); } catch { /* let switchTask resolve it */ }
+    try {
+      const result = switchTask(task.id, { agent, session });
+      process.stdout.write(`${task.id}\t${result.from} -> ${result.to}\t${task.pane}\n`);
+    } catch (error) {
+      failed += 1;
+      process.stdout.write(`${task.id}\tFAILED\t${error.message.split('\n')[0]}\n`);
+    }
+  }
+  process.stdout.write(`\n${tasks.length - failed} of ${tasks.length} reloaded on ${agent}; no panel was created\n`);
+  process.exit(failed ? 1 : 0);
+}
+
 if (command === 'switch') {
   const id = process.argv[3] ?? die('usage: fm switch <id> --agent claude|codex [--session <source-id>]');
   const agent = arg('--agent') ?? die('a switch needs --agent claude|codex');
@@ -631,4 +723,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|panel-switch|handoff|read|status|tell|quiet|close|announce|caps');
+die('usage: fm review|ship|attach|switch|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|caps');

@@ -72,8 +72,12 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
   const sent = [];
   const send = async (args) => { sent.push(args); return true; };
 
-  recordSupervisor('%3');
-  const first = await knock('pr-9', { send });
+  // Panel named explicitly, like the hook tests: run from inside a pane, a bare
+  // currentPanel() answers about the REAL panel, and supervisorPane() then
+  // refuses a recorded pane that does not live in it. That made this test depend
+  // on whether a pane called %3 happened to exist on the developer's machine.
+  recordSupervisor('%3', { panel: null });
+  const first = await knock('pr-9', { panel: null, send });
   assert.equal(first.knocked, true);
   assert.equal(sent[0][2], '%3', 'the knock went to the wrong pane');
   assert.match(sent[0][4], /pr-9/, 'the knock did not name the task that stopped');
@@ -85,7 +89,7 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
 
   // No state says "already told them" - every stop is its own knock, because
   // every stop is its own report.
-  const second = await knock('pr-9', { send });
+  const second = await knock('pr-9', { panel: null, send });
   assert.equal(second.knocked, true, 'a second stop went unannounced');
 });
 
@@ -1259,6 +1263,9 @@ test('a Codex worker names its model, effort and permissions and uses exact resu
   assert.match(fresh, /-c model_reasoning_effort="ultra"/);
   assert.match(fresh, /-c approval_policy="never"/);
   assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
+  // Its own hooks: without this every pane stops on a prompt whose quiet wrong
+  // answer is a worker that runs, stops, and never reports.
+  assert.match(fresh, /--dangerously-bypass-hook-trust/);
   assert.match(fresh, /hooks\.SessionStart=/);
   assert.match(fresh, /hooks\.Stop=/);
   assert.match(fresh, /worker-session\.mjs/);
@@ -1319,6 +1326,7 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   assert.match(args, /model_reasoning_effort="ultra"/);
   assert.match(args, /approval_policy="never"/);
   assert.match(args, /sandbox_mode="danger-full-access"/);
+  assert.ok(args.includes('--dangerously-bypass-hook-trust'));
   assert.match(args, /hooks\.SessionStart=/);
   assert.match(args, /hooks\.UserPromptSubmit=/);
   assert.match(args, /supervisor-start\.mjs/);
