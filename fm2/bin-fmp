@@ -3,6 +3,7 @@
 #
 #   fmp <project> [--agent claude|codex] [--owner]
 #                   create/attach the project's tmux session and start firstmate
+#   fmp --choose     attach remotely and choose any live session/window/pane
 #   fmp             list the projects it can see
 #
 # One session per project:
@@ -62,6 +63,21 @@ list_projects() {
 
 [ -d "$FM_REPO" ] || die "the harness is not at $FM_REPO (set FM_REPO)"
 command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux)"
+
+# One app-independent remote entrypoint. tmux's own tree shows every live
+# session, window, and pane after SSH connects, so mobile clients do not need a
+# separately saved host for every project. ignore-size prevents a phone from
+# changing the dimensions seen by an attached iTerm owner.
+if [ "${1:-}" = --choose ]; then
+  [ "$#" -eq 1 ] || die 'usage: fmp --choose'
+  tmux list-sessions >/dev/null 2>&1 || die 'there are no live tmux sessions'
+  if [ -n "${TMUX:-}" ]; then
+    tmux choose-tree -s
+  else
+    tmux attach-session -f ignore-size \; choose-tree -s
+  fi
+  exit 0
+fi
 
 if [ $# -eq 0 ]; then
   printf 'usage: fmp <project> [--agent claude|codex] [--owner]\n\nprojects:\n'

@@ -108,12 +108,23 @@ before stopping a source.
 
 ## Termius and other secondary terminals
 
-An `fmp` project panel is one tmux session, so use one Termius tab per project.
-The controller, workers, and reviews remain tmux windows and panes inside that
-terminal; Termius does not turn each inner pane into a separate app tab.
+An `fmp` project panel is one tmux session, so use one Termius tab per project
+when several projects need to remain open concurrently. The controller,
+workers, and reviews remain tmux windows and panes inside that terminal;
+Termius does not turn each inner pane into a separate app tab.
 
-After connecting to the Mac with ordinary SSH, attach only to the existing
-panel and keep the phone or tablet out of tmux's size calculation:
+For one saved host that discovers everything automatically, set the SSH app's
+startup command to:
+
+```sh
+fmp --choose
+```
+
+It attaches without affecting the iTerm owner's dimensions and opens tmux's
+interactive tree of every live session, window, and pane. The picker is rendered
+by tmux on the Mac, so it works in Termius or any other ordinary SSH client.
+
+To bypass the picker and attach directly to one existing panel:
 
 ```sh
 tmux attach-session -f ignore-size -t '=fm-fitness_agent'

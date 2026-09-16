@@ -1,13 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+test('the remote chooser opens tmux session discovery without a saved project target', (t) => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'fm2-fmp-choose-')));
+  const bin = join(base, 'bin');
+  const log = join(base, 'tmux.log');
+  mkdirSync(bin);
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+
+  writeFileSync(join(bin, 'tmux'), `#!/bin/sh
+printf 'CALL' >> "$FMP_TMUX_LOG"
+printf '\\t%s' "$@" >> "$FMP_TMUX_LOG"
+printf '\\n' >> "$FMP_TMUX_LOG"
+`, { mode: 0o755 });
+
+  execFileSync('/bin/bash', [join(ROOT, 'bin-fmp'), '--choose'], {
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      TMUX: '',
+      FM_REPO: dirname(ROOT),
+      FMP_TMUX_LOG: log,
+    },
+  });
+
+  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), [
+    'CALL\tlist-sessions',
+    'CALL\tattach-session\t-f\tignore-size\t;\tchoose-tree\t-s',
+  ]);
+});
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
