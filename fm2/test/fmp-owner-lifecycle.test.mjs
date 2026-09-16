@@ -36,7 +36,7 @@ printf '\\n' >> "$FMP_TMUX_LOG"
 
   assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), [
     'CALL\tlist-sessions',
-    'CALL\tattach-session\t-f\tignore-size\t;\tchoose-tree\t-s',
+    'CALL\tattach-session\t-f\tignore-size,active-pane\t;\tchoose-tree\t-s',
   ]);
 });
 

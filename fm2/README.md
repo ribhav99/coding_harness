@@ -120,9 +120,10 @@ startup command to:
 fmp --choose
 ```
 
-It attaches without affecting the iTerm owner's dimensions and opens tmux's
-interactive tree of every live session, window, and pane. The picker is rendered
-by tmux on the Mac, so it works in Termius or any other ordinary SSH client.
+It attaches without affecting the iTerm owner's dimensions or active pane and
+opens tmux's interactive tree of every live session, window, and pane. The
+picker is rendered by tmux on the Mac, so it works in Termius or any other
+ordinary SSH client.
 
 To bypass the picker and attach directly to one existing panel:
 

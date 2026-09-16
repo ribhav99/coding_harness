@@ -67,14 +67,14 @@ command -v tmux >/dev/null 2>&1 || die "tmux is not installed (brew install tmux
 # One app-independent remote entrypoint. tmux's own tree shows every live
 # session, window, and pane after SSH connects, so mobile clients do not need a
 # separately saved host for every project. ignore-size prevents a phone from
-# changing the dimensions seen by an attached iTerm owner.
+# changing the dimensions or active pane seen by an attached iTerm owner.
 if [ "${1:-}" = --choose ]; then
   [ "$#" -eq 1 ] || die 'usage: fmp --choose'
   tmux list-sessions >/dev/null 2>&1 || die 'there are no live tmux sessions'
   if [ -n "${TMUX:-}" ]; then
     tmux choose-tree -s
   else
-    tmux attach-session -f ignore-size \; choose-tree -s
+    tmux attach-session -f ignore-size,active-pane \; choose-tree -s
   fi
   exit 0
 fi
