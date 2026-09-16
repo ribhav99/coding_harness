@@ -71,11 +71,10 @@ things decide whether a Codex session can work at all, and both fail as a sessio
 that looks alive and does nothing. The CLI and its helper binaries have to be on
 PATH — `codex` resolves them next to itself, and without `codex-code-mode-host` a
 session has no shell and will try to finish its task through a document viewer.
-And the repository has to be trusted by Codex, which is what lets the reporting
-hooks load at all; untrusted, a worker runs, stops, and silently never reports,
-so `fm read` stays empty and the fleet looks idle. `install` supplies the first
-and reports the second. Trust is keyed on the git repository root and covers
-every worktree beside it. `codex/README.md` has the detail.
+Codex trust is handled for you: the repository has to be trusted before its
+hooks will load at all, and an untrusted worker runs, stops, and silently never
+reports — so every Codex launch records that grant for the repository root
+first, which covers every worktree beside it. `codex/README.md` has the detail.
 
 Saved transcripts provide recorded context, not hidden state or native chat
 conversion. Do not claim an unwritten interrupted response was transferred.

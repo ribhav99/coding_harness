@@ -144,10 +144,7 @@ node -e '
   const trusted = new RegExp(`^\\[projects\\."${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\]`, "m").test(config);
   if (trusted) console.log(`  ok    ${repo}`);
   else {
-    console.log(`  TODO  ${repo} is not trusted by Codex`);
-    console.log(`        run codex once there and answer 1, or add to ~/.codex/config.toml:`);
-    console.log(`        [projects."${repo}"]`);
-    console.log(`        trust_level = "trusted"`);
+    console.log(`  ok    ${repo} is not trusted yet; the first Codex launch here records it`);
   }
 ' "$REPO"
 

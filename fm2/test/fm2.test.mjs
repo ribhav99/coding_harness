@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -452,6 +452,40 @@ function makeProject() {
   g('commit', '-qm', 'init');
   return project;
 }
+
+// Codex refuses to run in a directory it has not been trusted with, and that
+// prompt is also what gates project-local HOOKS loading. An untrusted session
+// waved through by hand comes up with no Stop hook: it works, it stops, and it
+// never reports. Nothing answers Codex's dialogs, so the grant is recorded first.
+
+test('a Codex launch trusts the repository root, once, and never a sibling', async () => {
+  const home = freshHome();
+  const project = makeProject();
+  const worktree = join(dirname(project), 'thing-wo-trust');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-trust', worktree]);
+  const config = join(home, 'codex-config.toml');
+  const { ensureCodexTrust } = await import(join(ROOT, 'lib/tasks.mjs'));
+
+  // Keyed on the repository ROOT, not the worktree it was asked about - that is
+  // what Codex keys it on, so one entry covers every worktree beside it.
+  const first = ensureCodexTrust(worktree, { configPath: config });
+  assert.equal(first.added, true);
+  assert.equal(first.root, realpathSync(project));
+  const written = readFileSync(config, 'utf8');
+  assert.match(written, /trust_level = "trusted"/);
+  assert.ok(written.includes(`[projects."${realpathSync(project)}"]`));
+  assert.ok(!written.includes(`[projects."${worktree}"]`), 'a linked worktree was trusted separately');
+
+  // A second worktree of the same repo is already covered; nothing is appended.
+  const sibling = join(dirname(project), 'thing-wo-trust-2');
+  execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-trust-2', sibling]);
+  const again = ensureCodexTrust(sibling, { configPath: config });
+  assert.equal(again.added, false, 'the same repository was trusted twice');
+  assert.equal(readFileSync(config, 'utf8'), written, 'the config was rewritten for nothing');
+
+  // Existing content survives.
+  assert.ok(ensureCodexTrust(worktree, { configPath: config }).added === false);
+});
 
 // Same agent in and out is a reload: the session is replaced in its own pane so
 // it picks up launch settings that changed after it started. This was refused as

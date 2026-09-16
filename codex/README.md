@@ -35,10 +35,12 @@ TextEdit, then Finder, to read a file it should have `cat`'d — and reported
 itself blocked. It reported correctly, which is the only reason this was cheap
 to find.
 
-**2. The repository has to be trusted in Codex.** A Codex session in an untrusted
-directory stops on `Do you trust the contents of this directory?` and waits.
-Nothing here answers it — the harness clears Claude's dialogs and deliberately
-leaves Codex's own trust and approval prompts to Codex.
+**2. The repository has to be trusted in Codex** — and the harness now records
+that for you, before every Codex launch, so this is background rather than a
+step. It matters because of what happens when it is missing: a Codex session in
+an untrusted directory stops on `Do you trust the contents of this directory?`
+and waits, and nothing here answers it — the harness clears Claude's dialogs and
+deliberately leaves Codex's own dialogs to Codex.
 
 That prompt is not cosmetic. Trusting is what allows **project-local config,
 hooks, and exec policies to load**, and the hooks are the entire reporting

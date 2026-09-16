@@ -30,7 +30,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask,
-  launchCommand, writeWorkerSettings, tmux, preserveSession } from './lib/tasks.mjs';
+  launchCommand, writeWorkerSettings, tmux, preserveSession, ensureCodexTrust } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 import { supervisorCommand } from './supervisor.mjs';
@@ -424,6 +424,7 @@ if (command === 'reload') {
           panel: panel ?? '',
           briefPath: promptPath && existsSync(promptPath) ? promptPath : null,
         });
+        if (agent === 'codex') ensureCodexTrust(task.worktree);
         tmux(['respawn-pane', '-k', '-t', task.pane, '-c', task.worktree, command]);
         saveTask({ ...task, agent, panel: panel ?? task.panel ?? null, resumed: null });
         process.stdout.write(`${task.id}\t${agentOf(task)} -> ${agent}\t${task.pane}${promptPath ? '\tcarried its handoff' : '\tno handoff to carry'}\n`);

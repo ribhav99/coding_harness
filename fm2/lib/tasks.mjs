@@ -20,6 +20,7 @@ import {
   chmodSync,
 } from 'node:fs';
 import { join, dirname, basename, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask, removeTask, allTasks, projectConfig, dir, home as homeDir } from './config.mjs';
@@ -259,6 +260,38 @@ function placeholderPane(target) {
 // without its settings file looks exactly like one that is right - same pane,
 // same reports, same `fm status` line - so the only place the choice can be
 // held is here, where a test can read it.
+// Codex will not run in a directory it has not been trusted with, and the prompt
+// it stops on is not the real cost: trusting is also what allows project-local
+// config and HOOKS to load. An untrusted session that someone waves through by
+// hand still comes up with no Stop hook, so it works, it stops, and it never
+// reports - `fm read` stays empty and the fleet looks idle.
+//
+// Nothing in the harness answers that prompt, by design: Codex owns its own
+// dialogs. So the trust is recorded before the session is launched instead.
+// This is the same grant answering the prompt would write, made at the moment
+// the harness is being asked to run an agent there, and it is keyed on the git
+// repository ROOT because that is what Codex keys it on - one entry covers every
+// worktree beside it.
+export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.codex', 'config.toml') } = {}) {
+  let root;
+  try {
+    const first = git(worktree, ['worktree', 'list', '--porcelain']).split('\n')[0];
+    root = first.startsWith('worktree ') ? resolve(first.slice('worktree '.length)) : resolve(worktree);
+  } catch {
+    root = resolve(worktree);
+  }
+  let config = '';
+  try { config = readFileSync(configPath, 'utf8'); } catch { /* first Codex run on this machine */ }
+  const header = `[projects."${root}"]`;
+  if (config.includes(header)) return { root, added: false };
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(
+    configPath,
+    `${config}${config.endsWith('\n') || !config ? '' : '\n'}\n${header}\ntrust_level = "trusted"\n`,
+  );
+  return { root, added: true };
+}
+
 export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '' }) {
   const provider = normalizeAgent(agent);
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
@@ -297,6 +330,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
 }
 
 function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent = 'claude') {
+  if (normalizeAgent(agent) === 'codex') { try { ensureCodexTrust(cwd); } catch { /* best effort; Codex will ask */ } }
   const command = launchCommand({ agent, id, settingsFile, briefPath, resume });
   let session = sessionName();
   if (!session) {
@@ -778,6 +812,8 @@ export function switchTask(id, {
     briefPath: preserved.promptPath,
     resume: target?.id ?? null,
   });
+
+  if (to === 'codex') { try { ensureCodexTrust(task.worktree); } catch { /* best effort; Codex will ask */ } }
 
   let pane = task.pane;
   let sourceStopped = false, targetAttempted = false;
