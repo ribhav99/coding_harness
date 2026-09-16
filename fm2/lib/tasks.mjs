@@ -177,6 +177,17 @@ function tomlValue(value) {
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
 export const CODEX_MODEL = 'gpt-5.6-sol';
+// Keep the native Codex footer aligned with the information in the user's
+// Claude status line. Codex omits a field when that datum is unavailable.
+export const CODEX_STATUS_LINE = [
+  'project-name',
+  'git-branch',
+  'model-with-reasoning',
+  'fast-mode',
+  'context-used',
+  'five-hour-limit',
+  'weekly-limit',
+];
 // The hook prompt is the harness's own hooks being offered back to it.
 //
 // Codex asks once per changed hook set, and the wrong answer is available and
@@ -190,6 +201,7 @@ const CODEX_SESSION_FLAGS = [
   '-c model_reasoning_effort="ultra"',
   '-c approval_policy="never"',
   '-c sandbox_mode="danger-full-access"',
+  `-c ${shellQuote(`tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`)}`,
   '--dangerously-bypass-hook-trust',
 ].join(' ');
 

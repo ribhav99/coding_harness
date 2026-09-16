@@ -55,7 +55,7 @@ process.stdout.write(panel + '\\n');\n`);
   return { home, setPanes, transcript, hook, args: () => JSON.parse(readFileSync(values.FM2_TEST_ARGS, 'utf8')) };
 }
 
-test('controller commands deliver exact identity, full resume prompt, and a named model and permissions', (t) => {
+test('controller commands deliver exact identity, full resume prompt, and named Codex session settings', (t) => {
   const f = fixture(t);
   const brief = join(f.home, "handoff ' brief.md");
   const prompt = 'Read the preserved fixture history.\nKeep its unresolved request.';
@@ -80,6 +80,7 @@ test('controller commands deliver exact identity, full resume prompt, and a name
   assert.ok(args.includes('model_reasoning_effort="ultra"'));
   assert.ok(args.includes('approval_policy="never"'));
   assert.ok(args.includes('sandbox_mode="danger-full-access"'));
+  assert.ok(args.includes('tui.status_line=["project-name","git-branch","model-with-reasoning","fast-mode","context-used","five-hour-limit","weekly-limit"]'));
   assert.ok(args.includes('--dangerously-bypass-hook-trust'));
   assert.ok(args.every((arg) => !/--last/.test(arg)));
   const next = supervisorCommand({ agent: 'codex', panel: 'fm-one' });

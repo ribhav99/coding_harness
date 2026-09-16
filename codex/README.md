@@ -70,14 +70,19 @@ forever and the fleet looks idle.
 
 ## What a Codex worker inherits, and why it matters
 
-A launch names its model, reasoning effort, approval policy and sandbox
-outright, the same way the Claude path names `--model opus`: a default is not a
-choice. They are passed as `-c` overrides rather than flags, because `codex` and
-`codex resume` do not accept the same flags and `-c` works on both.
+A launch names its model, reasoning effort, approval policy, sandbox, and native
+status line outright, the same way the Claude path names `--model opus`: a
+default is not a choice. They are passed as `-c` overrides rather than flags,
+because `codex` and `codex resume` do not accept the same flags and `-c` works on
+both. The footer mirrors the useful fields in the Claude status line: project,
+branch, model and effort, fast mode, context use, and five-hour and weekly
+limits. Codex leaves out any field that is unavailable for the current session.
 
 ```
 codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="ultra" \
-      -c approval_policy="never" -c sandbox_mode="danger-full-access" -c hooks.…
+      -c approval_policy="never" -c sandbox_mode="danger-full-access" \
+      -c 'tui.status_line=["project-name","git-branch","model-with-reasoning",…]' \
+      -c hooks.…
 ```
 
 These used to be inherited from `~/.codex/config.toml`, on the reasonable premise

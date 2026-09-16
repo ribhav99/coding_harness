@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_MODEL } from './lib/tasks.mjs';
+import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -67,6 +67,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         '-c', 'model_reasoning_effort="ultra"',
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',
+        '-c', `tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`,
         // Its own hooks, written from this checkout moments ago; see
         // CODEX_SESSION_FLAGS in lib/tasks.mjs.
         '--dangerously-bypass-hook-trust',
