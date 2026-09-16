@@ -388,7 +388,7 @@ function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent
 // a summary is a lossy version of exactly that, and nothing here could tell the
 // worker what had been dropped. It costs nothing until the session takes a turn,
 // and an adopted pane comes up idle.
-function clearStartupPrompts(pane, { agent = 'claude', attempts = 20, waitMs = 1000 } = {}) {
+export function clearStartupPrompts(pane, { agent = 'claude', attempts = 20, waitMs = 1000 } = {}) {
   // Codex owns its trust and approval prompts; these dialogs are Claude-specific.
   if (normalizeAgent(agent) !== 'claude') {
     execFileSync('sleep', ['0.2']);

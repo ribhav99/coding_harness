@@ -30,7 +30,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask,
-  launchCommand, writeWorkerSettings, tmux, preserveSession, ensureCodexTrust } from './lib/tasks.mjs';
+  launchCommand, writeWorkerSettings, tmux, preserveSession, ensureCodexTrust, clearStartupPrompts } from './lib/tasks.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 import { supervisorCommand } from './supervisor.mjs';
@@ -426,6 +426,11 @@ if (command === 'reload') {
         });
         if (agent === 'codex') ensureCodexTrust(task.worktree);
         tmux(['respawn-pane', '-k', '-t', task.pane, '-c', task.worktree, command]);
+        // A replacement that comes up behind a dialog has not started: it never
+        // reads its handoff, never stops, and so never reports - which is
+        // indistinguishable from a broken hook. `switchTask` clears these on its
+        // own path; this one respawns the pane directly and has to do the same.
+        clearStartupPrompts(task.pane, { agent });
         saveTask({ ...task, agent, panel: panel ?? task.panel ?? null, resumed: null });
         process.stdout.write(`${task.id}\t${agentOf(task)} -> ${agent}\t${task.pane}${promptPath ? '\tcarried its handoff' : '\tno handoff to carry'}\n`);
       } catch (error) {
