@@ -115,30 +115,62 @@ test('the supervisor records where it lives every time it stops', async () => {
     try {
       execFileSync('node', [hook], {
         input: '{}',
-        env: { ...process.env, FM2_HOME: home, TMUX_PANE: pane },
+        env: hookEnv({ FM2_HOME: home, TMUX_PANE: pane }),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       return 0;
     } catch (err) { return err.status; }
   };
 
+  // Read with the panel named explicitly. The hook runs with no tmux to ask, so
+  // it files under the panel-less marker; a bare supervisorPane() here would
+  // resolve whatever panel the TEST RUNNER is sitting in and read a different
+  // file entirely.
   assert.equal(run('%3'), 0);
-  assert.equal(supervisorPane(), '%3');
+  assert.equal(supervisorPane(null), '%3');
 
   // A restarted supervisor lands in a new pane, and a stale id knocks on
   // somebody else's door - so it is rewritten on every stop, not just the first.
   assert.equal(run('%77'), 0);
-  assert.equal(supervisorPane(), '%77', 'a moved supervisor kept its old address');
+  assert.equal(supervisorPane(null), '%77', 'a moved supervisor kept its old address');
 });
 
 // --- the supervisor hook: the only thing that may interrupt ------------------
+
+// A hook subprocess must not be able to see the tmux server, the pane, or the
+// panel the test runner itself is sitting in.
+//
+// Every one of these hooks asks tmux where it is. Run from inside a pane - which
+// is how this harness is always developed - they answered about the REAL panel:
+// `supervisor-stop` filed its marker under the live panel instead of the
+// panel-less one, and `pending(panel)` then filtered out the very report the
+// test had just recorded. Three tests failed on a machine where the harness was
+// running and passed on one where it was not, which is the worst way for a test
+// to be wrong.
+//
+// TMUX_TMPDIR points tmux at an empty directory, so it cannot connect to any
+// server and every location question answers null. Unsetting TMUX alone is not
+// enough: tmux still finds the default socket and cheerfully answers about panes
+// that happen to exist on this machine, which is how pane id `%3` in a test
+// collided with a real one.
+const HOOK_TMUX_TMPDIR = mkdtempSync(join(tmpdir(), 'fm2-no-tmux-'));
+
+// Only the location is removed. FM2_HOME is deliberately inherited - freshHome()
+// sets it on this process and several tests rely on the hook picking it up
+// rather than passing it again - so stripping the whole FM2_ prefix pointed
+// those hooks at the real home instead.
+function hookEnv(extra = {}) {
+  const base = { ...process.env, TMUX_TMPDIR: HOOK_TMUX_TMPDIR };
+  for (const key of ['TMUX', 'TMUX_PANE', 'FM2_PANEL']) delete base[key];
+  return { ...base, ...extra };
+}
 
 function runHook(hook, payload, env = {}) {
   try {
     const out = execFileSync(process.execPath, [join(ROOT, 'hooks', hook)], {
       input: JSON.stringify(payload),
       encoding: 'utf8',
-      env: { ...process.env, ...env },
+      env: hookEnv(env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { code: 0, stderr: '', stdout: out };
@@ -293,7 +325,9 @@ function tmuxSpy(home) {
 test('several workers stopping together knock once, and all of them are recorded', async () => {
   const home = freshHome();
   const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
-  recordSupervisor('%7');
+  // Panel named explicitly, for the same reason the read is above: the worker
+  // hooks run with no tmux to ask and look under the panel-less marker.
+  recordSupervisor('%7', { panel: null });
   const spy = tmuxSpy(home);
 
   const transcript = join(home, 'many.jsonl');
