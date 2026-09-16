@@ -178,7 +178,7 @@ credential, and anything destructive or irreversible. Nothing else.
 
 - Every launch names what it runs on rather than inheriting a default. Claude:
   `--dangerously-skip-permissions --effort max --model opus`. Codex:
-  `gpt-5.6-sol` at ultra effort, approvals off, full access, and its own hooks
+  `gpt-5.6-sol` at max effort, approvals off, full access, and its own hooks
   trusted — all passed at launch, not read from `~/.codex/config.toml`. That
   file belongs to the desktop app, and an unattended pane is not a desktop app:
   its defaults sandbox the session and stop it to ask a human before the first

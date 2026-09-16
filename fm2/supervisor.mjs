@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CODEX_MODEL, CODEX_REASONING_EFFORT, CODEX_STATUS_LINE } from './lib/tasks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -64,7 +64,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
         '-c', `model=${JSON.stringify(CODEX_MODEL)}`,
-        '-c', 'model_reasoning_effort="ultra"',
+        '-c', `model_reasoning_effort=${JSON.stringify(CODEX_REASONING_EFFORT)}`,
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',
         '-c', `tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`,

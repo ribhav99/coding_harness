@@ -179,6 +179,7 @@ function tomlValue(value) {
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
 export const CODEX_MODEL = 'gpt-5.6-sol';
+export const CODEX_REASONING_EFFORT = 'max';
 // Keep the native Codex footer aligned with the information in the user's
 // Claude status line. Codex omits a field when that datum is unavailable.
 export const CODEX_STATUS_LINE = [
@@ -198,7 +199,7 @@ export const CODEX_STATUS_LINE = [
 // stated condition for this flag.
 const CODEX_SESSION_FLAGS = [
   `-c model=${JSON.stringify(CODEX_MODEL)}`,
-  '-c model_reasoning_effort="ultra"',
+  `-c model_reasoning_effort=${JSON.stringify(CODEX_REASONING_EFFORT)}`,
   '-c approval_policy="never"',
   '-c sandbox_mode="danger-full-access"',
   `-c ${shellQuote(`tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`)}`,

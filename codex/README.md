@@ -86,7 +86,7 @@ machine, including app tasks and subagents outside the fm panel. An
 unavailable five-hour window is omitted rather than shown as zero.
 
 ```
-codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="ultra" \
+codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="max" \
       -c approval_policy="never" -c sandbox_mode="danger-full-access" \
       -c 'tui.status_line=["project-name","git-branch","model-with-reasoning",…]' \
       -c hooks.…
