@@ -18,6 +18,8 @@
 //   fm quiet <id> [--off]              stop a task reporting; Ribhav has that pane
 //   fm close <id> [--force]            take a task down, refusing to strand work
 //   fm announce <id>                   post the outcome where the review was asked for
+//   fm focus <id|%pane>                 full-screen one pane without changing its layout
+//                        [--list|--choose]
 //   fm caps                            what this machine can reach
 //
 // There is no poll, no watcher, no daemon, and no status file. A worker stopping
@@ -38,6 +40,7 @@ import { agentOf, normalizeAgent, resolveSession, controllerId } from './lib/ses
 import { queuePanelSwitch } from './lib/panel-switch.mjs';
 import { currentPanel, supervisorPane } from './lib/presence.mjs';
 import { discoverSessions } from './lib/sessions.mjs';
+import { focusCommand } from './focus-pane.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -200,6 +203,13 @@ stop is what reaches Ribhav, so end with two or three lines saying what you foun
 and the call you would make.`;
 
 const [, , command] = process.argv;
+
+// --- focus -------------------------------------------------------------------
+
+if (command === 'focus') {
+  try { await focusCommand(process.argv.slice(3)); } catch (error) { die(error.message); }
+  process.exit(0);
+}
 
 // --- review ------------------------------------------------------------------
 
@@ -749,4 +759,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|caps');
+die('usage: fm review|ship|attach|switch|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');

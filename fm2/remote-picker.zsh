@@ -4,7 +4,11 @@
 if [[ -o interactive && -n ${SSH_CONNECTION:-} && -z ${TMUX:-} && -z ${FM_REMOTE_PICKER_SHOWN:-} ]]; then
   export FM_REMOTE_PICKER_SHOWN=1
   if tmux list-sessions >/dev/null 2>&1; then
-    tmux attach-session -f ignore-size,active-pane \; choose-tree -s
+    if [[ -r "$HOME/.config/fm/focus-pane.mjs" ]] && command -v node >/dev/null 2>&1; then
+      node "$HOME/.config/fm/focus-pane.mjs" --choose
+    else
+      tmux attach-session -f ignore-size,active-pane \; choose-tree -s
+    fi
   else
     print 'No live tmux sessions. Start the project locally with: fmp <project>'
   fi

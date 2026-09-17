@@ -63,6 +63,7 @@ fi
 step 'Automatic SSH session picker:'
 PICKER_DIR="$HOME/.config/fm"
 PICKER="$PICKER_DIR/remote-picker.zsh"
+FOCUS="$PICKER_DIR/focus-pane.mjs"
 ZSHRC="$HOME/.zshrc"
 # The installed line must expand HOME when zsh loads it, not while this setup
 # script is running.
@@ -75,6 +76,11 @@ if [ "$CHECK" = 1 ]; then
   else
     todo "$PICKER"
   fi
+  if [ -f "$FOCUS" ] && cmp -s "$REPO/fm2/focus-pane.mjs" "$FOCUS"; then
+    ok "$FOCUS"
+  else
+    todo "$FOCUS"
+  fi
   if grep -Fq "$SOURCE_LINE" "$ZSHRC" 2>/dev/null ||
      grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
     ok 'interactive SSH shells open the tmux picker'
@@ -84,7 +90,9 @@ if [ "$CHECK" = 1 ]; then
 else
   mkdir -p "$PICKER_DIR"
   install -m 0644 "$REPO/fm2/remote-picker.zsh" "$PICKER"
+  install -m 0644 "$REPO/fm2/focus-pane.mjs" "$FOCUS"
   ok "$PICKER"
+  ok "$FOCUS"
   if grep -Fq "$SOURCE_LINE" "$ZSHRC" 2>/dev/null; then
     ok "$ZSHRC already sources it"
   elif grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
@@ -128,5 +136,5 @@ step 'Finish on the iPhone or iPad:'
 printf '  1. Install Tailscale and sign in to the same tailnet.\n'
 printf '  2. Install Termius (it is not needed on the Mac).\n'
 printf '  3. Add one SSH host: this Mac\047s Tailscale IP, port 22, your macOS username.\n'
-printf '  4. Leave Startup Command blank. Connect; the live tmux tree opens automatically.\n'
+printf '  4. Leave Startup Command blank. Connect and choose an agent or the full panel tree.\n'
 printf '\nFull instructions: %s/docs/remote-mobile-access.md\n' "$REPO"

@@ -5,8 +5,8 @@ on a Mac. It uses Tailscale for private networking, macOS Remote Login for SSH,
 Termius as the mobile terminal, and tmux as the shared terminal state.
 
 There is no Firstmate mobile service and no project list to maintain in
-Termius. One saved SSH host opens tmux's live tree of every session, window, and
-pane currently running on that Mac.
+Termius. One saved SSH host offers every live agent as an independent focused
+view, plus the complete tmux tree when the shared panel layout is useful.
 
 The ownership behavior is intentional:
 
@@ -14,7 +14,8 @@ The ownership behavior is intentional:
 - Termius is a secondary view. Disconnecting it leaves the panel alone.
 - Closing the owning iTerm pane kills the panel and its processes, even if the
   phone is still connected.
-- The phone does not resize the owner's terminal or change its selected pane.
+- A focused phone tab does not resize the owner's terminal, change its selected
+  pane, or alter its split layout.
 
 ## Give this to an agent on a new Mac
 
@@ -67,23 +68,27 @@ the Mac.
 
 ### 2. Installs the automatic SSH picker
 
-The setup copies [`fm2/remote-picker.zsh`](../fm2/remote-picker.zsh) to
-`~/.config/fm/remote-picker.zsh` and sources it from `~/.zshrc`. On an
-interactive SSH login, it runs:
+The setup copies [`fm2/remote-picker.zsh`](../fm2/remote-picker.zsh) and the
+self-contained focused-view helper to `~/.config/fm/`, then sources the picker
+from `~/.zshrc`. On an interactive SSH login, it lists every live controller,
+worker, and reviewer. Choosing one mirrors only that pane and sends keyboard
+input directly to it. Choosing **Full panel tree** runs:
 
 ```sh
 tmux attach-session -f ignore-size,active-pane \; choose-tree -s
 ```
 
-It calls tmux directly instead of `fmp --choose`. A harness checkout under
-Desktop may be readable locally while macOS denies the remote `sshd` process
-permission to follow `/opt/homebrew/bin/fmp` into Desktop. The copied picker is
-outside Desktop and needs no broad Full Disk Access exception.
+The installed files call tmux directly instead of following `fm` or `fmp` into
+the checkout. A harness checkout under Desktop may be readable locally while
+macOS denies the remote `sshd` process permission to follow a command symlink
+there. The copies outside Desktop need no broad Full Disk Access exception.
 
-`ignore-size` prevents the phone's smaller screen from shrinking the local
-layout. `active-pane` lets the phone select a pane without changing which pane
-is active in iTerm. Pane splits, resizing, and zoom are tmux window state, so
-those layout changes are still visible to every attached client.
+Focused views use tmux control mode, filter output to one pane, and forward
+input without resizing, selecting, zooming, or rearranging the source window.
+The pane keeps the dimensions of the laptop split, so a narrow pane can have
+unused space in a larger Termius tab. The full-panel option uses `ignore-size`
+and `active-pane`; it preserves dimensions and pane selection, but deliberate
+split, resize, and zoom commands there remain shared tmux window state.
 
 The picker runs only for an interactive SSH shell, only outside tmux, and only
 once per login. Commands executed non-interactively over SSH and file transfers
@@ -127,8 +132,8 @@ the same tailnet.
    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
    ```
 
-5. After login, the tmux tree opens automatically. Select the project session,
-   then its window and pane.
+5. After login, the Firstmate picker opens automatically. Select one agent for
+   a focused tab, or select the full panel tree.
 
 Password authentication is acceptable for the initial private-Tailscale setup.
 An SSH key stored in Termius Keychain is preferable later: add only its public
@@ -138,12 +143,28 @@ commit credentials to this repository.
 ## Use the panels from the phone
 
 An `fmp` project is one tmux session. Its `control`, `workers`, and `reviews`
-pages are tmux windows, with individual agents in panes. Termius renders that
-tmux layout; it cannot turn every existing pane into a native Termius page.
-Multiple Termius tabs can connect to the same saved Host and select different
-panes if separate full-screen views are useful.
+pages are tmux windows, with individual agents in panes. Open the saved Host in
+one Termius tab per agent and choose a different focused view in each tab. The
+laptop keeps its existing split views throughout.
 
-Common tmux keys use the prefix `Ctrl-b`, followed by another key:
+The focused view reserves `Ctrl-]` as its local detach key. Closing the Termius
+tab also disconnects only that view. To reopen the picker from a normal SSH
+shell, run the installed copy directly:
+
+```sh
+node ~/.config/fm/focus-pane.mjs --choose
+```
+
+From a local shell with access to the checkout, the equivalent commands are:
+
+```sh
+fm focus --list
+fm focus <task-id>
+fm focus --choose
+```
+
+In **Full panel tree**, common tmux keys use the prefix `Ctrl-b`, followed by
+another key:
 
 | Action | Keys |
 | --- | --- |
@@ -210,9 +231,10 @@ the protected Desktop folder.
 
 ### The phone changes the Mac's pane or layout
 
-Reconnect after running the current setup. The attach flags must include both
-`ignore-size` and `active-pane`. Pane selection is independent; actual tmux
-layout changes such as split, resize, and zoom remain shared.
+Reconnect after running the current setup and choose an individual agent rather
+than **Full panel tree**. A focused view never issues layout commands. The full
+panel tree is a normal secondary tmux client, so split, resize, and zoom remain
+shared there.
 
 ### No sessions are listed
 

@@ -41,6 +41,7 @@ fm read                            take the reports you have not read
 fm status                          what is alive, and what the forge says
 fm close <id> [--force]            take a task down, refusing to strand work
 fm announce <id>                   the outcome, confirmed on the forge
+fm focus <id|%pane>                full-screen one pane without changing its layout
 fm caps                            what this machine can reach
 ```
 
@@ -111,22 +112,17 @@ before stopping a source.
 For the complete new-Mac and iPhone/iPad procedure, including the repeatable
 setup command, see [Remote mobile access](../docs/remote-mobile-access.md).
 
-An `fmp` project panel is one tmux session, so use one Termius tab per project
-when several projects need to remain open concurrently. The controller,
-workers, and reviews remain tmux windows and panes inside that terminal;
-Termius does not turn each inner pane into a separate app tab.
+An `fmp` project panel remains one tmux session on the laptop. On a secondary
+terminal, `fm focus <task-id>` mirrors one pane full-screen and forwards input
+without changing the panel's active pane, dimensions, zoom, or split layout.
+Open one Termius SSH tab per agent and select a different focused view in each.
+`Ctrl-]` detaches a focused view.
 
-For one saved host that discovers everything automatically, set the SSH app's
-startup command to:
-
-```sh
-fmp --choose
-```
-
-It attaches without affecting the iTerm owner's dimensions or active pane and
-opens tmux's interactive tree of every live session, window, and pane. The
-picker is rendered by tmux on the Mac, so it works in Termius or any other
-ordinary SSH client.
+For one saved host that discovers everything automatically, run the remote
+setup and leave the SSH app's startup command blank. The installed picker
+offers each live controller, worker, and reviewer as a focused view, plus the
+complete shared tmux tree. From a local shell, `fm focus --choose` opens the
+same picker and `fm focus --list` prints its agent targets.
 
 To bypass the picker and attach directly to one existing panel:
 
