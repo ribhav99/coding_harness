@@ -5,6 +5,9 @@ Operator manual. For the design, see [`PRD.md`](PRD.md); for the architecture, s
 For the **Codex app**, use the [native setup](codex/README.md): app tasks, messages,
 subagents, and review panels. For **Claude Code or Codex in iTerm2**, use the
 [fm terminal panel](fm2/README.md), including whole-panel provider switching.
+To use every live fm/tmux panel from an iPhone or iPad, follow the
+[Tailscale + Termius remote-access setup](docs/remote-mobile-access.md); it
+includes a one-command, repeatable setup for additional Macs.
 The Python autonomous loops below remain Claude Code only.
 
 This kit drives a project from a PRD to merged code through four autonomous loops, each backed by Claude Code subprocesses with reviewer-style verification. You run the loops from your laptop; the orchestrator owns spawn/retry/state/git.

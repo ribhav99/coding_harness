@@ -108,6 +108,9 @@ before stopping a source.
 
 ## Termius and other secondary terminals
 
+For the complete new-Mac and iPhone/iPad procedure, including the repeatable
+setup command, see [Remote mobile access](../docs/remote-mobile-access.md).
+
 An `fmp` project panel is one tmux session, so use one Termius tab per project
 when several projects need to remain open concurrently. The controller,
 workers, and reviews remain tmux windows and panes inside that terminal;
