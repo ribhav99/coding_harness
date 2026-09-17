@@ -40,15 +40,20 @@ test('the focused picker names live controllers and tasks without listing shell 
     pane: '%1', panel: 'fm-project', task: 'controller:fm-project',
   }));
   const tmux = () => [
-    '%1\tfm-project\tcontrol\t1\t0\t',
-    '%2\tfm-project\tworkers\t1\t0\t',
-    '%3\tfm-project\tworkers\t2\t0\t',
-    '%4\tother\twork\t1\t0\tcodex',
+    "%1\tfm-project\tcontrol\t1\t0\tcodex\tFM2_TASK='controller:fm-project'\tController\t",
+    "%2\tfm-project\tworkers\t1\t0\tcodex\tFM2_TASK='worker-one'\tWorker\t",
+    '%3\tfm-project\tworkers\t2\t0\tzsh\t\tShell\t',
+    '%4\tother\twork\t1\t0\tcodex\t\tOther\tcodex',
     '%5',
+    "%6\tfm-project\treviews\t1\t0\tcodex\tFM2_TASK='review-from-command'\tReview\t",
+    '%7\tfm-project\tcontrol\t2\t0\t2.1.300\t\tStandalone discussion\t',
   ].join('\n');
   assert.deepEqual(listFocusedPanes({ tmux }).map(({ id, pane }) => ({ id, pane })), [
     { id: 'controller:fm-project', pane: '%1' },
+    { id: 'pane-7', pane: '%7' },
+    { id: 'review-from-command', pane: '%6' },
     { id: 'worker-one', pane: '%2' },
+    { id: 'pane-4', pane: '%4' },
   ]);
 });
 

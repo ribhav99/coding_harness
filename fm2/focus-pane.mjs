@@ -60,21 +60,36 @@ function knownPaneNames() {
   return names;
 }
 
+function taskFromStartCommand(command) {
+  if (!command) return null;
+  const match = command.match(/FM2_TASK=(?:'([^']*)'|"([^"]*)"|([^\s]+))/);
+  return match ? (match[1] ?? match[2] ?? match[3]) : null;
+}
+
+function isAgentProcess(command) {
+  return command === 'codex' || command === 'claude' || /^\d+\.\d+\.\d+$/.test(command ?? '');
+}
+
 export function listFocusedPanes({ tmux = runTmux } = {}) {
   let lines;
   try {
     lines = tmux([
       'list-panes', '-a', '-F',
-      '#{pane_id}\t#{session_name}\t#{window_name}\t#{pane_index}\t#{pane_dead}\t#{@fm-agent}',
+      '#{pane_id}\t#{session_name}\t#{window_name}\t#{pane_index}\t#{pane_dead}\t#{pane_current_command}\t#{pane_start_command}\t#{pane_title}\t#{@fm-agent}',
     ]).trim().split('\n').filter(Boolean);
   } catch {
     return [];
   }
   const names = knownPaneNames();
   return lines.map((line) => {
-    const [pane, panel, window, index, dead, panelAgent] = line.split('\t');
+    const [pane, panel, window, index, dead, command, startCommand, title, panelAgent] = line.split('\t');
     if (!pane || !panel || !window || index === undefined || dead === undefined) return null;
-    return { pane, panel, window, index: Number(index), dead: dead === '1', panelAgent, id: names.get(pane) ?? null };
+    const id = names.get(pane) ?? taskFromStartCommand(startCommand)
+      ?? (isAgentProcess(command) ? `pane-${pane.slice(1)}` : null);
+    return {
+      pane, panel, window, index: Number(index), dead: dead === '1', panelAgent, command,
+      id, label: id?.startsWith('pane-') && title ? title : id,
+    };
   }).filter((entry) => entry && (entry.panelAgent || /^fm-/.test(entry.panel)) && !entry.dead && entry.id)
     .sort((a, b) => a.panel.localeCompare(b.panel)
       || a.window.localeCompare(b.window)
@@ -221,7 +236,7 @@ function printList(entries, output = process.stdout) {
     return;
   }
   for (const entry of entries) {
-    output.write(`${entry.id}\t${entry.pane}\t${entry.panel}:${entry.window}.${entry.index}\n`);
+    output.write(`${entry.id}\t${entry.pane}\t${entry.label}\t${entry.panel}:${entry.window}.${entry.index}\n`);
   }
 }
 
@@ -234,7 +249,7 @@ async function choose(output = process.stdout) {
   output.write('\nFirstmate remote view\n\n');
   output.write('  1. Full panel tree (shared tmux layout)\n');
   entries.forEach((entry, index) => {
-    output.write(`  ${index + 2}. ${entry.id}  [${entry.panel} / ${entry.window}]\n`);
+    output.write(`  ${index + 2}. ${entry.label}  [${entry.panel} / ${entry.window}]\n`);
   });
   output.write('\nOpen another SSH tab to keep more than one agent visible.\n');
   const prompt = createInterface({ input: process.stdin, output });
