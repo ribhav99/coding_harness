@@ -44,6 +44,7 @@ test('the focused picker names live controllers and tasks without listing shell 
     '%2\tfm-project\tworkers\t1\t0\t',
     '%3\tfm-project\tworkers\t2\t0\t',
     '%4\tother\twork\t1\t0\tcodex',
+    '%5',
   ].join('\n');
   assert.deepEqual(listFocusedPanes({ tmux }).map(({ id, pane }) => ({ id, pane })), [
     { id: 'controller:fm-project', pane: '%1' },

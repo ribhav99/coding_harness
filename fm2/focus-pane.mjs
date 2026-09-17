@@ -73,8 +73,9 @@ export function listFocusedPanes({ tmux = runTmux } = {}) {
   const names = knownPaneNames();
   return lines.map((line) => {
     const [pane, panel, window, index, dead, panelAgent] = line.split('\t');
+    if (!pane || !panel || !window || index === undefined || dead === undefined) return null;
     return { pane, panel, window, index: Number(index), dead: dead === '1', panelAgent, id: names.get(pane) ?? null };
-  }).filter((entry) => (entry.panelAgent || entry.panel.startsWith('fm-')) && !entry.dead && entry.id)
+  }).filter((entry) => entry && (entry.panelAgent || /^fm-/.test(entry.panel)) && !entry.dead && entry.id)
     .sort((a, b) => a.panel.localeCompare(b.panel)
       || a.window.localeCompare(b.window)
       || a.index - b.index);
@@ -197,7 +198,7 @@ export async function focusPane(target, {
     for (const record of records) {
       const parsed = parseControlOutput(record.replace(/\r$/, ''));
       if (parsed?.pane === details.pane) output.write(parsed.data);
-      if (record.startsWith(`%pane-exited ${details.pane}`)) finish();
+      if (record.slice(0, `%pane-exited ${details.pane}`.length) === `%pane-exited ${details.pane}`) finish();
     }
   });
   control.stderr.on('data', (chunk) => {
