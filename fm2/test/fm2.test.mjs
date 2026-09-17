@@ -17,6 +17,14 @@ function freshHome() {
   process.env.FM2_HOME = home;
   process.env.CLAUDE_SKILLS_DIR = join(home, 'claude-skills');
   process.env.CODEX_SKILLS_DIR = join(home, 'codex-skills');
+  // This suite is commonly run from a live controller pane. Its process then
+  // inherits the real panel, task, provider, and backend, but the fixture is a
+  // separate harness installation with none of those identities. Direct calls
+  // to record() and other imported helpers see this process environment, not
+  // hookEnv(), so isolate both sides of the subprocess boundary.
+  for (const key of ['FM2_PANEL', 'FM2_TASK', 'FM2_AGENT', 'FM2_CODEX_BACKEND']) {
+    delete process.env[key];
+  }
   return home;
 }
 
@@ -166,13 +174,15 @@ test('the supervisor records where it lives every time it stops', async () => {
 // collided with a real one.
 const HOOK_TMUX_TMPDIR = mkdtempSync(join(tmpdir(), 'fm2-no-tmux-'));
 
-// Only the location is removed. FM2_HOME is deliberately inherited - freshHome()
-// sets it on this process and several tests rely on the hook picking it up
-// rather than passing it again - so stripping the whole FM2_ prefix pointed
-// those hooks at the real home instead.
+// Location and harness identity are removed. FM2_HOME is deliberately inherited
+// - freshHome() sets it on this process and several tests rely on the hook
+// picking it up rather than passing it again - so stripping the whole FM2_
+// prefix would point those hooks at the real home instead.
 function hookEnv(extra = {}) {
   const base = { ...process.env, TMUX_TMPDIR: HOOK_TMUX_TMPDIR };
-  for (const key of ['TMUX', 'TMUX_PANE', 'FM2_PANEL']) delete base[key];
+  for (const key of [
+    'TMUX', 'TMUX_PANE', 'FM2_PANEL', 'FM2_TASK', 'FM2_AGENT', 'FM2_CODEX_BACKEND',
+  ]) delete base[key];
   return { ...base, ...extra };
 }
 

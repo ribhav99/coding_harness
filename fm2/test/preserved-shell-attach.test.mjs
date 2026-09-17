@@ -13,6 +13,15 @@ function quote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
+async function waitForFile(file, message, timeout = 20_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (existsSync(file)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail(message);
+}
+
 test('fm attach from a transferred shell ignores stale panel/provider variables', { timeout: 30_000 }, async (t) => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'fm-preserved-shell-')));
   const socket = `fm-preserved-shell-${randomUUID()}`;
@@ -36,10 +45,12 @@ test('fm attach from a transferred shell ignores stale panel/provider variables'
   symlinkSync(process.execPath, join(bin, 'node'));
   const launchedEnv = join(base, 'codex.env');
   const launchedArgs = join(base, 'codex.args');
+  const launchedReady = join(base, 'codex.ready');
   writeFileSync(join(bin, 'codex'), [
     '#!/bin/sh',
     `printf '%s\\n' "$FM2_AGENT" "$FM2_PANEL" "$FM2_TASK" "$FM2_HOME" "$TMUX_PANE" > ${quote(launchedEnv)}`,
     `printf '%s\\n' "$@" > ${quote(launchedArgs)}`,
+    `printf ready > ${quote(launchedReady)}`,
     'exec /bin/sleep 10000',
   ].join('\n'), { mode: 0o700 });
   const wrongProvider = join(base, 'claude-was-started');
@@ -69,10 +80,7 @@ test('fm attach from a transferred shell ignores stale panel/provider variables'
     + `fm attach ${quote(worktree)} > ${quote(output)} 2> ${quote(errorOutput)}; printf '%s' "$?" > ${quote(status)}`;
   tmux(['send-keys', '-t', sourcePane, '-l', command]);
   tmux(['send-keys', '-t', sourcePane, 'Enter']);
-  for (let attempt = 0; attempt < 800 && !existsSync(status); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  assert.ok(existsSync(status), 'fm attach did not finish in the preserved shell');
+  await waitForFile(status, 'fm attach did not finish in the preserved shell');
   assert.deepEqual(readFileSync(staleEnv, 'utf8').trimEnd().split('\n'), ['old-panel', 'claude']);
   assert.equal(readFileSync(status, 'utf8'), '0', readFileSync(errorOutput, 'utf8'));
   assert.equal(existsSync(wrongProvider), false, 'stale provider environment launched Claude');
@@ -81,6 +89,11 @@ test('fm attach from a transferred shell ignores stale panel/provider variables'
   assert.equal(task.worktree, worktree); assert.equal(task.adopted, true);
   assert.equal(tmux(['display-message', '-p', '-t', task.pane, '#{session_name}']), 'codex-panel');
   assert.equal(tmux(['display-message', '-p', '-t', task.pane, '#{window_name}']), 'workers');
+  // `fm attach` returns after asking tmux to start the provider; tmux schedules
+  // that process independently. Waiting only for attach.status made the test
+  // race the mock provider under full-suite load. Its ready marker is written
+  // after both files asserted below are complete.
+  await waitForFile(launchedReady, 'the attached Codex process did not start');
   assert.deepEqual(readFileSync(launchedEnv, 'utf8').trimEnd().split('\n'), ['codex', 'codex-panel', 'wo-354', environment.FM2_HOME, task.pane]);
   assert.match(readFileSync(launchedArgs, 'utf8'), /hooks\.SessionStart=/);
   assert.match(readFileSync(launchedArgs, 'utf8'), /hooks\.Stop=/);
