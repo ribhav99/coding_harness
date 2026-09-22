@@ -72,7 +72,7 @@ forever and the fleet looks idle.
 
 ## What a Codex worker inherits, and why it matters
 
-A launch names its model, reasoning effort, approval policy, sandbox, and native
+A launch names its model, reasoning effort (default `high`), approval policy, sandbox, and native
 status line outright, the same way the Claude path names `--model opus`: a
 default is not a choice. They are passed as `-c` overrides rather than flags,
 because `codex` and `codex resume` do not accept the same flags and `-c` works on
@@ -85,8 +85,13 @@ the account and model-family windows reported by Codex sessions on the
 machine, including app tasks and subagents outside the fm panel. An
 unavailable five-hour window is omitted rather than shown as zero.
 
+Managed agents may adjust only reasoning effort with `fm effort <level>` and
+then end their turn; the Stop hook resumes the exact conversation automatically.
+Codex supports `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. The command
+does not expose model selection.
+
 ```
-codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="max" \
+codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="high" \
       -c approval_policy="never" -c sandbox_mode="danger-full-access" \
       -c 'tui.status_line=["project-name","git-branch","model-with-reasoning",…]' \
       -c hooks.…

@@ -9,6 +9,7 @@
 //                        [--resume]    carrying on the exact recorded conversation
 //                                      also how a task whose pane died is reopened
 //   fm switch <id> --agent <name>      move the same task between claude and codex
+//   fm effort <level>                  restart this session at a new reasoning effort
 //   fm reload --agent <name> [--fresh] replace every session in this panel, in place
 //                     [--controller-only]  ... or just the one running this
 //   fm handoff <id>                    close a finished ship task, open its cold review
@@ -41,6 +42,7 @@ import { queuePanelSwitch } from './lib/panel-switch.mjs';
 import { currentPanel, supervisorPane } from './lib/presence.mjs';
 import { discoverSessions } from './lib/sessions.mjs';
 import { focusCommand } from './focus-pane.mjs';
+import { requestEffort } from './lib/effort.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -203,6 +205,26 @@ stop is what reaches Ribhav, so end with two or three lines saying what you foun
 and the call you would make.`;
 
 const [, , command] = process.argv;
+
+// --- effort ------------------------------------------------------------------
+// The provider requests only the target level. Its Stop hook performs the
+// replacement after the current turn has ended, so the command that queues the
+// transition is never responsible for killing its own process tree.
+if (command === 'effort') {
+  const level = process.argv[3] ?? die('usage: fm effort <level>');
+  if (process.argv.length !== 4) die('usage: fm effort <level>');
+  const id = process.env.FM2_TASK ?? die('fm effort is only available inside an fm-managed session');
+  const task = id.startsWith('controller:') ? null : loadTask(id);
+  if (!id.startsWith('controller:') && !task) die(`no task "${id}"`);
+  const agent = normalizeAgent(process.env.FM2_AGENT || task?.agent || 'claude');
+  try {
+    const result = requestEffort(id, agent, level, { current: process.env.FM2_EFFORT || null });
+    process.stdout.write(result.changed
+      ? `${id}: effort ${result.from} -> ${result.effort} queued; end this turn now\n`
+      : `${id}: already at effort ${result.effort}\n`);
+  } catch (error) { die(error.message); }
+  process.exit(0);
+}
 
 // --- focus -------------------------------------------------------------------
 
@@ -759,4 +781,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');
+die('usage: fm review|ship|attach|switch|effort|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');

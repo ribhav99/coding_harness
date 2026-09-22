@@ -42,7 +42,7 @@ The review session itself:
   (`config/crew-harness`, `config/crew-effort`). Do not add `-c`; that was a one-off.
 
 This has been verified working by hand before this task was written: launching
-`claude --dangerously-skip-permissions --effort max '/full-review this pr'` in the task worktree
+`claude --dangerously-skip-permissions --effort high '/full-review this pr'` in the task worktree
 from the `reviews` window correctly invokes the skill and starts the review. Reproduce that
 behaviour, do not redesign it.
 

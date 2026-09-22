@@ -177,12 +177,17 @@ credential, and anything destructive or irreversible. Nothing else.
 ## Standing preferences
 
 - Every launch names what it runs on rather than inheriting a default. Claude:
-  `--dangerously-skip-permissions --effort max --model opus`. Codex:
-  `gpt-5.6-sol` at max effort, approvals off, full access, and its own hooks
+  `--dangerously-skip-permissions --effort high --model opus`. Codex:
+  `gpt-5.6-sol` at high effort, approvals off, full access, and its own hooks
   trusted — all passed at launch, not read from `~/.codex/config.toml`. That
   file belongs to the desktop app, and an unattended pane is not a desktop app:
   its defaults sandbox the session and stop it to ask a human before the first
   command outside the workspace.
+- In an fm-managed session, choose the lowest sufficient reasoning effort. Use
+  `fm effort <level>` when work becomes materially harder or easier, then end
+  the turn immediately so the Stop hook can preserve and resume the same
+  conversation. Claude accepts `low|medium|high|xhigh|max`; Codex also accepts
+  `ultra`. An effort transition never changes the model.
 - Worktrees are siblings of the real checkout, named `<repo>-<description>`.
 - Imports go at the top of a file unless a circular import genuinely forbids it.
 - Reviews keep their depth: the judge fan-out stays, at full effort.

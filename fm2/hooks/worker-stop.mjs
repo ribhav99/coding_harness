@@ -14,6 +14,7 @@ import { loadTask, saveTask } from '../lib/config.mjs';
 import { rememberSession } from '../lib/sessions.mjs';
 import { currentPanel } from '../lib/presence.mjs';
 import { providerProcess } from '../lib/provider-processes.mjs';
+import { schedulePendingEffort } from '../lib/effort.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -33,18 +34,19 @@ function done() {
 try {
   const payload = JSON.parse(raw || '{}');
   const task = process.env.FM2_TASK || 'unknown';
+  const agent = process.env.FM2_AGENT || 'claude';
   const panel = currentPanel();
   try {
     rememberSession({
       task,
-      agent: process.env.FM2_AGENT || 'claude',
+      agent,
       sessionId: payload.session_id,
       transcriptPath: payload.transcript_path,
       cwd: payload.cwd,
       panel,
       pane: process.env.TMUX_PANE,
       backend: process.env.FM2_CODEX_BACKEND || null,
-      providerPid: providerProcess(process.env.FM2_AGENT || 'claude'),
+      providerPid: providerProcess(agent),
     });
   } catch { /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is
@@ -60,6 +62,12 @@ try {
   if (here && known && known.pane !== here && (known.agent || 'claude') === (process.env.FM2_AGENT || 'claude')) {
     try { saveTask({ ...known, pane: here }); } catch { /* bookkeeping never blocks a turn */ }
   }
+  // An effort change is a lifecycle transition, not a completed task. Queue the
+  // replacement outside this provider's process tree, let this hook return, and
+  // suppress the ordinary report/notification for this intermediate stop.
+  try {
+    if (schedulePendingEffort(task, agent)) done();
+  } catch { /* report normally if the replacement could not be scheduled */ }
   // A task Ribhav is running himself. He is already in that pane reading the
   // replies as they land, so a report about it is not news - it is the same
   // words a second time, arriving as an interruption. Silence is the whole

@@ -127,6 +127,13 @@ else
   ' "$REPO"
 fi
 
+printf '\nglobal agent instructions:\n'
+if [ "$CHECK" = 1 ]; then
+  node "$REPO/fm2/install-instructions.mjs" --check
+else
+  node "$REPO/fm2/install-instructions.mjs"
+fi
+
 # A Codex session in an untrusted directory stops on a trust prompt and waits,
 # and nothing in the harness answers it - Codex owns its own dialogs. Worse, that
 # prompt is what gates project-local hooks loading at all, so a session waved

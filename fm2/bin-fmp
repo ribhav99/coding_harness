@@ -44,7 +44,7 @@ set -eu
 FMP_SELF=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 FM_REPO="${FM_REPO:-$(dirname "$FMP_SELF")}"
 FM_PROJECTS="${FM_PROJECTS:-$(dirname "$FM_REPO")}"
-FMP_CLAUDE_CMD="${FMP_CLAUDE_CMD:-claude --dangerously-skip-permissions --effort max}"
+FMP_CLAUDE_CMD="${FMP_CLAUDE_CMD:-claude --dangerously-skip-permissions --effort high}"
 
 die() { printf 'fmp: %s\n' "$*" >&2; exit 1; }
 
@@ -255,7 +255,7 @@ LEFT=$(tmux list-panes -t "$SES:control" -F '#{pane_id}' | head -1)
 if [ "$FMP_AGENT" = codex ]; then
   tmux send-keys -t "$LEFT" "$FMP_CODEX_CMD" C-m
 else
-  if [ "$FMP_CLAUDE_CMD" = 'claude --dangerously-skip-permissions --effort max' ]; then
+  if [ "$FMP_CLAUDE_CMD" = 'claude --dangerously-skip-permissions --effort high' ]; then
     tmux send-keys -t "$LEFT" "node \"$FM_REPO/fm2/supervisor.mjs\" claude" C-m
   else
     tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m

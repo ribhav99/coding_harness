@@ -35,6 +35,7 @@ fm review <pr> [--project <dir>]   open a cold review on a PR
 fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 fm switch <id> --agent codex       move the same task to Codex (or claude)
+fm effort <level>                   restart this managed session at a new effort
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -64,6 +65,13 @@ switch first copies the full source transcript and a manifest to
 target in the same worktree. If the task used the target provider before, fm
 resumes that exact session and gives it the transcript containing everything
 that happened since.
+
+Every managed session starts at `high`. A running agent can queue its own
+provider-specific change with `fm effort <level>` and then end the turn. Its Stop
+hook schedules the replacement outside the provider process tree, suppresses the
+intermediate task report, and resumes the exact conversation automatically.
+Claude accepts `low`, `medium`, `high`, `xhigh`, and `max`; Codex also accepts
+`ultra`. The model is fixed and cannot be changed by this command.
 
 Older Claude tasks predate the identity hook. For those, fm requires one local
 transcript matching the exact worktree and opening brief. Multiple matches are

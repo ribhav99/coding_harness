@@ -30,6 +30,7 @@ import { pending } from './notify.mjs';
 import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
 import { currentPanel } from './presence.mjs';
 import { configurePanelQuotaStatus } from './quota-status.mjs';
+import { DEFAULT_EFFORT, effortFor, normalizeEffort, setEffort } from './effort.mjs';
 import {
   agentOf,
   normalizeAgent,
@@ -179,7 +180,7 @@ function tomlValue(value) {
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
 export const CODEX_MODEL = 'gpt-5.6-sol';
-export const CODEX_REASONING_EFFORT = 'max';
+export const CODEX_REASONING_EFFORT = DEFAULT_EFFORT;
 // Keep the native Codex footer aligned with the information in the user's
 // Claude status line. Codex omits a field when that datum is unavailable.
 export const CODEX_STATUS_LINE = [
@@ -197,14 +198,16 @@ export const CODEX_STATUS_LINE = [
 // after a reload. These hook files are written by writeWorkerSettings moments
 // earlier from this checkout, so the source is already vetted - which is the
 // stated condition for this flag.
-const CODEX_SESSION_FLAGS = [
-  `-c model=${JSON.stringify(CODEX_MODEL)}`,
-  `-c model_reasoning_effort=${JSON.stringify(CODEX_REASONING_EFFORT)}`,
-  '-c approval_policy="never"',
-  '-c sandbox_mode="danger-full-access"',
-  `-c ${shellQuote(`tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`)}`,
-  '--dangerously-bypass-hook-trust',
-].join(' ');
+function codexSessionFlags(effort) {
+  return [
+    `-c model=${JSON.stringify(CODEX_MODEL)}`,
+    `-c model_reasoning_effort=${JSON.stringify(effort)}`,
+    '-c approval_policy="never"',
+    '-c sandbox_mode="danger-full-access"',
+    `-c ${shellQuote(`tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`)}`,
+    '--dangerously-bypass-hook-trust',
+  ].join(' ');
+}
 
 function codexHookFlags(settingsFile) {
   const config = JSON.parse(readFileSync(settingsFile, 'utf8'));
@@ -293,14 +296,15 @@ export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.code
   return { root, added: true };
 }
 
-export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '' }) {
+export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '', effort = null }) {
   const provider = normalizeAgent(agent);
+  const reasoning = effort === null ? effortFor(id, provider) : normalizeEffort(provider, effort);
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
   // shell asked for the pane. Without them the hook fires and writes its report
   // into the wrong home, which looks exactly like the hook not firing at all.
   const env =
-    `FM2_TASK=${shellQuote(id)} FM2_HOME=${shellQuote(homeDir())} FM2_AGENT=${shellQuote(provider)} FM2_PANEL=${shellQuote(panel)}` +
+    `FM2_TASK=${shellQuote(id)} FM2_HOME=${shellQuote(homeDir())} FM2_AGENT=${shellQuote(provider)} FM2_PANEL=${shellQuote(panel)} FM2_EFFORT=${shellQuote(reasoning)}` +
     (provider === 'codex' ? " FM2_CODEX_BACKEND='embedded'" : '');
   // The model is named rather than left to whatever the CLI defaults to. A
   // default is not a choice: the default moved to Fable and every worker
@@ -318,14 +322,14 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const prompt = briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : '';
   if (provider === 'claude') {
     return (
-      `${env} claude --dangerously-skip-permissions --effort max --model opus ` +
+      `${env} claude --dangerously-skip-permissions --effort ${reasoning} --model opus ` +
       `--settings ${shellQuote(settingsFile)}` +
       (resume ? ` --resume ${shellQuote(resume)}` : '') +
       prompt
     );
   }
 
-  const flags = `--no-alt-screen ${CODEX_SESSION_FLAGS} ${codexHookFlags(settingsFile)}`;
+  const flags = `--no-alt-screen ${codexSessionFlags(reasoning)} ${codexHookFlags(settingsFile)}`;
   if (resume) return `${env} codex resume ${flags} ${shellQuote(resume)}${prompt}`;
   return `${env} codex ${flags}${prompt}`;
 }
@@ -772,6 +776,7 @@ const SWITCH_RUNTIME = {
 export function switchTask(id, {
   agent,
   session = null,
+  effort = null,
   claudeRoot,
   codexRoot,
   runtime = SWITCH_RUNTIME,
@@ -780,6 +785,8 @@ export function switchTask(id, {
   if (!task) throw new Error(`no task "${id}"`);
   const from = agentOf(task);
   const to = normalizeAgent(agent);
+  const sourceEffort = effortFor(id, from);
+  const targetEffort = effort === null ? effortFor(id, to) : normalizeEffort(to, effort);
   // Same agent in and out is a RELOAD, not a mistake: the session is replaced in
   // its own pane so it picks up launch settings that have changed since it
   // started - a different model, or approvals that are no longer asked for.
@@ -812,6 +819,8 @@ export function switchTask(id, {
     settingsFile,
     briefPath: preserved.promptPath,
     resume: target?.id ?? null,
+    panel: task.panel ?? currentPanel() ?? '',
+    effort: targetEffort,
   });
 
   if (to === 'codex') { try { ensureCodexTrust(task.worktree); } catch { /* best effort; Codex will ask */ } }
@@ -867,6 +876,9 @@ export function switchTask(id, {
           id,
           settingsFile: oldSettings,
           resume: source.id,
+          panel: task.panel ?? currentPanel() ?? '',
+          briefPath: effort !== null ? preserved.promptPath : null,
+          effort: sourceEffort,
         });
         runtime.replace(task.pane, task.worktree, oldCommand);
         runtime.clear(task.pane, { agent: from });
@@ -906,12 +918,14 @@ export function switchTask(id, {
   // Reconcile after that commit so switching the final Codex worker to Claude
   // restores the panel's original tmux status immediately.
   configurePanelQuotaStatus(updated.panel, to);
+  setEffort(id, to, targetEffort);
   return {
     task: updated,
     from,
     to,
     source,
     resumed: target?.id ?? null,
+    effort: targetEffort,
     manifest: preserved.manifestPath,
     worktreePreserved: JSON.stringify(before) === JSON.stringify(after),
   };

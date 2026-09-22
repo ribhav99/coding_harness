@@ -561,7 +561,7 @@ test('a session reloads onto the same agent, in its own pane, carrying its conve
   assert.equal(launches[0].cwd, worktree);
   // The settings that made this worth doing at all.
   assert.match(launches[0].command, /-c model="gpt-5\.6-sol"/);
-  assert.match(launches[0].command, /-c model_reasoning_effort="max"/);
+  assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.match(launches[0].command, /-c approval_policy="never"/);
 
   const after = loadTask('wo-reload');
@@ -644,7 +644,7 @@ test('a task switches to Codex and back without changing its work or report rout
   assert.equal(toCodex.worktreePreserved, true);
   assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
   assert.match(launches[0].command, /codex --no-alt-screen/);
-  assert.match(launches[0].command, /-c model_reasoning_effort="max"/);
+  assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.equal(launches[0].cwd, worktree);
   const afterCodex = loadTask('wo-switch');
   assert.equal(afterCodex.agent, 'codex');
@@ -1355,7 +1355,7 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   // up on it silently - nothing in the pane, the report or `fm status` says which
   // model a session is. Naming it is the only thing that makes the choice real.
   assert.match(cmd, /--model opus\b/, 'the launch left the model to the CLI default');
-  assert.match(cmd, /--effort max\b/);
+  assert.match(cmd, /--effort high\b/);
   assert.match(cmd, /--dangerously-skip-permissions\b/);
   assert.match(cmd, /--settings '\/s\.json'/);
   assert.match(cmd, /FM2_TASK='wo-9'/, 'the hook could not find its task');
@@ -1385,7 +1385,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
   // worker to ask a human before its first command outside the workspace, and
   // its model follows whatever the app is pointed at today.
   assert.match(fresh, /-c model="gpt-5\.6-sol"/);
-  assert.match(fresh, /-c model_reasoning_effort="max"/);
+  assert.match(fresh, /-c model_reasoning_effort="high"/);
   assert.match(fresh, /-c approval_policy="never"/);
   assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
   assert.match(fresh, /-c 'tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used"\]'/);
@@ -1424,7 +1424,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
     resume: '44444444-4444-4444-4444-444444444444',
   });
   assert.match(resumed, /codex resume /);
-  assert.match(resumed, /-c model_reasoning_effort="max"/);
+  assert.match(resumed, /-c model_reasoning_effort="high"/);
   assert.match(resumed, /'44444444-4444-4444-4444-444444444444'/);
 });
 
@@ -1450,7 +1450,7 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   assert.equal(result.status, 0, result.stderr);
   const args = readFileSync(argsFile, 'utf8');
   assert.match(args, /model="gpt-5\.6-sol"/);
-  assert.match(args, /model_reasoning_effort="max"/);
+  assert.match(args, /model_reasoning_effort="high"/);
   assert.match(args, /approval_policy="never"/);
   assert.match(args, /sandbox_mode="danger-full-access"/);
   assert.match(args, /tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used"\]/);

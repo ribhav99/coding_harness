@@ -86,7 +86,7 @@ test('whole panel switches and back with every split, live shells, flushed trans
   assert.equal(f.opens[0].options.socketPath, before.socketPath, 'iTerm must attach to the captured tmux server');
   assert.deepEqual(f.opens[0].args, ['-S', before.socketPath, '-CC', 'attach-session', '-t', '=fm-test-codex']);
   assert.equal(f.launches.length, 3); assert.equal(f.launches.at(-1).cwd, f.project, 'controller starts after workers');
-  assert.ok(f.launches.every(({ command }) => /model_reasoning_effort="max"/.test(command)));
+  assert.ok(f.launches.every(({ command }) => /model_reasoning_effort="high"/.test(command)));
   assert.equal(f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{session_name}']), result.to);
   assert.equal(f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{pane_pid}']), shellPid, 'shell process restarted');
   const after = capturePanel(result.to, { tmux: f.runtime.tmux });

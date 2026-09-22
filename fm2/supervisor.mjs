@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_MODEL, CODEX_REASONING_EFFORT, CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { effortFor, normalizeEffort } from './lib/effort.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -46,16 +47,17 @@ function hasOnlyLegacyControllerHooks(cwd) {
   } catch { return false; }
 }
 
-function invocation({ agent = 'claude', id, panel = currentPanel(), resume = null, cwd = process.cwd() } = {}) {
+function invocation({ agent = 'claude', id, panel = currentPanel(), resume = null, cwd = process.cwd(), effort = null } = {}) {
   const provider = normalizeAgent(agent);
   const target = currentPanel({ panel, pane: null });
   if (!target) throw new Error('a controller needs --panel <tmux-session> or FM2_PANEL');
   const identity = id ?? controllerId(target);
   if (!/^controller:[A-Za-z0-9_.-]+$/.test(identity)) throw new Error('invalid controller identity');
   if (resume !== null && (typeof resume !== 'string' || !resume.trim())) throw new Error('resume needs an exact provider session id');
+  const reasoning = effort === null ? effortFor(identity, provider) : normalizeEffort(provider, effort);
   const config = supervisorHookConfig(provider);
   const args = provider === 'claude'
-    ? ['--dangerously-skip-permissions', '--effort', 'max',
+    ? ['--dangerously-skip-permissions', '--effort', reasoning,
         ...(hasOnlyLegacyControllerHooks(cwd) ? ['--setting-sources', 'user,local'] : []),
         '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
@@ -64,7 +66,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
         '-c', `model=${JSON.stringify(CODEX_MODEL)}`,
-        '-c', `model_reasoning_effort=${JSON.stringify(CODEX_REASONING_EFFORT)}`,
+        '-c', `model_reasoning_effort=${JSON.stringify(reasoning)}`,
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',
         '-c', `tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`,
@@ -77,7 +79,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
   return {
     command: provider,
     args,
-    env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target,
+    env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
       ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
   };
 }
@@ -93,8 +95,8 @@ export function main(argv = process.argv.slice(2)) {
   const hasAgent = argv[0] && !argv[0].startsWith('-');
   const options = { agent: hasAgent ? argv[0] : 'claude', id: process.env.FM2_TASK || undefined };
   for (let at = hasAgent ? 1 : 0; at < argv.length; at += 2) {
-    const key = { '--panel': 'panel', '--id': 'id', '--brief': 'briefPath', '--resume': 'resume' }[argv[at]];
-    if (!key || !argv[at + 1]) throw new Error('usage: supervisor.mjs [claude|codex] [--panel <session>] [--id <controller:id>] [--brief <file>] [--resume <exact-id>]');
+    const key = { '--panel': 'panel', '--id': 'id', '--brief': 'briefPath', '--resume': 'resume', '--effort': 'effort' }[argv[at]];
+    if (!key || !argv[at + 1]) throw new Error('usage: supervisor.mjs [claude|codex] [--panel <session>] [--id <controller:id>] [--brief <file>] [--resume <exact-id>] [--effort <level>]');
     options[key] = argv[at + 1];
   }
   const launch = invocation(options);

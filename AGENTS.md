@@ -56,3 +56,9 @@ for independent parts.
 - Codex keeps its configured model, reasoning, sandbox, and approval settings.
   Review the harness's lifecycle hooks with `/hooks` when first using them;
   never bypass trust for all user hooks to suppress that review.
+- Managed sessions start at `high` effort and may change their own effort with
+  `fm effort <level>`. Choose the lowest sufficient level; when work becomes
+  materially harder or easier, queue the new level and end the turn immediately.
+  The Stop hook preserves and resumes the same conversation. Claude accepts
+  `low|medium|high|xhigh|max`; Codex additionally accepts `ultra`. Never change
+  the model as part of an effort transition.

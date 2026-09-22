@@ -77,7 +77,7 @@ test('controller commands deliver exact identity, full resume prompt, and named 
   // command outside the workspace. `--last` is still never used: a resume names
   // its session exactly or does not happen.
   assert.ok(args.includes('model="gpt-5.6-sol"'));
-  assert.ok(args.includes('model_reasoning_effort="max"'));
+  assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.ok(args.includes('approval_policy="never"'));
   assert.ok(args.includes('sandbox_mode="danger-full-access"'));
   assert.ok(args.includes('tui.status_line=["project-name","git-branch","model-with-reasoning","fast-mode","context-used"]'));

@@ -66,6 +66,15 @@ Do not manually relaunch the controller, run `/import`, or recreate splits to
 imitate either command. For a request affecting only one worker, use
 `fm switch <id> --agent <provider>`.
 
+## Dynamic effort
+
+Managed sessions start at `high`. When work becomes materially harder or
+easier, choose the lowest sufficient level, run `fm effort <level>`, and end the
+turn immediately. The Stop hook restarts the exact session and continues it;
+this intermediate stop is not task completion. Claude accepts
+`low|medium|high|xhigh|max`; Codex additionally accepts `ultra`. Never change the
+model during this transition.
+
 **Run `./install --check` on a new machine first, and fix what it reports.** Two
 things decide whether a Codex session can work at all, and both fail as a session
 that looks alive and does nothing. The CLI and its helper binaries have to be on

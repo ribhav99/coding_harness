@@ -17,6 +17,7 @@ import { pending } from '../lib/notify.mjs';
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
 import { controllerId, rememberSession } from '../lib/sessions.mjs';
 import { providerProcess } from '../lib/provider-processes.mjs';
+import { schedulePendingEffort } from '../lib/effort.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -31,12 +32,13 @@ function done() {
 // on every stop rather than once, because a supervisor can be restarted into a
 // new pane and a stale id knocks on somebody else's door.
 let panel = null;
+let task = null;
+let agent = process.env.FM2_AGENT || 'claude';
 try {
   const payload = JSON.parse(raw || '{}');
   panel = currentPanel();
-  const task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
+  task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
   if (task && !task.startsWith('controller:')) done();
-  const agent = process.env.FM2_AGENT || 'claude';
   recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
   rememberSession({
     task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
@@ -45,6 +47,10 @@ try {
     providerPid: providerProcess(agent),
   });
 } catch { /* never hold up a turn for bookkeeping */ }
+
+try {
+  if (task && schedulePendingEffort(task, agent)) done();
+} catch { /* retain normal stop behavior if scheduling failed */ }
 
 let items = [];
 try {

@@ -33,12 +33,10 @@ Inspect and rewrite entries in place — do not append forever.
 - Tasks land as tiled panes inside a named tab, not as separate tmux windows.
   Ship work goes to `workers`, review and scout work to `reviews`. (2026-08-01)
 
-- Every crewmate and scout launches as `claude --dangerously-skip-permissions
-  --effort max`. This is a standing Ribhav instruction, enforced mechanically by
-  `config/crew-harness` and `config/crew-effort` in each home, not by memory.
-  AGENTS.md section 4's generic "never max without explicit Ribhav preference"
-  fallback is superseded by this. Do not lower it per task without being asked.
-  (2026-08-01)
+- Managed agents launch at `high` effort and may autonomously choose a different
+  provider-supported level with `fm effort <level>` when task difficulty changes.
+  The transition preserves the conversation and never changes the model.
+  (2026-09-21)
 
 ## Delivery
 
