@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { decodeControlOutput, listFocusedPanes, parseControlOutput } from '../focus-pane.mjs';
+import { chooseFocusedPane, decodeControlOutput, listFocusedPanes, parseControlOutput } from '../focus-pane.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -81,6 +81,30 @@ test('interactive SSH shells open the installed focused picker', (t) => {
     stdio: ['ignore', 'ignore', 'ignore'],
   });
   assert.equal(readFileSync(log, 'utf8').trim(), `${join(config, 'focus-pane.mjs')} --choose`);
+});
+
+test('the phone picker returns to a refreshed session list after each focused view', async () => {
+  let listed = 0;
+  const choices = ['1', 'p', '1', 'q'];
+  const focused = [];
+  let fullPanels = 0;
+  let rendered = '';
+  const output = { write(value) { rendered += value; } };
+  await chooseFocusedPane(output, {
+    list() {
+      listed += 1;
+      return [{ pane: `%${listed}`, label: `agent-${listed}`, panel: 'fm-project', window: 'workers' }];
+    },
+    async choose() { return choices.shift(); },
+    async focus(pane) { focused.push(pane); },
+    async fullPanel() { fullPanels += 1; },
+  });
+  assert.deepEqual(focused, ['%1', '%3']);
+  assert.equal(fullPanels, 1);
+  assert.equal(listed, 4);
+  assert.match(rendered, /agent-1/);
+  assert.match(rendered, /agent-4/);
+  assert.match(rendered, /Ctrl-\] to return to this list/);
 });
 
 function delay(ms) {

@@ -70,6 +70,38 @@ ZSHRC="$HOME/.zshrc"
 # shellcheck disable=SC2016
 SOURCE_LINE='[ -r "$HOME/.config/fm/remote-picker.zsh" ] && source "$HOME/.config/fm/remote-picker.zsh"'
 
+# The first remote-access release embedded a full-panel tmux attachment in
+# .zshrc. Its FM_REMOTE_PICKER_SHOWN marker looks superficially like the current
+# hook, but it always reproduces the laptop split layout. Remove only that exact
+# generated block before installing the sourced focused-view picker.
+remove_legacy_picker() {
+  local input=$1 temporary
+  temporary=$(mktemp "${TMPDIR:-/tmp}/fm-zshrc.XXXXXX")
+  if ! awk '
+    BEGIN { skipping = 0; depth = 0; found = 0 }
+    !skipping && $0 == "# Any interactive SSH app gets the same live tmux session/window/pane picker." {
+      skipping = 1
+      found = 1
+      next
+    }
+    skipping {
+      if ($0 ~ /^[[:space:]]*if[[:space:]]/) depth += 1
+      if ($0 ~ /^[[:space:]]*fi[[:space:]]*$/) {
+        depth -= 1
+        if (depth == 0) skipping = 0
+      }
+      next
+    }
+    { print }
+    END { if (!found || skipping) exit 42 }
+  ' "$input" > "$temporary"; then
+    rm -f "$temporary"
+    return 1
+  fi
+  chmod "$(stat -f '%Lp' "$input")" "$temporary"
+  mv "$temporary" "$input"
+}
+
 if [ "$CHECK" = 1 ]; then
   if [ -f "$PICKER" ] && cmp -s "$REPO/fm2/remote-picker.zsh" "$PICKER"; then
     ok "$PICKER"
@@ -81,9 +113,10 @@ if [ "$CHECK" = 1 ]; then
   else
     todo "$FOCUS"
   fi
-  if grep -Fq "$SOURCE_LINE" "$ZSHRC" 2>/dev/null ||
-     grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
+  if grep -Fq "$SOURCE_LINE" "$ZSHRC" 2>/dev/null; then
     ok 'interactive SSH shells open the tmux picker'
+  elif grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
+    todo "replace the legacy full-panel picker in $ZSHRC"
   else
     todo "source the remote picker from $ZSHRC"
   fi
@@ -96,7 +129,15 @@ else
   if grep -Fq "$SOURCE_LINE" "$ZSHRC" 2>/dev/null; then
     ok "$ZSHRC already sources it"
   elif grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
-    ok "$ZSHRC already contains an equivalent picker"
+    if remove_legacy_picker "$ZSHRC"; then
+      {
+        printf '\n# Firstmate remote tmux picker (installed by coding_harness)\n'
+        printf '%s\n' "$SOURCE_LINE"
+      } >> "$ZSHRC"
+      ok "$ZSHRC migrated from the legacy full-panel picker"
+    else
+      todo "could not safely replace the legacy picker in $ZSHRC"
+    fi
   else
     touch "$ZSHRC"
     {

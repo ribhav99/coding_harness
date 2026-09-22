@@ -132,8 +132,8 @@ the same tailnet.
    ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
    ```
 
-5. After login, the Firstmate picker opens automatically. Select one agent for
-   a focused tab, or select the full panel tree.
+5. After login, the Firstmate session list opens automatically. Select one
+   agent to see only that pane full-screen, or select the full panel tree.
 
 Password authentication is acceptable for the initial private-Tailscale setup.
 An SSH key stored in Termius Keychain is preferable later: add only its public
@@ -143,9 +143,11 @@ commit credentials to this repository.
 ## Use the panels from the phone
 
 An `fmp` project is one tmux session. Its `control`, `workers`, and `reviews`
-pages are tmux windows, with individual agents in panes. Open the saved Host in
-one Termius tab per agent and choose a different focused view in each tab. The
-laptop keeps its existing split views throughout.
+pages are tmux windows, with individual agents in panes. The phone presents all
+live agents as one flat session list. Choose an agent to see only that pane;
+press `Ctrl-]` to return to the list and choose another. The laptop keeps its
+existing split views throughout. Separate Termius tabs remain optional when you
+want more than one agent connection open at once.
 
 The focused view reserves `Ctrl-]` as its local detach key. Closing the Termius
 tab also disconnects only that view. To reopen the picker from a normal SSH

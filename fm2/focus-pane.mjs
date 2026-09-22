@@ -240,29 +240,54 @@ function printList(entries, output = process.stdout) {
   }
 }
 
-async function choose(output = process.stdout) {
-  const entries = listFocusedPanes();
-  if (!entries.length) {
-    printList(entries, output);
-    return;
-  }
-  output.write('\nFirstmate remote view\n\n');
-  output.write('  1. Full panel tree (shared tmux layout)\n');
-  entries.forEach((entry, index) => {
-    output.write(`  ${index + 2}. ${entry.label}  [${entry.panel} / ${entry.window}]\n`);
-  });
-  output.write('\nOpen another SSH tab to keep more than one agent visible.\n');
+async function readChoice(output) {
   const prompt = createInterface({ input: process.stdin, output });
-  const answer = await prompt.question('Choose a view: ');
-  prompt.close();
-  const selected = Number(answer);
-  if (!Number.isInteger(selected) || selected < 1 || selected > entries.length + 1) return;
-  if (selected === 1) {
-    if (process.env.TMUX) runTmux(['choose-tree', '-s']);
-    else execFileSync('tmux', ['attach-session', '-f', 'ignore-size,active-pane', ';', 'choose-tree', '-s'], { stdio: 'inherit' });
-    return;
+  try {
+    return (await prompt.question('Choose a session: ')).trim().toLowerCase();
+  } finally {
+    prompt.close();
   }
-  await focusPane(entries[selected - 2].pane);
+}
+
+function openFullPanel() {
+  if (process.env.TMUX) runTmux(['choose-tree', '-s']);
+  else execFileSync('tmux', ['attach-session', '-f', 'ignore-size,active-pane', ';', 'choose-tree', '-s'], { stdio: 'inherit' });
+}
+
+export async function chooseFocusedPane(output = process.stdout, {
+  list = listFocusedPanes,
+  focus = focusPane,
+  choose = readChoice,
+  fullPanel = openFullPanel,
+} = {}) {
+  // Stay inside one SSH connection. A phone should behave like a conversation
+  // list: select one live agent, see only that pane, then detach the focused
+  // view and land back here to choose another. Requiring one Termius tab per
+  // pane made the feature technically usable but missed that navigation model.
+  while (true) {
+    const entries = list();
+    output.write(CLEAR);
+    if (!entries.length) {
+      printList(entries, output);
+      return;
+    }
+    output.write('Firstmate sessions\n\n');
+    entries.forEach((entry, index) => {
+      output.write(`  ${index + 1}. ${entry.label}  [${entry.panel} / ${entry.window}]\n`);
+    });
+    output.write('\n  p. Full panel tree (shared laptop layout)\n');
+    output.write('  q. Disconnect\n\n');
+    output.write('Inside a session, press Ctrl-] to return to this list.\n');
+    const answer = await choose(output);
+    if (answer === 'q' || answer === 'quit' || answer === '0') return;
+    if (answer === 'p') {
+      await fullPanel();
+      continue;
+    }
+    const selected = Number(answer);
+    if (!Number.isInteger(selected) || selected < 1 || selected > entries.length) continue;
+    await focus(entries[selected - 1].pane);
+  }
 }
 
 export async function focusCommand(args) {
@@ -271,7 +296,7 @@ export async function focusCommand(args) {
     return;
   }
   if (args.length === 1 && args[0] === '--choose') {
-    await choose();
+    await chooseFocusedPane();
     return;
   }
   if (args.length !== 1) throw new Error('usage: fm focus <task-id|%pane> | fm focus --list | fm focus --choose');

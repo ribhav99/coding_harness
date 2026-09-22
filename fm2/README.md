@@ -123,7 +123,9 @@ setup command, see [Remote mobile access](../docs/remote-mobile-access.md).
 An `fmp` project panel remains one tmux session on the laptop. On a secondary
 terminal, `fm focus <task-id>` mirrors one pane full-screen and forwards input
 without changing the panel's active pane, dimensions, zoom, or split layout.
-Open one Termius SSH tab per agent and select a different focused view in each.
+The phone opens a flat list of live agents. Select one to see only that pane,
+then press `Ctrl-]` to return to the list and choose another. Separate Termius
+tabs are optional when more than one focused connection is useful.
 `Ctrl-]` detaches a focused view.
 
 For one saved host that discovers everything automatically, run the remote
