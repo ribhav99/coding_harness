@@ -153,11 +153,15 @@ branch tip first — asking someone to look at a commit that never landed is wor
 than silence. Confirm it, do not quote it: a sha identifies nothing they can act
 on, and they open the PR and see the head regardless.
 
-**A merged PR closes its session, in the same breath as the merge.** Not later,
-not when the list is next looked at — the merge and the close are one action. A
-review that requested changes stays open; the author's response comes back to the
-session that read the code. `fm status` marks a session whose PR has landed, so a
-missed one is visible, but the mark is a backstop and not the process.
+**An approved PR closes its review session, in the same breath as the approval.**
+Once the approval is confirmed on the forge and the author has been told, `fm
+close` the session that reviewed it. Do not wait for the merge: merging is the
+author's step, and nothing is left for the reviewer to do. A merged PR closes any
+session still open for it the same way — not later, not when the list is next
+looked at. A review that requested changes stays open; the author's response
+comes back to the session that read the code. `fm status` marks a session whose
+PR has landed, so a missed one is visible, but the mark is a backstop and not the
+process.
 
 **A merge closes its work order.** Whoever wrote it. When a PR lands, set its
 work order completed in the tracker — that is the last step of the work, not
