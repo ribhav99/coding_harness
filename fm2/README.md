@@ -36,6 +36,7 @@ fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 fm switch <id> --agent codex       move the same task to Codex (or claude)
 fm effort <level>                   restart this managed session at a new effort
+fm update claude|codex              update one provider; resume all its managed sessions
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -72,6 +73,29 @@ hook schedules the replacement outside the provider process tree, suppresses the
 intermediate task report, and resumes the exact conversation automatically.
 Claude accepts `low`, `medium`, `high`, `xhigh`, and `max`; Codex also accepts
 `ultra`. The model is fixed and cannot be changed by this command.
+
+## Updating a provider without losing the fleet
+
+Run this from any fm controller and then end that controller's turn:
+
+```sh
+fm update claude
+fm update codex
+```
+
+The controller's Stop hook creates one temporary maintenance terminal. It
+preflights every live fm session using the selected provider across every tmux
+panel, requires a hook-recorded exact session ID and readable transcript for
+each, snapshots them all, and only then begins stopping processes. Once every
+managed session is closed, it runs the provider's own updater exactly once and
+resumes each conversation in its original pane. Workers restart before
+controllers. The maintenance terminal disappears on success; on failure it
+stays open and points to the manifest under `~/.fm2/provider-updates/`. An
+updater failure still attempts to reopen every session already stopped.
+
+Claude resumes with `--resume <exact-id>` and Codex with `resume <exact-id>`.
+The operation never uses `cc -c`, `--continue`, `--last`, or transcript recency.
+Unmanaged provider panes make preflight refuse before it stops anything.
 
 Older Claude tasks predate the identity hook. For those, fm requires one local
 transcript matching the exact worktree and opening brief. Multiple matches are

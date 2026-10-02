@@ -18,6 +18,10 @@ import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
 import { controllerId, rememberSession } from '../lib/sessions.mjs';
 import { providerProcess } from '../lib/provider-processes.mjs';
 import { schedulePendingEffort } from '../lib/effort.mjs';
+import {
+  providerUpdateOwnsStop,
+  schedulePendingProviderUpdate,
+} from '../lib/provider-update-state.mjs';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -47,6 +51,16 @@ try {
     providerPid: providerProcess(agent),
   });
 } catch { /* never hold up a turn for bookkeeping */ }
+
+try {
+  if (task && schedulePendingProviderUpdate(task, agent)) done();
+} catch { /* retain normal stop behavior if scheduling failed */ }
+
+// The coordinator deliberately stops every session on the provider. Those
+// lifecycle stops are neither completed work nor unread reports.
+try {
+  if (providerUpdateOwnsStop(agent, task)) done();
+} catch { /* retain normal stop behavior if state cannot be read */ }
 
 try {
   if (task && schedulePendingEffort(task, agent)) done();

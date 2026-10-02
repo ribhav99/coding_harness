@@ -12,6 +12,7 @@ import { capturePanel, createPanel, applyPanelLayout, openITermPanel } from './p
 import { supervisorCommand } from '../supervisor.mjs';
 import { pending } from './notify.mjs';
 import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
+import { providerAvailable } from './provider-command.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const safe = (value) => String(value).replace(/[^A-Za-z0-9._-]/g, '-');
@@ -41,8 +42,7 @@ function startPane(pane, cwd, command, agent) {
 export const PANEL_RUNTIME = {
   tmux, providerAt, stop: stopPane, start: startPane,
   available(agent) {
-    try { execFileSync('/bin/bash', ['-c', 'command -v "$1"', 'fm', agent], { stdio: 'ignore' }); return true; }
-    catch { return false; }
+    return providerAvailable(agent);
   },
   open: (panel, options) => openITermPanel(panel, options),
   sync: (agent) => syncSkills({ agent }),

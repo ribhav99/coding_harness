@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { claimEffort, finishEffort, setEffort } from './lib/effort.mjs';
 import { loadTask } from './lib/config.mjs';
@@ -15,6 +14,7 @@ import { supervisorRecord } from './lib/presence.mjs';
 import { providerAt, stopProvider } from './lib/provider-processes.mjs';
 import { resolveSession } from './lib/sessions.mjs';
 import { supervisorCommand } from './supervisor.mjs';
+import { providerExecutable } from './lib/provider-command.mjs';
 
 const [id, token, hookPidText] = process.argv.slice(2);
 
@@ -52,11 +52,7 @@ function reloadController(identity, request) {
   const cwd = resolve(record.cwd || process.cwd());
   const task = { id: identity, worktree: cwd, project: cwd, brief: null, agent: request.agent };
   const source = resolveSession(task, request.agent, { explicit: record.session_id || null });
-  try {
-    execFileSync('command', ['-v', request.agent], { stdio: 'ignore', shell: '/bin/bash' });
-  } catch {
-    throw new Error(`${request.agent} is not installed`);
-  }
+  providerExecutable(request.agent, { required: true });
   const preserved = preserveSession(task, source, request.agent);
   const targetCommand = supervisorCommand({
     agent: request.agent, id: identity, panel, cwd, resume: source.id,

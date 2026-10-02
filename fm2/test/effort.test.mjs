@@ -130,8 +130,11 @@ test('global instruction installation updates only its managed blocks', t => {
   assert.match(claude, /Personal Claude rules/u);
   assert.match(claude, /low.*medium.*high.*xhigh.*max/u);
   assert.doesNotMatch(claude, /`ultra`/u);
+  assert.match(claude, /fm update claude/u);
+  assert.match(claude, /exact session ID/u);
   assert.match(codex, /Personal Codex rules/u);
   assert.match(codex, /`ultra`/u);
+  assert.match(codex, /fm update codex/u);
   assert.equal(installInstructions({ claudeFile, codexFile, check: true }).length, 0);
   assert.equal(installInstructions({ claudeFile, codexFile }).length, 0);
 });

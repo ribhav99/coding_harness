@@ -643,7 +643,7 @@ test('a task switches to Codex and back without changing its work or report rout
   const toCodex = switchTask('wo-switch', { agent: 'codex', runtime });
   assert.equal(toCodex.worktreePreserved, true);
   assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
-  assert.match(launches[0].command, /codex --no-alt-screen/);
+  assert.match(launches[0].command, /codex' --no-alt-screen|codex --no-alt-screen/);
   assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.equal(launches[0].cwd, worktree);
   const afterCodex = loadTask('wo-switch');
@@ -689,7 +689,7 @@ test('a task switches to Codex and back without changing its work or report rout
 
   const toClaude = switchTask('wo-switch', { agent: 'claude', runtime });
   assert.equal(toClaude.resumed, claudeSession, 'switching back did not resume the exact prior Claude chat');
-  assert.match(launches[1].command, /claude --dangerously-skip-permissions/);
+  assert.match(launches[1].command, /claude' --dangerously-skip-permissions|claude --dangerously-skip-permissions/);
   assert.match(launches[1].command, new RegExp(`--resume '${claudeSession}'`));
   const back = loadTask('wo-switch');
   assert.equal(back.agent, 'claude');
@@ -1371,15 +1371,25 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(full, /"\$\(cat '\/b\.md'\)"/);
 });
 
-test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async () => {
+test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async (t) => {
   const home = freshHome();
   const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
   const prompt = join(home, 'prompt.md');
   writeFileSync(prompt, 'continue the same task\n');
 
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath}`;
+  t.after(() => { process.env.PATH = previousPath; });
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+
   const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
-  assert.match(fresh, /\bcodex --no-alt-screen\b/);
+  assert.match(fresh, /codex' --no-alt-screen|codex --no-alt-screen/);
   // Said outright, never inherited. The desktop app's config is the wrong
   // configuration for an unattended pane: its default approval policy stops a
   // worker to ask a human before its first command outside the workspace, and
@@ -1399,13 +1409,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
   assert.match(fresh, /FM2_AGENT='codex'/);
   assert.doesNotMatch(fresh, /claude --/);
 
-  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
   const argsFile = join(home, 'worker-args');
-  writeFileSync(
-    join(bin, 'codex'),
-    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
-    { mode: 0o755 },
-  );
   const invoked = spawnSync('/bin/sh', ['-c', fresh], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FM2_ARGS_FILE: argsFile },
@@ -1423,7 +1427,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
     briefPath: prompt,
     resume: '44444444-4444-4444-4444-444444444444',
   });
-  assert.match(resumed, /codex resume /);
+  assert.match(resumed, /codex' resume |codex resume /);
   assert.match(resumed, /-c model_reasoning_effort="high"/);
   assert.match(resumed, /'44444444-4444-4444-4444-444444444444'/);
 });

@@ -84,9 +84,19 @@ provide() { # provide <target> <name>
 
 CODEX_RESOURCES="${CODEX_RESOURCES:-/Applications/ChatGPT.app/Contents/Resources}"
 if [ -d "$CODEX_RESOURCES" ]; then
-  for helper in codex codex-code-mode-host codex_chronicle rg; do
-    provide "$CODEX_RESOURCES/$helper" "$helper"
-  done
+  # The app's original bundle put every helper at Resources/<name>. Newer
+  # builds ship a self-contained codex-cli tree. Prefer its wrapper (it survives
+  # internal binary moves), while retaining the old layout for older installs.
+  CODEX_CLI="$CODEX_RESOURCES/codex"
+  [ -x "$CODEX_CLI" ] || CODEX_CLI="$CODEX_RESOURCES/codex-cli/bin/codex"
+  CODEX_HOST="$CODEX_RESOURCES/codex-code-mode-host"
+  [ -x "$CODEX_HOST" ] || CODEX_HOST="$CODEX_RESOURCES/codex-cli/bin/codex-code-mode-host"
+  CODEX_RG="$CODEX_RESOURCES/rg"
+  [ -x "$CODEX_RG" ] || CODEX_RG="$CODEX_RESOURCES/codex-cli/codex-path/rg"
+  provide "$CODEX_CLI" codex
+  provide "$CODEX_HOST" codex-code-mode-host
+  [ ! -x "$CODEX_RESOURCES/codex_chronicle" ] || provide "$CODEX_RESOURCES/codex_chronicle" codex_chronicle
+  provide "$CODEX_RG" rg
 elif command -v codex >/dev/null 2>&1; then
   ok 'codex (already on PATH)'
 else

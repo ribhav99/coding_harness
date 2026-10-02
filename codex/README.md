@@ -90,6 +90,14 @@ then end their turn; the Stop hook resumes the exact conversation automatically.
 Codex supports `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. The command
 does not expose model selection.
 
+An fm controller can update either installed CLI without losing the terminal
+fleet: run `fm update codex` or `fm update claude`, then end the turn. A temporary
+maintenance terminal stops every managed session on that provider across all
+panels, invokes its updater once, and resumes exact session IDs in the same
+panes. It never uses `--last` or transcript recency. If preflight cannot prove a
+session's identity, nothing is stopped; if updating fails, every session already
+stopped is still restarted before the failure is reported.
+
 ```
 codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="high" \
       -c approval_policy="never" -c sandbox_mode="danger-full-access" \

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { providerAvailable } from './provider-command.mjs';
 
 // Read per call, never snapshotted at import. A constant here would freeze the
 // home to whatever the environment held when the module first loaded, which
@@ -103,8 +104,8 @@ export function capabilities({ refresh = false } = {}) {
   const caps = {
     git: have('git'),
     tmux: have('tmux'),
-    claude: have('claude'),
-    codex: have('codex'),
+    claude: providerAvailable('claude'),
+    codex: providerAvailable('codex'),
     gh: false,
     slack: false,
   };

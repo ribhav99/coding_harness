@@ -4,7 +4,8 @@ Operator manual. For the design, see [`PRD.md`](PRD.md); for the architecture, s
 
 For the **Codex app**, use the [native setup](codex/README.md): app tasks, messages,
 subagents, and review panels. For **Claude Code or Codex in iTerm2**, use the
-[fm terminal panel](fm2/README.md), including whole-panel provider switching.
+[fm terminal panel](fm2/README.md), including whole-panel provider switching
+and one-command provider updates that restore every exact conversation.
 To use every live fm/tmux panel from an iPhone or iPad, follow the
 [Tailscale + Termius remote-access setup](docs/remote-mobile-access.md); it
 includes a one-command, repeatable setup for additional Macs.

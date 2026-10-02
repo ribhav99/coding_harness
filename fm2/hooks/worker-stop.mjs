@@ -15,6 +15,7 @@ import { rememberSession } from '../lib/sessions.mjs';
 import { currentPanel } from '../lib/presence.mjs';
 import { providerProcess } from '../lib/provider-processes.mjs';
 import { schedulePendingEffort } from '../lib/effort.mjs';
+import { providerUpdateOwnsStop } from '../lib/provider-update-state.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
 // last_assistant_message. Verified against a real hook firing. Reading the
@@ -62,6 +63,12 @@ try {
   if (here && known && known.pane !== here && (known.agent || 'claude') === (process.env.FM2_AGENT || 'claude')) {
     try { saveTask({ ...known, pane: here }); } catch { /* bookkeeping never blocks a turn */ }
   }
+  // A fleet-wide provider update stops this process on purpose. Keep its exact
+  // identity bookkeeping above, but do not turn that lifecycle stop into a
+  // completion report or a knock on the controller.
+  try {
+    if (providerUpdateOwnsStop(agent, task)) done();
+  } catch { /* report normally if update state cannot be read */ }
   // An effort change is a lifecycle transition, not a completed task. Queue the
   // replacement outside this provider's process tree, let this hook return, and
   // suppress the ordinary report/notification for this intermediate stop.

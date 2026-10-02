@@ -9,6 +9,7 @@ import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
 import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
+import { providerExecutable } from './lib/provider-command.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -77,7 +78,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         ...(resume ? [resume] : []),
       ];
   return {
-    command: provider,
+    command: providerExecutable(provider),
     args,
     env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
       ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
@@ -88,7 +89,7 @@ export function supervisorCommand({ briefPath = null, ...options } = {}) {
   const launch = invocation(options);
   const env = Object.entries(launch.env).map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ');
   const args = launch.args.map(shellQuote).join(' ');
-  return `${env} ${launch.command} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
+  return `${env} ${shellQuote(launch.command)} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
 }
 
 export function main(argv = process.argv.slice(2)) {

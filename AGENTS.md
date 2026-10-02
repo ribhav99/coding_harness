@@ -62,3 +62,8 @@ for independent parts.
   The Stop hook preserves and resumes the same conversation. Claude accepts
   `low|medium|high|xhigh|max`; Codex additionally accepts `ultra`. Never change
   the model as part of an effort transition.
+- When Ribhav asks the controller to update a provider, run `fm update
+  claude|codex` and end the turn immediately. A separate maintenance pane stops
+  every managed session on that provider across all panels, runs one update,
+  and resumes exact session IDs in their original panes. Never substitute
+  `cc -c`, `--last`, a recency guess, or a manual relaunch loop.

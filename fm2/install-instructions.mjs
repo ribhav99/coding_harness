@@ -22,7 +22,14 @@ function block(provider) {
     `\`fm effort <level>\`, then end the current turn immediately. The Stop hook will preserve this exact ` +
     `conversation, restart it at that level, and continue automatically. Do not describe the lifecycle stop ` +
     `as task completion. Do not change the model. Valid ${provider} levels are ${levels}.${ultra} Outside an ` +
-    `fm-managed session, do not use this command.\n${END}`;
+    `fm-managed session, do not use this command.\n\n` +
+    `## Provider updates (Firstmate)\n\n` +
+    `When Ribhav asks an fm controller to update Claude Code or Codex, run exactly ` +
+    `\`fm update claude\` or \`fm update codex\`, then end the current turn immediately. The Stop hook ` +
+    `opens one maintenance terminal, preserves and stops every managed session using that provider across ` +
+    `all panels, runs the provider's updater once, and resumes every conversation by its exact session ID ` +
+    `in its original pane. Do not use \`cc -c\`, \`--last\`, recency, or hand-written relaunch loops. Do not ` +
+    `describe the queued lifecycle stop as completion. Only an fm controller may request this operation.\n${END}`;
 }
 
 function updated(text, provider) {
@@ -69,7 +76,7 @@ function main(argv) {
   if (changes.length) {
     for (const change of changes) process.stdout.write(`  ${check ? 'TODO' : 'ok  '}  ${change.file}\n`);
     if (check) process.exitCode = 1;
-  } else process.stdout.write('  ok    global dynamic-effort instructions\n');
+  } else process.stdout.write('  ok    global fm lifecycle instructions\n');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

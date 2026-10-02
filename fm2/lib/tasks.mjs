@@ -31,6 +31,7 @@ import { providerAt, sessionOwnership, stopProvider } from './provider-processes
 import { currentPanel } from './presence.mjs';
 import { configurePanelQuotaStatus } from './quota-status.mjs';
 import { DEFAULT_EFFORT, effortFor, normalizeEffort, setEffort } from './effort.mjs';
+import { providerAvailable, providerExecutable } from './provider-command.mjs';
 import {
   agentOf,
   normalizeAgent,
@@ -298,6 +299,7 @@ export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.code
 
 export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '', effort = null }) {
   const provider = normalizeAgent(agent);
+  const executable = shellQuote(providerExecutable(provider));
   const reasoning = effort === null ? effortFor(id, provider) : normalizeEffort(provider, effort);
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
@@ -322,7 +324,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const prompt = briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : '';
   if (provider === 'claude') {
     return (
-      `${env} claude --dangerously-skip-permissions --effort ${reasoning} --model opus ` +
+      `${env} ${executable} --dangerously-skip-permissions --effort ${reasoning} --model opus ` +
       `--settings ${shellQuote(settingsFile)}` +
       (resume ? ` --resume ${shellQuote(resume)}` : '') +
       prompt
@@ -330,8 +332,8 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   }
 
   const flags = `--no-alt-screen ${codexSessionFlags(reasoning)} ${codexHookFlags(settingsFile)}`;
-  if (resume) return `${env} codex resume ${flags} ${shellQuote(resume)}${prompt}`;
-  return `${env} codex ${flags}${prompt}`;
+  if (resume) return `${env} ${executable} resume ${flags} ${shellQuote(resume)}${prompt}`;
+  return `${env} ${executable} ${flags}${prompt}`;
 }
 
 function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent = 'claude') {
@@ -747,12 +749,7 @@ function replacePane(pane, cwd, command) {
 
 const SWITCH_RUNTIME = {
   available(agent) {
-    try {
-      execFileSync('command', ['-v', normalizeAgent(agent)], { stdio: 'ignore', shell: '/bin/bash' });
-      return true;
-    } catch {
-      return false;
-    }
+    return providerAvailable(normalizeAgent(agent));
   },
   alive(pane) {
     try { return tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0'; }
