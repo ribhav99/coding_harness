@@ -97,7 +97,22 @@ updater failure still attempts to reopen every session already stopped.
 
 Claude resumes with `--resume <exact-id>` and Codex with `resume <exact-id>`.
 The operation never uses `cc -c`, `--continue`, `--last`, or transcript recency.
-Unmanaged provider panes make preflight refuse before it stops anything.
+Manual provider panes require one native transcript held open by their process.
+The requester receives a durable completion or failure report and is woken
+after its exact conversation is ready, so a request to update both providers
+can continue across the lifecycle restart.
+
+Models follow the latest release of the chosen family: Claude's `opus` alias
+and the newest stable Sol in Codex's model catalog. Both controllers and workers
+use this policy on new launches and resumes; saved conversations cannot pin an
+older Sol. Effort remains per task (default `high`). Codex refreshes a catalog
+older than one minute and explicitly warns when an offline launch uses its
+cached latest model. No model version is hard-coded in the harness.
+
+When the active Codex command is an external link into the desktop app bundle,
+whose updater cannot detect its installation method, the maintenance terminal
+installs the official standalone npm distribution into that same bin prefix.
+This replaces only the CLI link; future CLI updates use the managed package.
 
 Older Claude tasks predate the identity hook. For those, fm requires one local
 transcript matching the exact worktree and opening brief. Multiple matches are
@@ -190,7 +205,7 @@ controls whether tmux windows become native tabs or separate windows. Choose
 tabs in a new window for a complete panel grouped together. The harness uses
 the supported `tmux -CC` integration and preserves that preference.
 
-Codex keeps its configured model, reasoning, sandbox, and approval settings.
+Codex uses latest Sol while retaining the task's effort, sandbox, and approval settings.
 On first use, inspect and trust the harness command hooks with `/hooks` in the
 control pane and a worker pane. Hook definitions stay stable across task IDs
 and panels. Skipped hooks cannot report or record exact session IDs. The

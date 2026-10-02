@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,9 +32,13 @@ import {
 import { recordSupervisor } from '../lib/presence.mjs';
 import { rememberSession } from '../lib/sessions.mjs';
 import { pending } from '../lib/notify.mjs';
+import { seedModelCatalog } from './model-fixture.mjs';
+import { reportProviderUpdate } from '../lib/provider-update-report.mjs';
+import { knock } from '../lib/knock.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'fm-provider-update-'));
+  seedModelCatalog(root, t);
   const previous = Object.fromEntries(['FM2_HOME', 'PATH'].map((key) => [key, process.env[key]]));
   process.env.FM2_HOME = join(root, 'home');
   mkdirSync(process.env.FM2_HOME);
@@ -147,6 +152,20 @@ test('Codex fallback updates only the installation that supplied the active bina
   assert.equal(providerUpdatePlan('codex').method, 'homebrew');
 });
 
+test('an app-bundled Codex bin link becomes an updatable standalone installation', t => {
+  const root = fixture(t);
+  const appBin = join(root, 'ChatGPT.app', 'Contents', 'Resources', 'codex-cli', 'bin');
+  const bin = join(root, 'prefix', 'bin');
+  mkdirSync(appBin, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(appBin, 'codex'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  symlinkSync(join(appBin, 'codex'), join(bin, 'codex'));
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  const plan = providerUpdatePlan('codex');
+  assert.equal(plan.method, 'app-bundle-to-npm');
+  assert.deepEqual(plan.steps, [{ command: 'npm', args: ['install', '-g', '--prefix', join(root, 'prefix'), '--force', '@openai/codex@latest'] }]);
+});
+
 test('intentional update stops do not become worker completion reports', t => {
   const root = fixture(t);
   const repo = gitRepo(root);
@@ -179,6 +198,22 @@ test('intentional update stops do not become worker completion reports', t => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(pending('panel').length, 0);
   finishProviderUpdate('claude', requested.token, { result: {} });
+});
+
+test('provider completion reports wake the original controller and submit the message', async t => {
+  fixture(t);
+  const sent = [];
+  const result = { before_version: 'codex 1', after_version: 'codex 2', entries: [{}, {}] };
+  await reportProviderUpdate({ provider: 'codex', panel: 'original-panel', manifest: '/exact/manifest.json' }, {
+    result,
+    deliver: (task, options) => knock(task, { ...options, pane: '%3',
+      send: async args => { sent.push(args); return true; }, wait: async () => {} }),
+  });
+  assert.equal(pending('original-panel').length, 1);
+  assert.match(pending('original-panel')[0].text, /2 exact conversation\(s\) reopened/u);
+  assert.match(sent[0].at(-1), /codex update complete/u);
+  assert.equal(sent[0][2], '%3');
+  assert.equal(sent[1].at(-1), 'Enter');
 });
 
 test('all managed sessions stop before one update and resume exact ids in their original panes', t => {
@@ -338,6 +373,6 @@ test('an unmanaged provider pane is identified by its one open native transcript
   const manifest = prepareProviderUpdate(request, { runtime });
   assert.equal(manifest.entries[0].unmanaged, true);
   executeProviderUpdate(manifest, { runtime });
-  assert.match(resumed, /codex' resume 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'|codex resume 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'/u);
+  assert.match(resumed, /resume -c model="gpt-6\.1-sol" 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'/u);
   assert.doesNotMatch(resumed, /FM2_TASK|hooks\.|--last|continue\.md/u);
 });

@@ -4,13 +4,14 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { allTasks, loadTask, saveTask } from './config.mjs';
 import {
   allRecordedSessions,
   agentOf,
   controllerId,
   normalizeAgent,
+  recordedSession,
   resolveSession,
   sessionFromTranscript,
 } from './sessions.mjs';
@@ -34,6 +35,7 @@ import {
   stopProvider,
 } from './provider-processes.mjs';
 import { providerExecutable } from './provider-command.mjs';
+import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 
 function wait(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -70,6 +72,21 @@ function installedWithBrew(executable) {
 export function providerUpdatePlan(provider) {
   const agent = normalizeAgent(provider);
   const executable = providerExecutable(agent, { required: true });
+  // The app-bundled CLI advertises `update` but cannot detect an installation
+  // method. Replace only its external bin symlink with the official standalone
+  // npm distribution (which also contains the code-mode host). Future updates
+  // then have a real package-manager installation to upgrade.
+  let actual = executable;
+  try { actual = realpathSync(executable); } catch { /* ordinary lookup handles absence */ }
+  if (agent === 'codex' && actual.includes('/ChatGPT.app/Contents/')
+      && actual !== executable && dirname(executable).endsWith('/bin')
+      && !executable.includes('.app/Contents/')) {
+    const prefix = dirname(dirname(executable));
+    return {
+      provider: agent, method: 'app-bundle-to-npm', executable,
+      steps: [{ command: 'npm', args: ['install', '-g', '--prefix', prefix, '--force', '@openai/codex@latest'] }],
+    };
+  }
   // Claude Code's supported updater is `claude update`; its very large help
   // output is truncated when captured through a Node pipe on some native
   // builds, so probing that listing can falsely claim the command is absent.
@@ -183,7 +200,16 @@ function systemStart(entry, command, provider) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
       const pid = Number(tmux(['display-message', '-p', '-t', entry.pane.id, '#{pane_pid}']));
-      if (providerAt({ pid }) === provider) return;
+      if (providerAt({ pid }) === provider) {
+        if (entry.unmanaged) return;
+        const current = recordedSession(entry.task, provider);
+        // Wait for the exact resumed conversation's startup hook, not just a
+        // process that exists but cannot yet accept the completion report.
+        if (current?.id === entry.source.id) {
+          sessionOwnership({ id: entry.pane.id, pid, dead: false }, current);
+          return;
+        }
+      }
     } catch { /* the next iteration gives the provider time to start */ }
     wait(100);
   }
@@ -256,8 +282,8 @@ function commandFor(entry, provider) {
   if (entry.unmanaged) {
     const executable = shellQuote(providerExecutable(provider, { required: true }));
     return provider === 'claude'
-      ? `${executable} --resume ${shellQuote(entry.source.id)}`
-      : `${executable} resume ${shellQuote(entry.source.id)}`;
+      ? `${executable} --model ${CLAUDE_MODEL} --resume ${shellQuote(entry.source.id)}`
+      : `${executable} resume -c model=${JSON.stringify(latestCodexModel())} ${shellQuote(entry.source.id)}`;
   }
   if (entry.controller) {
     return supervisorCommand({

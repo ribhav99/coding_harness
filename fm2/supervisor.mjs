@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CLAUDE_MODEL, latestCodexModel } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
 
@@ -58,7 +59,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
   const reasoning = effort === null ? effortFor(identity, provider) : normalizeEffort(provider, effort);
   const config = supervisorHookConfig(provider);
   const args = provider === 'claude'
-    ? ['--dangerously-skip-permissions', '--effort', reasoning,
+    ? ['--dangerously-skip-permissions', '--effort', reasoning, '--model', CLAUDE_MODEL,
         ...(hasOnlyLegacyControllerHooks(cwd) ? ['--setting-sources', 'user,local'] : []),
         '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
@@ -66,7 +67,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         '--no-alt-screen',
         // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
-        '-c', `model=${JSON.stringify(CODEX_MODEL)}`,
+        '-c', `model=${JSON.stringify(latestCodexModel())}`,
         '-c', `model_reasoning_effort=${JSON.stringify(reasoning)}`,
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',

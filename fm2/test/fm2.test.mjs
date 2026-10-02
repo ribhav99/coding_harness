@@ -8,12 +8,14 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { seedModelCatalog } from './model-fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
 
 function freshHome() {
   const home = mkdtempSync(join(tmpdir(), 'fm2-home-'));
+  seedModelCatalog(home);
   process.env.FM2_HOME = home;
   process.env.CLAUDE_SKILLS_DIR = join(home, 'claude-skills');
   process.env.CODEX_SKILLS_DIR = join(home, 'codex-skills');
@@ -560,7 +562,7 @@ test('a session reloads onto the same agent, in its own pane, carrying its conve
   assert.equal(launches[0].pane, '%21', 'the reload did not reuse the task\'s own pane');
   assert.equal(launches[0].cwd, worktree);
   // The settings that made this worth doing at all.
-  assert.match(launches[0].command, /-c model="gpt-5\.6-sol"/);
+  assert.match(launches[0].command, /-c model="gpt-6\.1-sol"/);
   assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.match(launches[0].command, /-c approval_policy="never"/);
 
@@ -1394,7 +1396,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
   // configuration for an unattended pane: its default approval policy stops a
   // worker to ask a human before its first command outside the workspace, and
   // its model follows whatever the app is pointed at today.
-  assert.match(fresh, /-c model="gpt-5\.6-sol"/);
+  assert.match(fresh, /-c model="gpt-6\.1-sol"/);
   assert.match(fresh, /-c model_reasoning_effort="high"/);
   assert.match(fresh, /-c approval_policy="never"/);
   assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
@@ -1453,7 +1455,7 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   });
   assert.equal(result.status, 0, result.stderr);
   const args = readFileSync(argsFile, 'utf8');
-  assert.match(args, /model="gpt-5\.6-sol"/);
+  assert.match(args, /model="gpt-6\.1-sol"/);
   assert.match(args, /model_reasoning_effort="high"/);
   assert.match(args, /approval_policy="never"/);
   assert.match(args, /sandbox_mode="danger-full-access"/);

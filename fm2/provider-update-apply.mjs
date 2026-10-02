@@ -8,6 +8,7 @@ import {
   setProviderUpdatePhase,
 } from './lib/provider-update-state.mjs';
 import { tmux } from './lib/tasks.mjs';
+import { reportProviderUpdate } from './lib/provider-update-report.mjs';
 
 const [provider, token, hookPidText] = process.argv.slice(2);
 let request = null;
@@ -47,7 +48,7 @@ function closeSuccessfulWindow() {
   try { tmux(['set-window-option', '-t', process.env.TMUX_PANE, 'remain-on-exit', 'off']); } catch {}
 }
 
-function main() {
+async function main() {
   keepFailureVisible();
   waitForHook(Number(hookPidText));
   // Let the provider consume the successful Stop-hook response and flush its
@@ -74,6 +75,8 @@ function main() {
       `${provider} update complete (${result.before_version} -> ${result.after_version}); ` +
       `${result.entries.length} exact conversation(s) reopened`,
     );
+    try { await reportProviderUpdate(request, { result }); }
+    catch (error) { output(`completion notification could not be delivered: ${error.message}`, { error: true }); }
     closeSuccessfulWindow();
   } catch (error) {
     let recovery = [];
@@ -84,8 +87,10 @@ function main() {
     finishProviderUpdate(provider, token, { error: error.message, recovery });
     output(`${provider} update failed: ${error.message}`, { error: true });
     output(`Full recovery record: ${request.manifest}`, { error: true });
+    try { await reportProviderUpdate(request, { error }); }
+    catch (failure) { output(`failure notification could not be delivered: ${failure.message}`, { error: true }); }
     process.exitCode = 1;
   }
 }
 
-main();
+await main();

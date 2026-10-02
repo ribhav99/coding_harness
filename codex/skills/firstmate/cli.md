@@ -32,6 +32,9 @@ not build a poller or ask workers for updates by sending them prompts.
 Use `--agent codex` or `--agent claude` when the user chooses the worker's
 provider. Otherwise workers inherit the current panel's provider; outside a
 panel, the default remains Claude.
+Controllers, workers and reviewers use latest Opus or latest stable Sol at
+launch and exact resume. The harness resolves the version; effort remains a
+separate per-task setting with default `high`.
 Use `fm caps` to establish optional forge, tracker, and Slack capabilities.
 Preserve existing task identity and worktrees instead of creating duplicates.
 
@@ -76,6 +79,8 @@ maintenance terminal snapshots and stops every identified session using that
 provider across all fm panels, invokes the provider's updater once, and resumes
 the exact native session IDs in their original panes. It closes on success and
 stays visible with the recovery manifest on failure.
+The requester is woken with the completion or failure report after its resumed
+conversation is ready; read it and continue any remaining authorized work.
 
 Do not run `claude update`, `codex update`, npm, or Homebrew directly while the
 sessions are live. Do not use `cc -c`, `--continue`, `--last`, or transcript

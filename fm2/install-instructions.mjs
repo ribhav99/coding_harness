@@ -29,7 +29,11 @@ function block(provider) {
     `opens one maintenance terminal, preserves and stops every identified session using that provider across ` +
     `all panels, runs the provider's updater once, and resumes every conversation by its exact session ID ` +
     `in its original pane. Do not use \`cc -c\`, \`--last\`, recency, or hand-written relaunch loops. Do not ` +
-    `describe the queued lifecycle stop as completion. Only an fm controller may request this operation.\n${END}`;
+    `describe the queued lifecycle stop as completion. Only an fm controller may request this operation. ` +
+    `After the completion report wakes the controller, verify it and finish any remaining requested updates.\n\n` +
+    `Terminal model defaults follow the latest Opus alias for Claude and latest stable Sol from Codex's ` +
+    `model catalog, including exact conversation resumes. Effort stays independent with default high ` +
+    `and per-task overrides preserved. Do not pin a release number in launch commands.\n${END}`;
 }
 
 function updated(text, provider) {

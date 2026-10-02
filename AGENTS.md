@@ -53,7 +53,8 @@ for independent parts.
 - Stop source conversations and their writing tools before starting replacements.
   Do not start two agents on the same worktree during a handoff. Keep live shell
   panes with their processes and retain recovery manifests after failures.
-- Codex keeps its configured model, reasoning, sandbox, and approval settings.
+- Terminal models follow latest Opus (Claude) or latest stable Sol (Codex).
+  Task effort, sandbox, and approval settings stay independent of model versions.
   Review the harness's lifecycle hooks with `/hooks` when first using them;
   never bypass trust for all user hooks to suppress that review.
 - Managed sessions start at `high` effort and may change their own effort with
