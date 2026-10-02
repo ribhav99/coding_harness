@@ -92,7 +92,7 @@ does not expose model selection.
 
 An fm controller can update either installed CLI without losing the terminal
 fleet: run `fm update codex` or `fm update claude`, then end the turn. A temporary
-maintenance terminal stops every managed session on that provider across all
+maintenance terminal stops every identified session on that provider across all
 panels, invokes its updater once, and resumes exact session IDs in the same
 panes. It never uses `--last` or transcript recency. If preflight cannot prove a
 session's identity, nothing is stopped; if updating fails, every session already

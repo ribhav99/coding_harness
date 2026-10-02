@@ -14,6 +14,7 @@ import test from 'node:test';
 import { saveTask, loadTask } from '../lib/config.mjs';
 import { providerExecutable } from '../lib/provider-command.mjs';
 import {
+  activeProviderSession,
   executeProviderUpdate,
   prepareProviderUpdate,
   providerUpdatePlan,
@@ -296,4 +297,47 @@ test('Codex update resumes its exact native thread without --last or a synthetic
   assert.match(resumed, /codex' resume |codex resume /u);
   assert.match(resumed, /'11111111-2222-3333-4444-555555555555'/u);
   assert.doesNotMatch(resumed, /--last|--continue|continue\.md|\$\(cat/u);
+});
+
+test('an unmanaged provider pane is identified by its one open native transcript and resumed without fm hooks', t => {
+  const root = fixture(t);
+  const repo = gitRepo(root);
+  const id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const sessionDir = join(root, '.codex', 'sessions');
+  mkdirSync(sessionDir, { recursive: true });
+  const transcript = codexTranscript(sessionDir, id, repo);
+  const pane = { id: '%9', pid: 900, dead: false, cwd: repo, panel: 'panel', window: 'control', index: 1 };
+  const table = [
+    { pid: 900, parent: 1, command: '/bin/zsh' },
+    { pid: 901, parent: 900, command: '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex' },
+    { pid: 902, parent: 901, command: '/opt/homebrew/bin/codex-code-mode-host' },
+  ];
+  const active = activeProviderSession(pane, 'codex', {
+    table,
+    filesForPid: (pid) => pid === 901 ? [transcript] : [],
+  });
+  assert.equal(active.id, id);
+  assert.equal(active.provider_pid, 901);
+  assert.equal(active.backend, 'embedded');
+
+  let resumed = null;
+  const runtime = {
+    plan: () => ({ provider: 'codex', method: 'fixture', executable: 'codex', steps: [] }),
+    version: () => 'codex 1',
+    panes: () => [pane],
+    activeSession: () => active,
+    ownership: (_pane, source) => source.backend,
+    stop: () => null,
+    update: () => {},
+    start: (_entry, command) => { resumed = command; },
+  };
+  const request = {
+    token: 'token', provider: 'codex', requested_by: 'controller:panel', requested_at: new Date().toISOString(),
+    manifest: join(root, 'manifest.json'), log: join(root, 'update.log'),
+  };
+  const manifest = prepareProviderUpdate(request, { runtime });
+  assert.equal(manifest.entries[0].unmanaged, true);
+  executeProviderUpdate(manifest, { runtime });
+  assert.match(resumed, /codex' resume 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'|codex resume 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'/u);
+  assert.doesNotMatch(resumed, /FM2_TASK|hooks\.|--last|continue\.md/u);
 });

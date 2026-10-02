@@ -12,6 +12,7 @@ import {
   controllerId,
   normalizeAgent,
   resolveSession,
+  sessionFromTranscript,
 } from './sessions.mjs';
 import { supervisorRecord } from './presence.mjs';
 import {
@@ -25,8 +26,10 @@ import {
 } from './tasks.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import {
+  descendants,
   processTable,
   providerAt,
+  processProvider,
   sessionOwnership,
   stopProvider,
 } from './provider-processes.mjs';
@@ -41,6 +44,7 @@ function writeJson(path, value) {
 }
 
 function lines(value) { return String(value || '').split('\n').filter(Boolean); }
+function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 
 function supportsSelfUpdate(executable) {
   try {
@@ -123,6 +127,56 @@ function systemPanes(provider) {
     .filter((pane) => !pane.dead && providerAt(pane, table) === provider);
 }
 
+function openFiles(pid) {
+  return lines(execFileSync('lsof', ['-Fn', '-p', String(pid)], {
+    encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
+  })).filter((line) => line.startsWith('n')).map((line) => line.slice(1));
+}
+
+function providerTranscript(provider, path) {
+  if (!path.endsWith('.jsonl')) return false;
+  return provider === 'codex'
+    ? path.includes('/.codex/sessions/')
+    : path.includes('/.claude/projects/');
+}
+
+// Hooks are the normal source of pane/session ownership. A user can also split
+// a control window and run `codex` or `claude` directly, though. During an
+// update, lsof gives us a stronger exact identity for that case: the provider
+// PID and the one native transcript it currently has open. Refuse zero or
+// multiple matches; never fall back to cwd recency.
+export function activeProviderSession(pane, provider, {
+  table = processTable(),
+  filesForPid = openFiles,
+} = {}) {
+  const candidates = [table.find((entry) => entry.pid === Number(pane.pid)), ...descendants(pane.pid, table)]
+    .filter((entry) => entry && processProvider(entry.command) === provider);
+  const matches = [];
+  for (const process of candidates) {
+    let files;
+    try { files = filesForPid(process.pid); } catch { continue; }
+    for (const path of files.filter((file) => providerTranscript(provider, file))) {
+      const source = sessionFromTranscript(provider, path);
+      if (!source) continue;
+      matches.push({
+        ...source,
+        pane: pane.id,
+        panel: pane.panel,
+        provider_pid: process.pid,
+        backend: 'embedded',
+        source: 'active-provider-transcript',
+      });
+    }
+  }
+  const unique = [...new Map(matches.map((source) => [`${source.provider_pid}:${source.id}:${source.transcript}`, source])).values()];
+  if (unique.length > 1) {
+    throw new Error(
+      `pane ${pane.id} has more than one open ${provider} transcript; no session was stopped`,
+    );
+  }
+  return unique[0] ?? null;
+}
+
 function systemStart(entry, command, provider) {
   tmux(['respawn-pane', '-k', '-t', entry.pane.id, '-c', entry.task.worktree, command]);
   clearStartupPrompts(entry.pane.id, { agent: provider });
@@ -138,6 +192,7 @@ function systemStart(entry, command, provider) {
 
 export const PROVIDER_UPDATE_RUNTIME = {
   panes: systemPanes,
+  activeSession: activeProviderSession,
   ownership: (pane, source) => sessionOwnership(pane, source),
   stop: (entry) => stopProvider(entry.pane, {
     tmux,
@@ -185,12 +240,7 @@ function taskForPane(pane, provider, tasks, records) {
       agent: provider,
     };
   }
-  if (!task) {
-    throw new Error(
-      `pane ${pane.id} in ${pane.panel} is running ${provider} but has no fm session identity; ` +
-      'no session was stopped',
-    );
-  }
+  if (!task) return { task: null, record: null };
   if (agentOf(task) !== provider) {
     throw new Error(`task ${task.id} says ${agentOf(task)} but pane ${pane.id} is running ${provider}`);
   }
@@ -203,6 +253,12 @@ function commandFor(entry, provider) {
   // may replace its launch path, and resuming through a pre-update path would
   // make the entire lifecycle appear to have lost its sessions.
   providerExecutable(provider, { required: true });
+  if (entry.unmanaged) {
+    const executable = shellQuote(providerExecutable(provider, { required: true }));
+    return provider === 'claude'
+      ? `${executable} --resume ${shellQuote(entry.source.id)}`
+      : `${executable} resume ${shellQuote(entry.source.id)}`;
+  }
   if (entry.controller) {
     return supervisorCommand({
       agent: provider,
@@ -254,8 +310,33 @@ export function prepareProviderUpdate(request, { runtime = PROVIDER_UPDATE_RUNTI
   const records = allRecordedSessions(provider);
   const entries = [];
   for (const pane of panes) {
-    const { task, record } = taskForPane(pane, provider, tasks, records);
-    const source = resolveSession(task, provider, { explicit: record?.id ?? null });
+    let { task, record } = taskForPane(pane, provider, tasks, records);
+    let unmanaged = false;
+    let source;
+    if (!task) {
+      source = runtime.activeSession?.(pane, provider) ?? null;
+      if (!source) {
+        throw new Error(
+          `pane ${pane.id} in ${pane.panel} is running ${provider} but has no fm session identity ` +
+          'or single open native transcript; no session was stopped',
+        );
+      }
+      const safeId = String(source.id).replace(/[^A-Za-z0-9._-]/g, '-');
+      task = {
+        id: `unmanaged-${provider}-${safeId}`,
+        worktree: resolve(source.cwd || pane.cwd),
+        project: resolve(source.cwd || pane.cwd),
+        pane: pane.id,
+        panel: pane.panel,
+        brief: null,
+        kind: 'unmanaged',
+        agent: provider,
+      };
+      record = null;
+      unmanaged = true;
+    } else {
+      source = resolveSession(task, provider, { explicit: record?.id ?? null });
+    }
     const backend = runtime.ownership(pane, source);
     const preserved = preserveSession(task, source, provider);
     const entry = {
@@ -265,6 +346,7 @@ export function prepareProviderUpdate(request, { runtime = PROVIDER_UPDATE_RUNTI
       source,
       backend,
       controller: task.id.startsWith('controller:'),
+      unmanaged,
       registered: Boolean(loadTask(task.id)),
       preserved,
       before: worktreeState(task.worktree),

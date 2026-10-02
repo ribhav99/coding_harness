@@ -208,6 +208,18 @@ function readJsonLines(path) {
   }
 }
 
+// Parse one transcript that has already been tied to a live provider process.
+// This is deliberately narrower than discovery by cwd: provider-wide updates
+// use the file the process itself has open, so a manually launched session can
+// be resumed without guessing among several conversations in the same repo.
+export function sessionFromTranscript(agent, path) {
+  const provider = normalizeAgent(agent);
+  const parse = provider === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
+  const session = parse(path);
+  if (!session?.id || session.metadata_conflict) return null;
+  return { ...session, agent: provider };
+}
+
 function walkJsonl(root, out = []) {
   if (!existsSync(root)) return out;
   for (const entry of readdirSync(root, { withFileTypes: true })) {

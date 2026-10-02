@@ -85,7 +85,7 @@ panel can also start directly on a provider with `fmp <project> --agent codex`.
 When Ribhav asks to update either CLI, run `fm update claude` or `fm update
 codex`, then end this turn immediately. Do not close panes by hand and do not
 run the provider updater directly. The Stop hook opens one temporary maintenance
-terminal; from there the harness snapshots and stops every managed session on
+terminal; from there the harness snapshots and stops every identified session on
 that provider across every panel, runs the updater exactly once, and resumes
 each exact conversation in its original pane. The maintenance terminal closes
 itself on success and remains open with the recovery record on failure.

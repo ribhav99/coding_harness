@@ -36,7 +36,7 @@ fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 fm switch <id> --agent codex       move the same task to Codex (or claude)
 fm effort <level>                   restart this managed session at a new effort
-fm update claude|codex              update one provider; resume all its managed sessions
+fm update claude|codex              update one provider; resume all its identified sessions
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -84,11 +84,13 @@ fm update codex
 ```
 
 The controller's Stop hook creates one temporary maintenance terminal. It
-preflights every live fm session using the selected provider across every tmux
-panel, requires a hook-recorded exact session ID and readable transcript for
-each, snapshots them all, and only then begins stopping processes. Once every
-managed session is closed, it runs the provider's own updater exactly once and
-resumes each conversation in its original pane. Workers restart before
+preflights every live session using the selected provider across every fm tmux
+panel, requires either a hook-recorded exact identity or one native transcript
+held open by that pane's live provider process, snapshots them all, and only
+then begins stopping processes. Ambiguous manual panes refuse before anything
+is stopped. Once every identified session is closed, it runs the provider's
+own updater exactly once and resumes each conversation in its original pane.
+Workers restart before
 controllers. The maintenance terminal disappears on success; on failure it
 stays open and points to the manifest under `~/.fm2/provider-updates/`. An
 updater failure still attempts to reopen every session already stopped.

@@ -26,7 +26,7 @@ function block(provider) {
     `## Provider updates (Firstmate)\n\n` +
     `When Ribhav asks an fm controller to update Claude Code or Codex, run exactly ` +
     `\`fm update claude\` or \`fm update codex\`, then end the current turn immediately. The Stop hook ` +
-    `opens one maintenance terminal, preserves and stops every managed session using that provider across ` +
+    `opens one maintenance terminal, preserves and stops every identified session using that provider across ` +
     `all panels, runs the provider's updater once, and resumes every conversation by its exact session ID ` +
     `in its original pane. Do not use \`cc -c\`, \`--last\`, recency, or hand-written relaunch loops. Do not ` +
     `describe the queued lifecycle stop as completion. Only an fm controller may request this operation.\n${END}`;

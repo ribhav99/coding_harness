@@ -72,7 +72,7 @@ imitate either command. For a request affecting only one worker, use
 When the user asks to update Claude Code or Codex, run exactly `fm update
 claude` or `fm update codex`, then end the current turn immediately. The Stop
 hook schedules the work outside the provider process tree. One temporary
-maintenance terminal snapshots and stops every managed session using that
+maintenance terminal snapshots and stops every identified session using that
 provider across all fm panels, invokes the provider's updater once, and resumes
 the exact native session IDs in their original panes. It closes on success and
 stays visible with the recovery manifest on failure.
