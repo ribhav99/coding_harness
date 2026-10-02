@@ -6,7 +6,22 @@ import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { processTable, providerProcess, providerAt, sessionOwnership, stopProvider } from '../lib/provider-processes.mjs';
+import { paneProcesses, sharedCodexServer, processTable, providerProcess, providerAt, sessionOwnership, stopProvider } from '../lib/provider-processes.mjs';
+
+test('a shared Codex daemon and its tools are not owned by its original terminal client', () => {
+  const daemon = { pid: 113, parent: 110, command: '/bin/codex' };
+  const updater = { pid: 115, parent: 110, command: '/bin/codex' };
+  const table = [...TABLE, daemon, { pid: 114, parent: 113, command: '/bin/sh' }, updater];
+  const args = new Map([[113, '/bin/codex app-server --listen unix:// --managed-daemon'],
+    [115, '/bin/codex app-server daemon pid-update-loop']]);
+  const isSharedServer = entry => sharedCodexServer(entry, pid => args.get(pid) ?? entry.command);
+  assert.equal(isSharedServer(daemon), true);
+  assert.equal(isSharedServer(updater), true);
+  assert.equal(sharedCodexServer(daemon, () => '/bin/codex explain app-server --listen unix:// --managed-daemon'), false);
+  assert.deepEqual(paneProcesses(PANE, table, { protectSharedServers: true, isSharedServer })
+    .map(entry => entry.pid), [110, 111, 112, 120]);
+  assert.ok(paneProcesses(PANE, table).some(entry => entry.pid === 113));
+});
 
 const TABLE = [
   { pid: 100, parent: 1, command: '/bin/sh' },
@@ -57,6 +72,54 @@ test('only a matching live provider record can authorize the embedded backend', 
 function quote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
+
+test('a pane-spawned daemon stops only after exclusive ownership is verified and is not queried after exit', t => {
+  const entries = [
+    { pid: 100, parent: 1, command: '/bin/sh' },
+    { pid: 110, parent: 100, command: '/bin/codex' },
+    { pid: 113, parent: 110, command: '/bin/codex' },
+    { pid: 114, parent: 113, command: '/bin/sh' },
+    { pid: 115, parent: 110, command: '/bin/codex' },
+  ];
+  const alive = new Map(entries.map(entry => [entry.pid, entry]));
+  const signalled = [];
+  let rpcCount = 0;
+  let rejectExclusive = true;
+  t.mock.method(childProcess, 'execFileSync', (file, args) => {
+    if (file === 'ps' && args.includes('-A')) {
+      return [...alive.values()].map(entry => `${entry.pid} ${entry.parent} ${entry.command}`).join('\n');
+    }
+    if (file === 'ps') {
+      const pid = Number(args[1]);
+      return pid === 113 ? '/bin/codex app-server --listen unix:// --managed-daemon'
+        : pid === 115 ? '/bin/codex app-server daemon pid-update-loop' : alive.get(pid).command;
+    }
+    if (file === process.execPath && args[0].endsWith('/codex-control.mjs')) {
+      assert.equal(args.at(-1), '--exclusive-server');
+      assert.equal(args[1], SOURCE.id);
+      if (rejectExclusive) throw new Error('other loaded conversations');
+      rpcCount += 1;
+      assert.ok(alive.has(113), 'must not query a server that has already exited');
+      return JSON.stringify({ id: SOURCE.id, goal: null, children: [] });
+    }
+    assert.fail(`unexpected command ${file}`);
+  });
+  t.mock.method(process, 'kill', (pid, signal) => {
+    signalled.push({ pid, signal });
+    if (signal === 'SIGTERM') alive.delete(pid);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const options = { tmux: () => '', agent: 'codex', source: { ...SOURCE, backend: 'daemon' } };
+  assert.throws(() => stopProvider(PANE, options), /other loaded conversations/u);
+  assert.deepEqual(signalled, [], 'failed exclusivity must not signal any process');
+  rejectExclusive = false;
+  stopProvider(PANE, options);
+  assert.equal(rpcCount, 1);
+  assert.deepEqual(new Set(signalled.filter(entry => entry.signal === 'SIGTERM').map(entry => entry.pid)),
+    new Set([110, 113, 114, 115]));
+  assert.ok(alive.has(100), 'the pane shell is not a provider tool');
+});
 
 test('embedded stop returns only after the real provider and sibling tool exit', async (t) => {
   const execute = childProcess.execFileSync;

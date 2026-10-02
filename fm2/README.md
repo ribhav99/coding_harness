@@ -98,6 +98,12 @@ updater failure still attempts to reopen every session already stopped.
 Claude resumes with `--resume <exact-id>` and Codex with `resume <exact-id>`.
 The operation never uses `cc -c`, `--continue`, `--last`, or transcript recency.
 Manual provider panes require one native transcript held open by their process.
+That live transcript also repairs stale managed-session records after resume,
+but only when its worktree matches the task. Restart success requires the exact
+conversation to be open in the new process, not merely a running CLI. A pane's
+Codex daemon can be stopped only after its loaded threads are verified to belong
+to that conversation and its descendants; unrelated loaded threads refuse the
+shutdown. Manual panes resume without a daemon or injected fm hooks.
 The requester receives a durable completion or failure report and is woken
 after its exact conversation is ready, so a request to update both providers
 can continue across the lifecycle restart.

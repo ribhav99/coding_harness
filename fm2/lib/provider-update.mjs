@@ -11,7 +11,7 @@ import {
   agentOf,
   controllerId,
   normalizeAgent,
-  recordedSession,
+  rememberSession,
   resolveSession,
   sessionFromTranscript,
 } from './sessions.mjs';
@@ -32,6 +32,7 @@ import {
   providerAt,
   processProvider,
   sessionOwnership,
+  sharedCodexServer,
   stopProvider,
 } from './provider-processes.mjs';
 import { providerExecutable } from './provider-command.mjs';
@@ -165,6 +166,7 @@ function providerTranscript(provider, path) {
 export function activeProviderSession(pane, provider, {
   table = processTable(),
   filesForPid = openFiles,
+  isSharedServer = sharedCodexServer,
 } = {}) {
   const candidates = [table.find((entry) => entry.pid === Number(pane.pid)), ...descendants(pane.pid, table)]
     .filter((entry) => entry && processProvider(entry.command) === provider);
@@ -175,12 +177,21 @@ export function activeProviderSession(pane, provider, {
     for (const path of files.filter((file) => providerTranscript(provider, file))) {
       const source = sessionFromTranscript(provider, path);
       if (!source) continue;
+      const daemon = provider === 'codex' && isSharedServer(process);
+      let owner = process;
+      if (daemon) {
+        owner = table.find((entry) => entry.pid === process.parent);
+        while (owner && processProvider(owner.command) !== provider) {
+          owner = table.find((entry) => entry.pid === owner.parent);
+        }
+        if (!owner || !candidates.includes(owner)) continue;
+      }
       matches.push({
         ...source,
         pane: pane.id,
         panel: pane.panel,
-        provider_pid: process.pid,
-        backend: 'embedded',
+        provider_pid: owner.pid,
+        backend: daemon ? 'daemon' : 'embedded',
         source: 'active-provider-transcript',
       });
     }
@@ -194,6 +205,27 @@ export function activeProviderSession(pane, provider, {
   return unique[0] ?? null;
 }
 
+function sameWorktree(source, worktree) {
+  return source?.cwd && realpathSync(source.cwd) === realpathSync(worktree);
+}
+
+function rememberActiveSession(entry, source) {
+  rememberSession({ task: entry.task.id, agent: entry.provider, sessionId: source.id,
+    transcriptPath: source.transcript, cwd: source.cwd, panel: entry.pane.panel,
+    pane: entry.pane.id, providerPid: source.provider_pid, backend: source.backend,
+    source: source.source });
+}
+
+export function verifyProviderRestart(entry, pane, provider, {
+  activeSession = activeProviderSession, ownership = sessionOwnership,
+} = {}) {
+  const source = activeSession(pane, provider);
+  if (!source || source.id !== entry.source.id || !sameWorktree(source, entry.task.worktree)) return false;
+  ownership(pane, source);
+  if (!entry.unmanaged) rememberActiveSession(entry, source);
+  return true;
+}
+
 function systemStart(entry, command, provider) {
   tmux(['respawn-pane', '-k', '-t', entry.pane.id, '-c', entry.task.worktree, command]);
   clearStartupPrompts(entry.pane.id, { agent: provider });
@@ -201,14 +233,9 @@ function systemStart(entry, command, provider) {
     try {
       const pid = Number(tmux(['display-message', '-p', '-t', entry.pane.id, '#{pane_pid}']));
       if (providerAt({ pid }) === provider) {
-        if (entry.unmanaged) return;
-        const current = recordedSession(entry.task, provider);
-        // Wait for the exact resumed conversation's startup hook, not just a
-        // process that exists but cannot yet accept the completion report.
-        if (current?.id === entry.source.id) {
-          sessionOwnership({ id: entry.pane.id, pid, dead: false }, current);
-          return;
-        }
+        // A hook can retain an old identity after resume. The actual open
+        // transcript proves the exact conversation AND its current writer.
+        if (verifyProviderRestart(entry, { ...entry.pane, pid, dead: false }, provider)) return;
       }
     } catch { /* the next iteration gives the provider time to start */ }
     wait(100);
@@ -283,7 +310,7 @@ function commandFor(entry, provider) {
     const executable = shellQuote(providerExecutable(provider, { required: true }));
     return provider === 'claude'
       ? `${executable} --model ${CLAUDE_MODEL} --resume ${shellQuote(entry.source.id)}`
-      : `${executable} resume -c model=${JSON.stringify(latestCodexModel())} ${shellQuote(entry.source.id)}`;
+      : `${executable} resume --no-daemon -c model=${JSON.stringify(latestCodexModel())} ${shellQuote(entry.source.id)}`;
   }
   if (entry.controller) {
     return supervisorCommand({
@@ -361,7 +388,15 @@ export function prepareProviderUpdate(request, { runtime = PROVIDER_UPDATE_RUNTI
       record = null;
       unmanaged = true;
     } else {
-      source = resolveSession(task, provider, { explicit: record?.id ?? null });
+      const active = runtime.activeSession?.(pane, provider);
+      if (active) {
+        if (!sameWorktree(active, task.worktree)) {
+          throw new Error(`pane ${pane.id}'s live transcript has a different worktree; no session was stopped`);
+        }
+        source = active;
+      } else {
+        source = resolveSession(task, provider, { explicit: record?.id ?? null });
+      }
     }
     const backend = runtime.ownership(pane, source);
     const preserved = preserveSession(task, source, provider);

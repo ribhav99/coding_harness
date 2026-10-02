@@ -19,6 +19,7 @@ import {
   executeProviderUpdate,
   prepareProviderUpdate,
   providerUpdatePlan,
+  verifyProviderRestart,
 } from '../lib/provider-update.mjs';
 import {
   claimProviderUpdate,
@@ -350,6 +351,7 @@ test('an unmanaged provider pane is identified by its one open native transcript
   const active = activeProviderSession(pane, 'codex', {
     table,
     filesForPid: (pid) => pid === 901 ? [transcript] : [],
+    isSharedServer: () => false,
   });
   assert.equal(active.id, id);
   assert.equal(active.provider_pid, 901);
@@ -373,6 +375,66 @@ test('an unmanaged provider pane is identified by its one open native transcript
   const manifest = prepareProviderUpdate(request, { runtime });
   assert.equal(manifest.entries[0].unmanaged, true);
   executeProviderUpdate(manifest, { runtime });
-  assert.match(resumed, /resume -c model="gpt-6\.1-sol" 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'/u);
+  assert.match(resumed, /resume --no-daemon -c model="gpt-6\.1-sol" 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'/u);
   assert.doesNotMatch(resumed, /FM2_TASK|hooks\.|--last|continue\.md/u);
+});
+
+test('managed updates recover stale hook records only from the exact live transcript', t => {
+  const root = fixture(t);
+  const repo = gitRepo(root);
+  const oldTranscript = codexTranscript(root, 'old-id', repo);
+  const transcript = codexTranscript(root, 'live-id', repo);
+  const pane = { id: '%4', pid: 400, dead: false, cwd: repo, panel: 'panel', window: 'workers', index: 0 };
+  saveTask({ id: 'worker', agent: 'codex', pane: pane.id, panel: pane.panel, worktree: repo, project: repo });
+  rememberSession({ task: 'worker', agent: 'codex', sessionId: 'old-id', transcriptPath: oldTranscript,
+    cwd: repo, pane: pane.id, panel: pane.panel, providerPid: 999 });
+  const active = { id: 'live-id', agent: 'codex', transcript, cwd: repo, pane: pane.id,
+    provider_pid: 400, backend: 'embedded', source: 'active-provider-transcript' };
+  const runtime = {
+    plan: () => ({ provider: 'codex', steps: [] }), version: () => 'codex 1', panes: () => [pane],
+    activeSession: () => active,
+    ownership: (_pane, source) => { if (source.provider_pid !== 400) throw new Error('stale hook'); return source.backend; },
+  };
+  const request = { token: 'token', provider: 'codex', requested_by: 'controller:panel',
+    manifest: join(root, 'manifest.json'), log: join(root, 'update.log') };
+  const manifest = prepareProviderUpdate(request, { runtime });
+  const entry = manifest.entries[0];
+  assert.equal(entry.source.id, 'live-id');
+  assert.equal(entry.unmanaged, false, 'managed resume must retain its hooks');
+  assert.match(entry.oldCommand, /FM2_TASK='worker'/u);
+  assert.equal(verifyProviderRestart(entry, pane, 'codex', {
+    activeSession: () => ({ ...active, id: 'other-id' }), ownership: runtime.ownership,
+  }), false);
+  assert.equal(verifyProviderRestart(entry, pane, 'codex', {
+    activeSession: () => active, ownership: runtime.ownership,
+  }), true);
+  assert.equal(loadTask('worker').sessions.codex.id, 'live-id');
+  assert.equal(loadTask('worker').sessions.codex.provider_pid, 400);
+  assert.throws(() => prepareProviderUpdate(request, {
+    runtime: { ...runtime, ownership: () => { throw new Error('stale'); },
+      activeSession: () => ({ ...active, cwd: root }) },
+  }), /different worktree/u);
+  assert.throws(() => prepareProviderUpdate(request, {
+    runtime: { ...runtime, ownership: () => { throw new Error('stale'); }, activeSession: () => null },
+  }), /stale/u);
+});
+
+test('live transcript discovery identifies a shared daemon without treating it as a pane-owned writer', t => {
+  const root = fixture(t);
+  const repo = gitRepo(root);
+  const sessions = join(root, '.codex', 'sessions');
+  mkdirSync(sessions, { recursive: true });
+  const transcript = codexTranscript(sessions, 'exact-id', repo);
+  const pane = { id: '%8', pid: 80, cwd: repo, panel: 'panel' };
+  const table = [{ pid: 80, parent: 1, command: '/bin/codex' },
+    { pid: 81, parent: 80, command: '/bin/codex' }];
+  const active = activeProviderSession(pane, 'codex', {
+    table, filesForPid: pid => pid === 81 ? [transcript] : [], isSharedServer: entry => entry.pid === 81,
+  });
+  assert.equal(active.id, 'exact-id');
+  assert.equal(active.provider_pid, 80);
+  assert.equal(active.backend, 'daemon');
+  assert.throws(() => activeProviderSession(pane, 'codex', {
+    table, filesForPid: () => [transcript, codexTranscript(sessions, 'other-id', repo)], isSharedServer: () => false,
+  }), /more than one open/u);
 });

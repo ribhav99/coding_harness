@@ -25,6 +25,32 @@ export function descendants(pid, table = processTable()) {
   return out;
 }
 
+// Only inspect the process's actual executable prefix, never flags mentioned
+// in a user's prompt. A daemon and its updater may be children of the first
+// terminal client but serve other clients too; they are not pane-owned tools.
+export function sharedCodexServer(entry, argsForPid = (pid) => execFileSync('ps',
+  ['-p', String(pid), '-o', 'args='], { encoding: 'utf8', timeout: 5000 }).trim()) {
+  if (processProvider(entry.command) !== 'codex') return false;
+  const args = argsForPid(entry.pid);
+  const suffix = args.startsWith(`${entry.command} `) ? args.slice(entry.command.length + 1) : '';
+  return /^app-server (?:--listen \S+ --managed-daemon(?: |$)|daemon pid-update-loop(?: |$))/u.test(suffix);
+}
+
+export function paneProcesses(pane, table, { protectSharedServers = false, isSharedServer = sharedCodexServer } = {}) {
+  const entries = descendants(pane.pid, table);
+  const root = table.find((entry) => entry.pid === Number(pane.pid));
+  if (root && processProvider(root.command)) entries.unshift(root);
+  if (!protectSharedServers) return entries;
+  const protectedPids = new Set();
+  for (const entry of entries) {
+    if (isSharedServer(entry)) {
+      protectedPids.add(entry.pid);
+      for (const child of descendants(entry.pid, table)) protectedPids.add(child.pid);
+    }
+  }
+  return entries.filter((entry) => !protectedPids.has(entry.pid));
+}
+
 export function providerProcess(agent, { pid = process.ppid, table = processTable() } = {}) {
   const visited = new Set();
   while (pid && !visited.has(Number(pid))) {
@@ -68,18 +94,22 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
     return null;
   }
   const backend = allowUnrecordedEmbedded ? 'embedded' : sessionOwnership(pane, source, { explicit, table });
+  const ownedDaemon = agent === 'codex' && backend !== 'embedded'
+    && descendants(pane.pid, table).some(entry => sharedCodexServer(entry));
   let codexState = null;
   const interrupt = () => {
     const module = new URL('./codex-control.mjs', import.meta.url);
-    return JSON.parse(execFileSync(process.execPath, [fileURLToPath(module), source?.id ?? '', pane.cwd],
+    return JSON.parse(execFileSync(process.execPath, [fileURLToPath(module), source?.id ?? '', pane.cwd,
+      ...(ownedDaemon ? ['--exclusive-server'] : [])],
       { encoding: 'utf8', timeout: 35_000, stdio: ['ignore', 'pipe', 'pipe'] }));
   };
   if (agent === 'codex' && backend !== 'embedded') codexState = interrupt();
   table = processTable();
   if (!allowUnrecordedEmbedded) sessionOwnership(pane, source, { explicit, table });
-  let children = descendants(pane.pid, table);
-  const root = table.find((entry) => entry.pid === Number(pane.pid));
-  if (root && processProvider(root.command) === agent) children.unshift(root);
+  // A pane may have spawned the daemon. Stop that server only after the RPC
+  // proves every loaded conversation belongs to this exact thread's subtree.
+  const processOptions = { protectSharedServers: agent === 'codex' && backend !== 'embedded' && !ownedDaemon };
+  let children = paneProcesses(pane, table, processOptions);
   if (!children.some((entry) => processProvider(entry.command) === agent)) {
     throw new Error(`pane ${pane.id} has no identifiable ${agent} process`);
   }
@@ -94,8 +124,7 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
         catch (error) { if (error.code !== 'ESRCH') throw error; }
       }
       table = processTable();
-      const refreshed = descendants(pane.pid, table);
-      if (root && table.some((entry) => entry.pid === root.pid)) refreshed.unshift(root);
+      const refreshed = paneProcesses(pane, table, processOptions);
       children = refreshed;
       if (children.every((entry) => frozen.has(entry.pid))) break;
       if (pass === 9) throw new Error(`tools in pane ${pane.id} kept spawning during shutdown`);
@@ -138,7 +167,8 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
       }
     }
     tmux(['respawn-pane', '-k', '-t', pane.id, '-c', pane.cwd]);
-    if (codexState) return { ...interrupt(), goal: codexState.goal, children_before_stop: codexState.children };
+    if (codexState) return { ...(ownedDaemon ? codexState : interrupt()),
+      goal: codexState.goal, children_before_stop: codexState.children };
     return null;
   } finally {
     for (const pid of frozen) { try { process.kill(pid, 'SIGCONT'); } catch {} }

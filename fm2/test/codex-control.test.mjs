@@ -58,6 +58,10 @@ function daemon(records, { afterCall, retainTerminals = false } = {}) {
             'subAgent', 'subAgentReview', 'subAgentCompact', 'subAgentThreadSpawn', 'subAgentOther', 'unknown']));
           result = page([...sessions.values()].filter(child => isDescendant(child, params.ancestorThreadId)), params.cursor);
           break;
+        case 'thread/loaded/list':
+          result = page([...sessions.values()].filter(thread => thread.status.type !== 'notLoaded')
+            .map(thread => thread.id), params.cursor);
+          break;
         default: throw new Error(`Unexpected RPC ${method}`);
       }
       const snapshot = structuredClone(result);
@@ -68,6 +72,26 @@ function daemon(records, { afterCall, retainTerminals = false } = {}) {
   };
   return { control, calls, sessions };
 }
+
+test('stopping a pane-owned daemon refuses unrelated loaded threads before any mutation', async () => {
+  const f = daemon([session('source'), session('unrelated')]);
+  await assert.rejects(interruptSession('source', { control: f.control, exclusiveServer: true }),
+    /other loaded conversations/u);
+  assert.ok(f.calls.every(call => ['thread/read', 'thread/list', 'thread/loaded/list'].includes(call.method)));
+  assert.equal(f.sessions.get('source').goal.status, 'active');
+});
+
+test('exclusive daemon ownership permits its exact source and descendants, and is rechecked after cleanup', async () => {
+  const f = daemon([session('source'), session('child', { parentThreadId: 'source' })]);
+  await interruptSession('source', { control: f.control, exclusiveServer: true });
+  assert.equal(f.sessions.get('source').status.type, 'idle');
+  assert.equal(f.sessions.get('child').status.type, 'idle');
+  const raced = daemon([session('source')], { afterCall({ method, sessions }) {
+    if (method === 'thread/backgroundTerminals/clean') sessions.set('unrelated', session('unrelated'));
+  } });
+  await assert.rejects(interruptSession('source', { control: raced.control, exclusiveServer: true }),
+    /other loaded conversations/u);
+});
 
 test('shutdown pauses goals, interrupts exact turns, cleans writers, and preserves queued input across descendant pages', async () => {
   const queue = [1, 2].map(number => ({ id: `queued-${number}`, clientUserMessageId: `user-${number}`,
