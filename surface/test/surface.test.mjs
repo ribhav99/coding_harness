@@ -8,8 +8,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync, utimesSync, readdirSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -581,4 +581,34 @@ test('a claim made after the pane started still blocks - staleness must be prova
     /already belongs to review "pr-a"/,
     'a genuine double-claim was let through',
   );
+});
+
+// A second round of the same review rewrites its spec and opens the page again.
+// The first round's decisions sat beside it, so `surface read` answered the new
+// round with the old choices, and the page opened as already sent. #475's
+// re-review caught it by hand on 5 Oct.
+test("a new round's page does not inherit the last round's decisions", async () => {
+  const home = mkdtempSync(join(tmpdir(), 'surface-round-'));
+  process.env.SURFACE_HOME = join(home, 'registry');
+  const { archiveStaleDecisions, readDecisions, decisionsPath } = await import(
+    `${join(ROOT, 'lib/store.mjs')}?round=${encodeURIComponent(home)}`
+  );
+  const dir = join(home, 'pr-9');
+  mkdirSync(dir, { recursive: true });
+  const entry = { id: 'pr-9', spec: join(dir, 'review.json'), pane: null };
+  writeFileSync(entry.spec, JSON.stringify({ ...SPEC, id: 'pr-9' }));
+  writeFileSync(decisionsPath(entry), JSON.stringify({ verdict: 'request-changes' }));
+
+  // Decisions newer than the spec answer the current round, and stay.
+  utimesSync(entry.spec, new Date('2026-10-05T10:00:00Z'), new Date('2026-10-05T10:00:00Z'));
+  utimesSync(decisionsPath(entry), new Date('2026-10-05T11:00:00Z'), new Date('2026-10-05T11:00:00Z'));
+  assert.equal(archiveStaleDecisions(entry), null, 'the current round lost its own decisions');
+  assert.ok(readDecisions(entry), 'the current round lost its own decisions');
+
+  // The spec rewritten for round two makes them the previous round's.
+  utimesSync(entry.spec, new Date('2026-10-05T12:00:00Z'), new Date('2026-10-05T12:00:00Z'));
+  const moved = archiveStaleDecisions(entry);
+  assert.ok(moved && existsSync(moved), 'the previous round was deleted rather than kept');
+  assert.equal(readDecisions(entry), null, "round two read back round one's decisions");
+  assert.deepEqual(readdirSync(dir).filter((f) => f.startsWith('decisions')), [basename(moved)]);
 });

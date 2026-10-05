@@ -22,6 +22,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   register, lookup, idFor, readDecisions, decisionsPath, listReviews, claimSupervisorPane,
+  archiveStaleDecisions,
 } from './lib/store.mjs';
 import { buildStamp } from './lib/build.mjs';
 
@@ -127,6 +128,10 @@ if (command === 'open') {
       `surface: "${entry.id}" moved from pane ${entry.rebound_from} to ${entry.pane}. ` +
         'If that is not this review\'s own session, its decisions will arrive in the wrong pane.\n',
     );
+  }
+  const archived = archiveStaleDecisions(entry);
+  if (archived) {
+    process.stderr.write(`surface: the last round's decisions moved to ${archived}; this page waits for new ones.\n`);
   }
   await ensureServer();
   const url = `${BASE}/r/${encodeURIComponent(entry.id)}`;

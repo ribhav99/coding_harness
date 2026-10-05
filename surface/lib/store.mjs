@@ -11,7 +11,7 @@
 // addressed by id alone and served from disk on every request, so reloading a
 // tab, opening it twice, or coming back to it tomorrow all behave identically.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -224,6 +224,22 @@ export function writeDecisions(entry, payload) {
   const p = decisionsPath(entry);
   writeFileSync(p, JSON.stringify(payload, null, 2));
   return p;
+}
+
+// A review that opens its page for another round has rewritten its spec first,
+// so decisions older than the spec answer the round before. Left in place,
+// `surface read` handed them back as Ribhav's answer to the new round and the
+// page opened as already sent. They move aside rather than being deleted: they
+// are the record of what was decided last time.
+export function archiveStaleDecisions(entry) {
+  const p = decisionsPath(entry);
+  if (!existsSync(p) || !existsSync(entry.spec)) return null;
+  const decidedAt = statSync(p).mtimeMs;
+  if (decidedAt >= statSync(entry.spec).mtimeMs) return null;
+  const stamp = new Date(decidedAt).toISOString().replace(/[:.]/g, '-');
+  const dest = join(dirname(entry.spec), `decisions-${stamp}.json`);
+  renameSync(p, dest);
+  return dest;
 }
 
 export function listReviews() {

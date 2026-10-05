@@ -38,6 +38,10 @@ surface stop               # shut it down
 
 There is deliberately no `poll`.
 
+A review that opens its page again for a new round rewrites its spec first. `open`
+then moves the previous round's `decisions.json` aside as `decisions-<time>.json`,
+so `read` waits for Ribhav's answer to this round instead of returning the last one.
+
 `open` binds the review to the pane it runs in, via `TMUX_PANE`. **Run it from the
 review's own session.** A wrong binding types Ribhav's decisions into
 someone else's session, so three things guard it:
