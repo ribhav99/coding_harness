@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_MODEL, CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CLAUDE_MODEL, latestCodexModel } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
+import { providerExecutable } from './lib/provider-command.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -57,7 +59,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
   const reasoning = effort === null ? effortFor(identity, provider) : normalizeEffort(provider, effort);
   const config = supervisorHookConfig(provider);
   const args = provider === 'claude'
-    ? ['--dangerously-skip-permissions', '--effort', reasoning,
+    ? ['--dangerously-skip-permissions', '--effort', reasoning, '--model', CLAUDE_MODEL,
         ...(hasOnlyLegacyControllerHooks(cwd) ? ['--setting-sources', 'user,local'] : []),
         '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
@@ -65,7 +67,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         '--no-alt-screen',
         // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
-        '-c', `model=${JSON.stringify(CODEX_MODEL)}`,
+        '-c', `model=${JSON.stringify(latestCodexModel())}`,
         '-c', `model_reasoning_effort=${JSON.stringify(reasoning)}`,
         '-c', 'approval_policy="never"',
         '-c', 'sandbox_mode="danger-full-access"',
@@ -77,7 +79,7 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         ...(resume ? [resume] : []),
       ];
   return {
-    command: provider,
+    command: providerExecutable(provider),
     args,
     env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
       ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
@@ -88,7 +90,7 @@ export function supervisorCommand({ briefPath = null, ...options } = {}) {
   const launch = invocation(options);
   const env = Object.entries(launch.env).map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ');
   const args = launch.args.map(shellQuote).join(' ');
-  return `${env} ${launch.command} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
+  return `${env} ${shellQuote(launch.command)} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
 }
 
 export function main(argv = process.argv.slice(2)) {

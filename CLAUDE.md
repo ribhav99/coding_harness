@@ -39,6 +39,7 @@ fm attach <worktree>             a session on a branch you already have
 fm switch <id> --agent codex     continue the exact task in Codex (or claude to switch back)
 fm reload --agent codex          replace every session in THIS panel, in its own pane
 fm panel-switch --agent codex   build a SEPARATE panel on the other provider
+fm update claude|codex           update one provider, then restore all of its sessions
 fm handoff <id>                  ask a finished ship task to review its own work
 fm handoff <id> --stage swap     close it, open its cold review — one operation
 fm tell <id> <message>           pass Ribhav's words to a session
@@ -78,6 +79,20 @@ switch might fail and wrong when the panel is the one Ribhav is looking at: it
 opens another set of iTerm2 windows, and closing those kills the sessions that
 were just moved into them. Use it only when he asks for a separate panel. A new
 panel can also start directly on a provider with `fmp <project> --agent codex`.
+
+## Updating Claude Code or Codex
+
+When Ribhav asks to update either CLI, run `fm update claude` or `fm update
+codex`, then end this turn immediately. Do not close panes by hand and do not
+run the provider updater directly. The Stop hook opens one temporary maintenance
+terminal; from there the harness snapshots and stops every identified session on
+that provider across every panel, runs the updater exactly once, and resumes
+each exact conversation in its original pane. The maintenance terminal closes
+itself on success and remains open with the recovery record on failure.
+
+Same-provider resume is native and exact: Claude receives `--resume <id>` and
+Codex receives `resume <id>`. Never use `cc -c`, `--continue`, `--last`, or the
+newest transcript; those select by recency and can attach the wrong project.
 
 **Run `./install --check` on a new machine first, and fix what it reports.** Two
 things decide whether a Codex session can work at all, and both fail as a session
@@ -182,7 +197,7 @@ credential, and anything destructive or irreversible. Nothing else.
 
 - Every launch names what it runs on rather than inheriting a default. Claude:
   `--dangerously-skip-permissions --effort high --model opus`. Codex:
-  `gpt-5.6-sol` at high effort, approvals off, full access, and its own hooks
+  the latest stable Sol from its model catalog at high effort, approvals off, full access, and its own hooks
   trusted — all passed at launch, not read from `~/.codex/config.toml`. That
   file belongs to the desktop app, and an unattended pane is not a desktop app:
   its defaults sandbox the session and stop it to ask a human before the first

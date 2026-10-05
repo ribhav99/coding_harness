@@ -18,9 +18,11 @@ import { launchCommand } from '../lib/tasks.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import { installInstructions } from '../install-instructions.mjs';
 import { pending } from '../lib/notify.mjs';
+import { seedModelCatalog } from './model-fixture.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'fm-effort-'));
+  seedModelCatalog(root, t);
   const previous = process.env.FM2_HOME;
   process.env.FM2_HOME = root;
   t.after(() => {
@@ -64,12 +66,12 @@ test('a queued change is scheduled once, claimed once, and becomes the next defa
   assert.equal(requestEffort('controller:test', 'codex', 'ultra').changed, false);
 });
 
-test('launch commands preserve fixed models while applying explicit effort', t => {
+test('launch commands resolve latest models while applying explicit effort', t => {
   const home = fixture(t);
   const settings = join(home, 'hooks.json');
   writeFileSync(settings, JSON.stringify({ hooks: {} }));
   const codex = launchCommand({ agent: 'codex', id: 'wo-one', settingsFile: settings, effort: 'ultra' });
-  assert.match(codex, /model="gpt-5\.6-sol"/u);
+  assert.match(codex, /model="gpt-6\.1-sol"/u);
   assert.match(codex, /model_reasoning_effort="ultra"/u);
   assert.match(codex, /FM2_EFFORT='ultra'/u);
   assert.throws(
@@ -130,8 +132,11 @@ test('global instruction installation updates only its managed blocks', t => {
   assert.match(claude, /Personal Claude rules/u);
   assert.match(claude, /low.*medium.*high.*xhigh.*max/u);
   assert.doesNotMatch(claude, /`ultra`/u);
+  assert.match(claude, /fm update claude/u);
+  assert.match(claude, /exact session ID/u);
   assert.match(codex, /Personal Codex rules/u);
   assert.match(codex, /`ultra`/u);
+  assert.match(codex, /fm update codex/u);
   assert.equal(installInstructions({ claudeFile, codexFile, check: true }).length, 0);
   assert.equal(installInstructions({ claudeFile, codexFile }).length, 0);
 });

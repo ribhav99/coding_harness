@@ -8,12 +8,14 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { seedModelCatalog } from './model-fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
 
 function freshHome() {
   const home = mkdtempSync(join(tmpdir(), 'fm2-home-'));
+  seedModelCatalog(home);
   process.env.FM2_HOME = home;
   process.env.CLAUDE_SKILLS_DIR = join(home, 'claude-skills');
   process.env.CODEX_SKILLS_DIR = join(home, 'codex-skills');
@@ -560,7 +562,7 @@ test('a session reloads onto the same agent, in its own pane, carrying its conve
   assert.equal(launches[0].pane, '%21', 'the reload did not reuse the task\'s own pane');
   assert.equal(launches[0].cwd, worktree);
   // The settings that made this worth doing at all.
-  assert.match(launches[0].command, /-c model="gpt-5\.6-sol"/);
+  assert.match(launches[0].command, /-c model="gpt-6\.1-sol"/);
   assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.match(launches[0].command, /-c approval_policy="never"/);
 
@@ -643,7 +645,7 @@ test('a task switches to Codex and back without changing its work or report rout
   const toCodex = switchTask('wo-switch', { agent: 'codex', runtime });
   assert.equal(toCodex.worktreePreserved, true);
   assert.equal(toCodex.resumed, null, 'a nonexistent Codex chat was guessed');
-  assert.match(launches[0].command, /codex --no-alt-screen/);
+  assert.match(launches[0].command, /codex' --no-alt-screen|codex --no-alt-screen/);
   assert.match(launches[0].command, /-c model_reasoning_effort="high"/);
   assert.equal(launches[0].cwd, worktree);
   const afterCodex = loadTask('wo-switch');
@@ -689,7 +691,7 @@ test('a task switches to Codex and back without changing its work or report rout
 
   const toClaude = switchTask('wo-switch', { agent: 'claude', runtime });
   assert.equal(toClaude.resumed, claudeSession, 'switching back did not resume the exact prior Claude chat');
-  assert.match(launches[1].command, /claude --dangerously-skip-permissions/);
+  assert.match(launches[1].command, /claude' --dangerously-skip-permissions|claude --dangerously-skip-permissions/);
   assert.match(launches[1].command, new RegExp(`--resume '${claudeSession}'`));
   const back = loadTask('wo-switch');
   assert.equal(back.agent, 'claude');
@@ -1371,20 +1373,30 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
   assert.match(full, /"\$\(cat '\/b\.md'\)"/);
 });
 
-test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async () => {
+test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async (t) => {
   const home = freshHome();
   const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
   const prompt = join(home, 'prompt.md');
   writeFileSync(prompt, 'continue the same task\n');
 
+  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath}`;
+  t.after(() => { process.env.PATH = previousPath; });
+  writeFileSync(
+    join(bin, 'codex'),
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
+    { mode: 0o755 },
+  );
+
   const fresh = launchCommand({ agent: 'codex', id: 'wo-codex', settingsFile: settings, briefPath: prompt });
-  assert.match(fresh, /\bcodex --no-alt-screen\b/);
+  assert.match(fresh, /codex' --no-alt-screen|codex --no-alt-screen/);
   // Said outright, never inherited. The desktop app's config is the wrong
   // configuration for an unattended pane: its default approval policy stops a
   // worker to ask a human before its first command outside the workspace, and
   // its model follows whatever the app is pointed at today.
-  assert.match(fresh, /-c model="gpt-5\.6-sol"/);
+  assert.match(fresh, /-c model="gpt-6\.1-sol"/);
   assert.match(fresh, /-c model_reasoning_effort="high"/);
   assert.match(fresh, /-c approval_policy="never"/);
   assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
@@ -1399,13 +1411,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
   assert.match(fresh, /FM2_AGENT='codex'/);
   assert.doesNotMatch(fresh, /claude --/);
 
-  const bin = mkdtempSync(join(tmpdir(), 'fm2-worker-bin-'));
   const argsFile = join(home, 'worker-args');
-  writeFileSync(
-    join(bin, 'codex'),
-    '#!/bin/sh\nprintf "%s\\n" "$@" > "$FM2_ARGS_FILE"\n',
-    { mode: 0o755 },
-  );
   const invoked = spawnSync('/bin/sh', ['-c', fresh], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FM2_ARGS_FILE: argsFile },
@@ -1423,7 +1429,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
     briefPath: prompt,
     resume: '44444444-4444-4444-4444-444444444444',
   });
-  assert.match(resumed, /codex resume /);
+  assert.match(resumed, /codex' resume |codex resume /);
   assert.match(resumed, /-c model_reasoning_effort="high"/);
   assert.match(resumed, /'44444444-4444-4444-4444-444444444444'/);
 });
@@ -1449,7 +1455,7 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   });
   assert.equal(result.status, 0, result.stderr);
   const args = readFileSync(argsFile, 'utf8');
-  assert.match(args, /model="gpt-5\.6-sol"/);
+  assert.match(args, /model="gpt-6\.1-sol"/);
   assert.match(args, /model_reasoning_effort="high"/);
   assert.match(args, /approval_policy="never"/);
   assert.match(args, /sandbox_mode="danger-full-access"/);

@@ -90,12 +90,23 @@ then end their turn; the Stop hook resumes the exact conversation automatically.
 Codex supports `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. The command
 does not expose model selection.
 
-```
-codex --no-alt-screen -c model="gpt-5.6-sol" -c model_reasoning_effort="high" \
-      -c approval_policy="never" -c sandbox_mode="danger-full-access" \
-      -c 'tui.status_line=["project-name","git-branch","model-with-reasoning",…]' \
-      -c hooks.…
-```
+An fm controller can update either installed CLI without losing the terminal
+fleet: run `fm update codex` or `fm update claude`, then end the turn. A temporary
+maintenance terminal stops every identified session on that provider across all
+panels, invokes its updater once, and resumes exact session IDs in the same
+panes. It never uses `--last` or transcript recency. If preflight cannot prove a
+session's identity, nothing is stopped; if updating fails, every session already
+stopped is still restarted before the failure is reported.
+
+Every controller, worker and reviewer selects the latest stable Sol version in
+Codex's model catalog at launch or resume. The catalog is refreshed through
+Codex's own authenticated `model/list` protocol when its native cache is more
+than a minute old. There is no hard-coded version. If refresh fails offline,
+the latest cached Sol is used with a visible warning; without a catalog,
+startup refuses rather than guessing a model. Claude uses `--model opus` for
+controllers and workers, so its version follows Claude Code's Opus alias.
+Effort stays separate: new sessions default to `high`, and saved task effort
+or an explicit effort override is preserved when conversations reopen.
 
 These used to be inherited from `~/.codex/config.toml`, on the reasonable premise
 that the harness should not override the machine's own settings. Putting a real

@@ -11,9 +11,11 @@ import { recordSupervisor } from '../lib/presence.mjs';
 import { record, pending } from '../lib/notify.mjs';
 import { capturePanel } from '../lib/panel-layout.mjs';
 import { PANEL_RUNTIME, preparePanelSwitch, executePanelSwitch } from '../lib/panel-switch.mjs';
+import { seedModelCatalog } from './model-fixture.mjs';
 
 function fixture(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'fm-panel-switch-')));
+  seedModelCatalog(base, t);
   const socket = `fm-switch-${randomUUID()}`;
   const tmux = (args) => execFileSync('tmux', ['-L', socket, '-f', '/dev/null', ...args],
     { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();

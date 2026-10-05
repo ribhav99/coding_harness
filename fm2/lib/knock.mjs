@@ -52,12 +52,12 @@ export async function knock(task, {
   pane = supervisorPane(panel),
   send = sendKeys,
   wait = settleComposer,
+  line = knockLine(task),
 } = {}) {
   if (panel && existsSync(join(dir('panel-locks'), panel.replace(/[^A-Za-z0-9._-]/g, '-')))) {
     return { knocked: false, reason: 'panel handoff in progress; report remains queued' };
   }
   if (!pane) return { knocked: false, reason: 'no supervisor pane recorded' };
-  const line = knockLine(task);
   // -l sends the text literally, so a report id can never be read as a key name.
   if (!(await send(['send-keys', '-t', pane, '-l', line]))) {
     return { knocked: false, reason: 'the supervisor pane did not take the line' };

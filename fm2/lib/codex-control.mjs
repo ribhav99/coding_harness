@@ -84,7 +84,7 @@ export async function connectControl({ socketPath = join(process.env.CODEX_HOME 
   return { call, close: () => socket.destroy() };
 }
 
-export async function interruptSession(id, { control, expectedCwd, descendants: includeDescendants = true, ...options } = {}) {
+export async function interruptSession(id, { control, expectedCwd, exclusiveServer = false, descendants: includeDescendants = true, ...options } = {}) {
   if (!id) throw new Error('exact Codex session ID is required to stop daemon work');
   const canonicalCwd = expectedCwd === undefined ? null : realpathSync(expectedCwd);
   const verifyIdentity = (thread, targetId) => {
@@ -117,9 +117,21 @@ export async function interruptSession(id, { control, expectedCwd, descendants: 
     } while (cursor);
     return [...new Set(children)];
   };
+  const verifyExclusive = async () => {
+    const allowed = new Set([id, ...await inventory()]);
+    let cursor = null;
+    do {
+      const page = await client.call('thread/loaded/list', { cursor, limit: 100 });
+      if (!Array.isArray(page.data) || page.data.some(loaded => !allowed.has(loaded))) {
+        throw new Error('Shared Codex server has other loaded conversations; refusing to stop it');
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+  };
   try {
     const initial = (await client.call('thread/read', { threadId: id })).thread;
     verifyIdentity(initial, id);
+    if (exclusiveServer) await verifyExclusive();
     result.path = initial.path;
     const { goal } = await client.call('thread/goal/get', { threadId: id });
     result.goal = goal;
@@ -166,11 +178,14 @@ export async function interruptSession(id, { control, expectedCwd, descendants: 
         if (terminals.data?.length) throw new Error('Codex background tools are still running');
       }
     }
+    if (exclusiveServer) await verifyExclusive();
     return result;
   } finally { if (!control) client.close(); }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { process.stdout.write(JSON.stringify(await interruptSession(process.argv[2], { expectedCwd: process.argv[3] }))); }
+  try { process.stdout.write(JSON.stringify(await interruptSession(process.argv[2], {
+    expectedCwd: process.argv[3], exclusiveServer: process.argv[4] === '--exclusive-server',
+  }))); }
   catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
 }

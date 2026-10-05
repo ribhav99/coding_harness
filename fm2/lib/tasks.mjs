@@ -31,6 +31,8 @@ import { providerAt, sessionOwnership, stopProvider } from './provider-processes
 import { currentPanel } from './presence.mjs';
 import { configurePanelQuotaStatus } from './quota-status.mjs';
 import { DEFAULT_EFFORT, effortFor, normalizeEffort, setEffort } from './effort.mjs';
+import { providerAvailable, providerExecutable } from './provider-command.mjs';
+import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 import {
   agentOf,
   normalizeAgent,
@@ -191,11 +193,11 @@ function tomlValue(value) {
 //     human before its first command outside the workspace. A worker whose whole
 //     point is running unattended waits forever. Worse, `fm status` from inside
 //     that sandbox cannot reach the tmux socket and reports every task DEAD.
-//   - the model follows whatever the app is pointed at today.
+//   - the model follows whatever the app is pointed at today. The harness
+//     instead resolves the newest stable Sol from Codex's own model catalog.
 //
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
-export const CODEX_MODEL = 'gpt-5.6-sol';
 export const CODEX_REASONING_EFFORT = DEFAULT_EFFORT;
 // Keep the native Codex footer aligned with the information in the user's
 // Claude status line. Codex omits a field when that datum is unavailable.
@@ -216,7 +218,7 @@ export const CODEX_STATUS_LINE = [
 // stated condition for this flag.
 function codexSessionFlags(effort) {
   return [
-    `-c model=${JSON.stringify(CODEX_MODEL)}`,
+    `-c model=${JSON.stringify(latestCodexModel())}`,
     `-c model_reasoning_effort=${JSON.stringify(effort)}`,
     '-c approval_policy="never"',
     '-c sandbox_mode="danger-full-access"',
@@ -314,6 +316,7 @@ export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.code
 
 export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '', effort = null }) {
   const provider = normalizeAgent(agent);
+  const executable = shellQuote(providerExecutable(provider));
   const reasoning = effort === null ? effortFor(id, provider) : normalizeEffort(provider, effort);
   // FM2_TASK and FM2_HOME travel with the launch command, because a tmux pane
   // inherits the tmux SERVER's environment, not the environment of whatever
@@ -322,11 +325,9 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const env =
     `FM2_TASK=${shellQuote(id)} FM2_HOME=${shellQuote(homeDir())} FM2_AGENT=${shellQuote(provider)} FM2_PANEL=${shellQuote(panel)} FM2_EFFORT=${shellQuote(reasoning)}` +
     (provider === 'codex' ? " FM2_CODEX_BACKEND='embedded'" : '');
-  // The model is named rather than left to whatever the CLI defaults to. A
-  // default is not a choice: the default moved to Fable and every worker
-  // spawned after that quietly came up on it, which nothing in a pane, a report
-  // or `fm status` would ever show. Ribhav's workers run on Opus, so the
-  // command says so itself instead of depending on the CLI agreeing.
+  // The family is explicit and the version follows its latest release:
+  // Claude's opus alias and Codex's latest stable Sol catalog entry. Effort
+  // remains an independent per-task choice, including when resuming history.
   //
   // No brief means no opening prompt: the session comes up idle, waiting for
   // whoever opens the pane. An adopted worktree has no task to be handed, and
@@ -338,7 +339,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const prompt = briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : '';
   if (provider === 'claude') {
     return (
-      `${env} claude --dangerously-skip-permissions --effort ${reasoning} --model opus ` +
+      `${env} ${executable} --dangerously-skip-permissions --effort ${reasoning} --model ${CLAUDE_MODEL} ` +
       `--settings ${shellQuote(settingsFile)}` +
       (resume ? ` --resume ${shellQuote(resume)}` : '') +
       prompt
@@ -346,8 +347,8 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   }
 
   const flags = `--no-alt-screen ${codexSessionFlags(reasoning)} ${codexHookFlags(settingsFile)}`;
-  if (resume) return `${env} codex resume ${flags} ${shellQuote(resume)}${prompt}`;
-  return `${env} codex ${flags}${prompt}`;
+  if (resume) return `${env} ${executable} resume ${flags} ${shellQuote(resume)}${prompt}`;
+  return `${env} ${executable} ${flags}${prompt}`;
 }
 
 function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent = 'claude') {
@@ -763,12 +764,7 @@ function replacePane(pane, cwd, command) {
 
 const SWITCH_RUNTIME = {
   available(agent) {
-    try {
-      execFileSync('command', ['-v', normalizeAgent(agent)], { stdio: 'ignore', shell: '/bin/bash' });
-      return true;
-    } catch {
-      return false;
-    }
+    return providerAvailable(normalizeAgent(agent));
   },
   alive(pane) {
     try { return tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0'; }

@@ -10,6 +10,7 @@
 //                                      also how a task whose pane died is reopened
 //   fm switch <id> --agent <name>      move the same task between claude and codex
 //   fm effort <level>                  restart this session at a new reasoning effort
+//   fm update <claude|codex>           update a provider and resume all managed sessions
 //   fm reload --agent <name> [--fresh] replace every session in this panel, in place
 //                     [--controller-only]  ... or just the one running this
 //   fm handoff <id>                    close a finished ship task, open its cold review
@@ -43,6 +44,7 @@ import { currentPanel, supervisorPane } from './lib/presence.mjs';
 import { discoverSessions } from './lib/sessions.mjs';
 import { focusCommand } from './focus-pane.mjs';
 import { requestEffort } from './lib/effort.mjs';
+import { requestProviderUpdate } from './lib/provider-update-state.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -222,6 +224,28 @@ if (command === 'effort') {
     process.stdout.write(result.changed
       ? `${id}: effort ${result.from} -> ${result.effort} queued; end this turn now\n`
       : `${id}: already at effort ${result.effort}\n`);
+  } catch (error) { die(error.message); }
+  process.exit(0);
+}
+
+// --- provider update --------------------------------------------------------
+// Queue from a controller and execute only after its current turn has ended.
+// The Stop hook opens an independent maintenance pane, so the coordinator can
+// safely stop and later resume the conversation that requested the update.
+if (command === 'update' || command === 'upgrade') {
+  const provider = process.argv[3] ?? die(`usage: fm ${command} <claude|codex>`);
+  if (process.argv.length !== 4) die(`usage: fm ${command} <claude|codex>`);
+  const id = process.env.FM2_TASK ?? die('fm update is only available inside an fm control session');
+  if (!id.startsWith('controller:')) die('fm update must be requested from an fm control session');
+  const panel = currentPanel() ?? process.env.FM2_PANEL
+    ?? die('fm update cannot identify the requesting panel');
+  const requesterAgent = normalizeAgent(process.env.FM2_AGENT || 'claude');
+  try {
+    const result = requestProviderUpdate(provider, { requestedBy: id, requesterAgent, panel });
+    process.stdout.write(
+      `${result.provider} update queued for every managed ${result.provider} session; end this turn now\n` +
+      `maintenance log: ${result.log}\n`,
+    );
   } catch (error) { die(error.message); }
   process.exit(0);
 }
@@ -781,4 +805,4 @@ if (command === 'caps') {
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|effort|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');
+die('usage: fm review|ship|attach|switch|effort|update|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');

@@ -27,10 +27,14 @@ not build a poller or ask workers for updates by sending them prompts.
 | Hand completed implementation to review | `fm handoff <id>`; follow its stage options for a cold review |
 | User takes over a worker | `fm quiet <id>`; `--off` restores reporting |
 | Close completed work | `fm close <id>` |
+| Update a provider and restore its sessions | `fm update claude|codex`, then end the turn |
 
 Use `--agent codex` or `--agent claude` when the user chooses the worker's
 provider. Otherwise workers inherit the current panel's provider; outside a
 panel, the default remains Claude.
+Controllers, workers and reviewers use latest Opus or latest stable Sol at
+launch and exact resume. The harness resolves the version; effort remains a
+separate per-task setting with default `high`.
 Use `fm caps` to establish optional forge, tracker, and Slack capabilities.
 Preserve existing task identity and worktrees instead of creating duplicates.
 
@@ -65,6 +69,23 @@ when a separate panel is what was asked for.
 Do not manually relaunch the controller, run `/import`, or recreate splits to
 imitate either command. For a request affecting only one worker, use
 `fm switch <id> --agent <provider>`.
+
+## Update a provider without losing sessions
+
+When the user asks to update Claude Code or Codex, run exactly `fm update
+claude` or `fm update codex`, then end the current turn immediately. The Stop
+hook schedules the work outside the provider process tree. One temporary
+maintenance terminal snapshots and stops every identified session using that
+provider across all fm panels, invokes the provider's updater once, and resumes
+the exact native session IDs in their original panes. It closes on success and
+stays visible with the recovery manifest on failure.
+The requester is woken with the completion or failure report after its resumed
+conversation is ready; read it and continue any remaining authorized work.
+
+Do not run `claude update`, `codex update`, npm, or Homebrew directly while the
+sessions are live. Do not use `cc -c`, `--continue`, `--last`, or transcript
+recency to reopen them. Those shortcuts cannot identify which project
+conversation belongs in which pane.
 
 ## Dynamic effort
 

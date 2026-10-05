@@ -50,6 +50,20 @@ function readJson(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
+export function allRecordedSessions(agent = null) {
+  const provider = agent === null ? null : normalizeAgent(agent);
+  const root = dir('sessions');
+  const records = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    for (const name of provider ? [`${provider}.json`] : ['claude.json', 'codex.json']) {
+      const record = readJson(join(root, entry.name, name));
+      if (record?.id && record?.task && record?.agent) records.push(record);
+    }
+  }
+  return records;
+}
+
 export function recordedSession(task, agent) {
   const known = task?.sessions?.[normalizeAgent(agent)] ?? null;
   const sidecar = task?.id ? readJson(sessionRecordPath(task.id, agent)) : null;
@@ -192,6 +206,18 @@ function readJsonLines(path) {
   } catch {
     return [];
   }
+}
+
+// Parse one transcript that has already been tied to a live provider process.
+// This is deliberately narrower than discovery by cwd: provider-wide updates
+// use the file the process itself has open, so a manually launched session can
+// be resumed without guessing among several conversations in the same repo.
+export function sessionFromTranscript(agent, path) {
+  const provider = normalizeAgent(agent);
+  const parse = provider === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
+  const session = parse(path);
+  if (!session?.id || session.metadata_conflict) return null;
+  return { ...session, agent: provider };
 }
 
 function walkJsonl(root, out = []) {

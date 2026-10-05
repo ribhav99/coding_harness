@@ -57,7 +57,8 @@ for independent parts.
 - Stop source conversations and their writing tools before starting replacements.
   Do not start two agents on the same worktree during a handoff. Keep live shell
   panes with their processes and retain recovery manifests after failures.
-- Codex keeps its configured model, reasoning, sandbox, and approval settings.
+- Terminal models follow latest Opus (Claude) or latest stable Sol (Codex).
+  Task effort, sandbox, and approval settings stay independent of model versions.
   Review the harness's lifecycle hooks with `/hooks` when first using them;
   never bypass trust for all user hooks to suppress that review.
 - Managed sessions start at `high` effort and may change their own effort with
@@ -66,3 +67,8 @@ for independent parts.
   The Stop hook preserves and resumes the same conversation. Claude accepts
   `low|medium|high|xhigh|max`; Codex additionally accepts `ultra`. Never change
   the model as part of an effort transition.
+- When Ribhav asks the controller to update a provider, run `fm update
+  claude|codex` and end the turn immediately. A separate maintenance pane stops
+  every identified session on that provider across all panels, runs one update,
+  and resumes exact session IDs in their original panes. Never substitute
+  `cc -c`, `--last`, a recency guess, or a manual relaunch loop.

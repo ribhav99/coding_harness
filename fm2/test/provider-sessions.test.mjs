@@ -9,11 +9,13 @@ import { allTasks, loadTask, saveTask } from '../lib/config.mjs';
 import { currentPanel, recordSupervisor, supervisorPane, supervisorRecord } from '../lib/presence.mjs';
 import { controllerId, recordedSession, rememberSession, resolveSession, resumableSession } from '../lib/sessions.mjs';
 import { supervisorCommand, supervisorHookConfig } from '../supervisor.mjs';
+import { seedModelCatalog } from './model-fixture.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'fm2-provider-sessions-'));
+  seedModelCatalog(home, t);
   const bin = join(home, 'bin');
   mkdirSync(bin);
   const values = {
@@ -76,7 +78,7 @@ test('controller commands deliver exact identity, full resume prompt, and named 
   // the approval gate that would otherwise stop an unattended pane on its first
   // command outside the workspace. `--last` is still never used: a resume names
   // its session exactly or does not happen.
-  assert.ok(args.includes('model="gpt-5.6-sol"'));
+  assert.ok(args.includes('model="gpt-6.1-sol"'));
   assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.ok(args.includes('approval_policy="never"'));
   assert.ok(args.includes('sandbox_mode="danger-full-access"'));
@@ -94,6 +96,7 @@ test('the direct controller launcher supplies explicit Claude startup hooks and 
   assert.equal(result.status, 0, result.stderr);
   const { args, env } = f.args();
   assert.equal(args[args.indexOf('--resume') + 1], 'exact-claude-session');
+  assert.equal(args[args.indexOf('--model') + 1], 'opus');
   const settings = JSON.parse(args[args.indexOf('--settings') + 1]);
   assert.deepEqual(Object.keys(settings.hooks), ['SessionStart', 'UserPromptSubmit', 'Stop']);
   assert.equal(env.FM2_TASK, 'controller:fm-one');

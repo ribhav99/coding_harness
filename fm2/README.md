@@ -36,6 +36,7 @@ fm ship <id> --spec <text|@file>   put a worker on a task
 fm attach <worktree> [--spec ...]  a session on a worktree that already exists
 fm switch <id> --agent codex       move the same task to Codex (or claude)
 fm effort <level>                   restart this managed session at a new effort
+fm update claude|codex              update one provider; resume all its identified sessions
 fm handoff <id>                    ask a finished ship task to self-review
 fm handoff <id> --stage swap       close it and open its cold review — one operation
 fm read                            take the reports you have not read
@@ -72,6 +73,52 @@ hook schedules the replacement outside the provider process tree, suppresses the
 intermediate task report, and resumes the exact conversation automatically.
 Claude accepts `low`, `medium`, `high`, `xhigh`, and `max`; Codex also accepts
 `ultra`. The model is fixed and cannot be changed by this command.
+
+## Updating a provider without losing the fleet
+
+Run this from any fm controller and then end that controller's turn:
+
+```sh
+fm update claude
+fm update codex
+```
+
+The controller's Stop hook creates one temporary maintenance terminal. It
+preflights every live session using the selected provider across every fm tmux
+panel, requires either a hook-recorded exact identity or one native transcript
+held open by that pane's live provider process, snapshots them all, and only
+then begins stopping processes. Ambiguous manual panes refuse before anything
+is stopped. Once every identified session is closed, it runs the provider's
+own updater exactly once and resumes each conversation in its original pane.
+Workers restart before
+controllers. The maintenance terminal disappears on success; on failure it
+stays open and points to the manifest under `~/.fm2/provider-updates/`. An
+updater failure still attempts to reopen every session already stopped.
+
+Claude resumes with `--resume <exact-id>` and Codex with `resume <exact-id>`.
+The operation never uses `cc -c`, `--continue`, `--last`, or transcript recency.
+Manual provider panes require one native transcript held open by their process.
+That live transcript also repairs stale managed-session records after resume,
+but only when its worktree matches the task. Restart success requires the exact
+conversation to be open in the new process, not merely a running CLI. A pane's
+Codex daemon can be stopped only after its loaded threads are verified to belong
+to that conversation and its descendants; unrelated loaded threads refuse the
+shutdown. Manual panes resume without a daemon or injected fm hooks.
+The requester receives a durable completion or failure report and is woken
+after its exact conversation is ready, so a request to update both providers
+can continue across the lifecycle restart.
+
+Models follow the latest release of the chosen family: Claude's `opus` alias
+and the newest stable Sol in Codex's model catalog. Both controllers and workers
+use this policy on new launches and resumes; saved conversations cannot pin an
+older Sol. Effort remains per task (default `high`). Codex refreshes a catalog
+older than one minute and explicitly warns when an offline launch uses its
+cached latest model. No model version is hard-coded in the harness.
+
+When the active Codex command is an external link into the desktop app bundle,
+whose updater cannot detect its installation method, the maintenance terminal
+installs the official standalone npm distribution into that same bin prefix.
+This replaces only the CLI link; future CLI updates use the managed package.
 
 Older Claude tasks predate the identity hook. For those, fm requires one local
 transcript matching the exact worktree and opening brief. Multiple matches are
@@ -164,7 +211,7 @@ controls whether tmux windows become native tabs or separate windows. Choose
 tabs in a new window for a complete panel grouped together. The harness uses
 the supported `tmux -CC` integration and preserves that preference.
 
-Codex keeps its configured model, reasoning, sandbox, and approval settings.
+Codex uses latest Sol while retaining the task's effort, sandbox, and approval settings.
 On first use, inspect and trust the harness command hooks with `/hooks` in the
 control pane and a worker pane. Hook definitions stay stable across task IDs
 and panels. Skipped hooks cannot report or record exact session IDs. The
