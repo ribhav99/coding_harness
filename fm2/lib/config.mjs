@@ -109,8 +109,11 @@ export function capabilities({ refresh = false } = {}) {
     slack: false,
   };
   if (have('gh')) {
+    // --active: the account gh will actually use. Without it, one stale stored
+    // login fails the whole check even while the active token works, and every
+    // launch that asks is refused as "not authenticated".
     try {
-      execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
+      execFileSync('gh', ['auth', 'status', '--active'], { stdio: 'ignore' });
       caps.gh = true;
     } catch { caps.gh = false; }
   }
