@@ -107,6 +107,7 @@ running. If a stop cannot be confirmed, say that instead of claiming it worked.
 While the sub-agents are running, perform your own independent review. This is NOT a summary of what you expect the judges to find — it's your own analysis covering things judges miss:
 
 - **Read the full diff.** Look for things that require human judgment: naming choices, API shape, whether the abstraction level is right, whether comments reference things that don't exist.
+- **Map what changes for the people using the product.** For every way this branch changes what someone sees, does, or receives — a screen, an action, a message, a document that leaves the system — write down what happens today and what happens once it merges. Read *today* from the base branch, not from the diff: a diff shows lines that were removed, not what a person experienced. Note which changes the work order or a design asked for and which the author decided alone; the unasked ones most need the reader's eye.
 - **Run the tests.** Execute the project's test suite and verify everything passes. Don't just read the tests — run them.
 - **Cross-check the PRD.** If a sibling PRD repo exists, verify that the work order's scope matches the ground-truth PRD. Check release phasing, feature ownership, and terminology.
 - **Check for completeness gaps.** Are there operations, edge cases, or system behaviors that the code doesn't handle? Think adversarially — but from the perspective of a user, operator, or future developer, not just an attacker.
@@ -179,6 +180,15 @@ Throughout the rest of this skill, `<spec>` means that path:
                                    // what reviewing your own work is usually for.
                                    // Omit or false on anyone else's PR.
   "summary": "2-3 sentences: what this branch changes for someone using the product, and your overall read.",
+  "product_changes": [
+    {
+      "title": "The change, in a few words",
+      "who": "Who notices it: a rep opening a submitted pack, the DACH back office, SIH.",
+      "today": "What they see or do today.",
+      "with_pr": "What they will see or do once this merges.",
+      "source": "Where the decision comes from: the work order, a design, or the author's own call."
+    }
+  ],
   "recommendation": { "value": "request-changes", "why": "one line" },
   "findings": [
     {
@@ -186,6 +196,8 @@ Throughout the rest of this skill, `<spec>` means that path:
       "title": "What is wrong, in plain words",
       "severity": "medium",
       "blocks_merge": true,
+      "today": "What the product does in this situation today.",
+      "with_pr": "What it will do once this merges.",
       "what_breaks": "The consequence, first.",
       "when": "The concrete situation that triggers it. Who is doing what when this bites.",
       "why": "The underlying cause, explained conceptually.",
@@ -233,8 +245,13 @@ The one permitted exception is in reviewer mode: if the comment you are about to
 #### Structure
 
 - **Summary** — 2-3 sentences: what this branch changes, in terms of what will be different for someone using the product. Overall assessment. In reviewer mode, name the author.
+- **Product changes** — first on the page, above the verdict and every finding. One entry per change to what someone using the product sees, does, or receives, each written as *today* and *with this PR*, with who notices and where the decision came from. This is how the reader learns what they are approving: a product decision buried in a forty-file diff is approved by accident.
+  - List every change a user can observe, not only the ones with problems. Leave out what no user can observe: refactors, tests, internal renames.
+  - If nothing changes for anyone using the product — a dependency bump, a test-only change — write one entry that says so, rather than leaving the section out.
+  - A change you think is wrong is also a finding. It is described here and argued there.
 - **Findings** — one card per JUDGMENT finding, most significant first. Each card carries:
-  - **What breaks** — the consequence, first and in plain words. Lead with it.
+  - **Today → With this PR** — first on the card: what the product does in this situation today, and what it will do once this merges. The reader decides on the difference, so give them both sides in the same plain words. When the situation cannot arise today because the feature is new, say what a person does today instead.
+  - **What breaks** — the consequence, in plain words. Lead the explanation with it.
   - **When** — the concrete situation that triggers it. Who is doing what when this bites.
   - **Why** — the underlying cause, explained conceptually. This is where the translation work above lands.
   - **Where in the product** — named the way the user would name it, not by file.
@@ -324,5 +341,5 @@ Two separate commits, in this order:
 - **The HTML is the deliverable.** Do not also dump the findings as markdown in chat — that's what the surface is for, and duplicating it means they read the worse version. In chat, say only: what was found at a glance, the verdict, and that the surface is open. After decisions are applied, report what you actually did.
 - **Explain to someone very intelligent who has no context, and show them no code.** They can reason about anything and decide anything once they see the full picture — but they do not read code and do not follow this project. Hand them the situation in plain words: what breaks, when, why, and where in the product. Code is not a footnote on this page; it is absent. If you cannot explain a finding without showing the code, you do not yet understand it well enough to ask anyone to decide on it.
 - **Be honest about what you didn't check.** If the PRD repo isn't available, say so. If you couldn't run tests, say so. If a judge failed to return, say so. Don't claim confidence you don't have.
-- **Findings only.** Don't list things the diff got right. The diff speaks for itself.
+- **Findings only, after the product changes.** The product changes describe what the branch does for its users, good and bad; the findings argue what is wrong with it. Don't pad the findings with things the diff got right.
 - **Think adversarially.** The purpose of this review is to catch problems before merge, not to validate that the code looks reasonable.

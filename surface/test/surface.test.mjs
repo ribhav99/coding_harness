@@ -4,7 +4,7 @@
 // something Ribhav did not choose. They assert on the generated page rather
 // than on the generator's source, because the page is what the browser gets.
 //
-// Run: node --test surface/test/
+// Run: node --test surface/test/*.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,6 +67,55 @@ test('content is escaped, so a finding cannot inject markup', () => {
   );
   assert.ok(!/<script>bad\(\)<\/script>/.test(html), 'a title was rendered as live markup');
   assert.match(html, /a &amp; b/);
+});
+
+// Ribhav reads a review by what it changes for the people using the product,
+// so that comes before anything he is asked to decide.
+test('product changes come first, above the verdict and every finding', () => {
+  const html = renderPage(
+    {
+      ...SPEC,
+      product_changes: [
+        {
+          title: 'Submitted packs lose Edit configuration',
+          who: 'a rep opening a submitted pack',
+          today: 'the button shows',
+          with_pr: 'the button is gone',
+          source: 'asked for by WO-458',
+        },
+      ],
+    },
+    { id: 'pr-1' },
+  );
+  const changes = html.indexOf('class="changes"');
+  assert.ok(changes > 0, 'the product changes were not rendered');
+  assert.ok(changes < html.indexOf('class="verdict"'), 'the product changes render below the verdict');
+  assert.ok(changes < html.indexOf('class="finding"'), 'the product changes render below a finding');
+  for (const text of ['a rep opening a submitted pack', 'the button shows', 'the button is gone', 'asked for by WO-458']) {
+    assert.ok(html.includes(text), `"${text}" did not reach the page`);
+  }
+});
+
+test('a finding says what happens today and with this PR before what breaks', () => {
+  const html = renderPage(
+    {
+      id: 'x',
+      findings: [
+        { id: 'f1', title: 't', today: 'what it does now', with_pr: 'what it will do', what_breaks: 'the consequence', comment: 'c' },
+      ],
+    },
+    { id: 'x' },
+  );
+  const today = html.indexOf('what it does now');
+  const withPr = html.indexOf('what it will do');
+  const breaks = html.indexOf('the consequence');
+  assert.ok(today > 0 && withPr > today && breaks > withPr, 'not in the order today, with this PR, what breaks');
+});
+
+test('a review written before these fields renders no empty sections', () => {
+  const html = renderPage(SPEC, { id: 'pr-1' });
+  assert.ok(!html.includes('before-after'), 'a finding with no today or with_pr rendered an empty block');
+  assert.ok(!html.includes('class="changes"'), 'a spec with no product_changes rendered an empty section');
 });
 
 // --- the server refuses what it must ----------------------------------------
@@ -308,6 +357,10 @@ test('a spec key the page cannot render refuses to register', async () => {
 
   // An empty one loses nothing, so it must not block a review from opening.
   writeFileSync(specPath, JSON.stringify({ ...SPEC, id: 'pr-d', extra_summary_points: [] }));
+  assert.equal(store.register(specPath, { pane: '%3' }).id, 'pr-d');
+
+  // The page renders product_changes, so a spec carrying them is not refused.
+  writeFileSync(specPath, JSON.stringify({ ...SPEC, id: 'pr-d', product_changes: [{ title: 'a change' }] }));
   assert.equal(store.register(specPath, { pane: '%3' }).id, 'pr-d');
 });
 

@@ -61,6 +61,15 @@ and specifically do not write forms.
   "title": "PR #297 review — toasts over overlays",
   "pr": "https://github.com/o/r/pull/297",
   "summary": "One sentence on what this branch changes for someone using the product.",
+  "product_changes": [
+    {
+      "title": "The change, in a few words",
+      "who": "Who notices it.",
+      "today": "What they see or do today.",
+      "with_pr": "What they will see or do once this merges.",
+      "source": "The work order, a design, or the author's own call."
+    }
+  ],
   "recommendation": { "value": "request-changes", "why": "one line" },
   "findings": [
     {
@@ -68,6 +77,8 @@ and specifically do not write forms.
       "title": "What is wrong, in plain words",
       "severity": "medium",
       "blocks_merge": true,
+      "today": "What the product does in this situation today.",
+      "with_pr": "What it will do once this merges.",
       "what_breaks": "The consequence, first.",
       "when": "The concrete situation that triggers it.",
       "why": "The underlying cause, explained conceptually.",
@@ -87,6 +98,11 @@ and specifically do not write forms.
 
 `verdict` is `approve | approve-with-comments | request-changes | needs-discussion`.
 Nits are `batched | all | skip`.
+
+`product_changes` renders first on the page, above the verdict: what the PR
+changes for the people using the product, each as today and with this PR. A
+finding's `today` and `with_pr` render at the top of its card. All of them are
+optional, and a side that is absent is left out rather than shown empty.
 
 ## Comments, or changes
 

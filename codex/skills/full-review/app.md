@@ -105,6 +105,13 @@ line number, priority, and a short title carrying a stable ID such as `F1`.
 These local review annotations present findings; they do not post to GitHub.
 For a finding without a valid line anchor, keep it in the concise task response.
 
+Lead the response with the product changes: every way the branch changes what
+someone using the product sees, does, or receives, each as what happens today and
+what happens once it merges, with who notices and whether the work order asked
+for it. Read today's behavior from the base branch, not from the diff. Give each
+finding the same two sides before its consequence: what the product does in that
+situation today, and what it will do with this PR.
+
 Explain the consequence first: what breaks, when, why, and where in the product.
 Include severity and whether it blocks merge. Show exact proposed outgoing
 comment text before asking for its approval. Keep code and diff excerpts in the

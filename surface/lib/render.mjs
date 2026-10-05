@@ -111,6 +111,51 @@ function severityBadge(finding) {
 <span class="badge ${blocks ? 'blocks' : 'nonblocking'}">${blocks ? 'blocks merge' : 'does not block'}</span>`;
 }
 
+// Ribhav reviews a change by the difference it makes, so what happens today and
+// what happens once the PR merges sit side by side - neither left for the reader
+// to infer from the other. A side the review did not write is left out rather
+// than rendered empty.
+function beforeAfter(today, withPr) {
+  const sides = [
+    ['today', 'Today', today],
+    ['with-pr', 'With this PR', withPr],
+  ].filter(([, , body]) => body);
+  if (!sides.length) return '';
+  const rendered = sides
+    .map(
+      ([cls, heading, body]) =>
+        `<div class="side ${cls}"><h4>${heading}</h4><p>${escapeHtml(body)}</p></div>`,
+    )
+    .join('\n');
+  return `<div class="before-after">
+${rendered}
+</div>`;
+}
+
+// What the PR changes for the people using the product, first on the page. A
+// product decision found only by reading forty files of diff is a decision
+// approved by accident.
+function renderProductChanges(changes) {
+  if (!Array.isArray(changes) || changes.length === 0) return '';
+  const items = changes
+    .map((raw) => {
+      const change = typeof raw === 'string' ? { title: raw } : raw ?? {};
+      const who = change.who ? `<p class="who">${escapeHtml(change.who)}</p>` : '';
+      const source = change.source ? `<p class="source">${escapeHtml(change.source)}</p>` : '';
+      return `<article class="change">
+  <h3>${escapeHtml(change.title ?? '')}</h3>
+  ${who}
+  ${beforeAfter(change.today, change.with_pr)}
+  ${source}
+</article>`;
+    })
+    .join('\n');
+  return `<section class="changes">
+  <h2>Product changes</h2>
+${items}
+</section>`;
+}
+
 // One card. The prose fields are optional and omitted entirely when absent, so a
 // short finding does not render a run of empty headings.
 function renderFinding(finding, index, ownPr = false) {
@@ -144,6 +189,7 @@ function renderFinding(finding, index, ownPr = false) {
     <h3>${escapeHtml(finding.title ?? `Finding ${index + 1}`)}</h3>
     <div class="badges">${severityBadge(finding)}</div>
   </header>
+  ${beforeAfter(finding.today, finding.with_pr)}
   ${prose}
   ${foundBy}
   <div class="decision">
@@ -220,6 +266,7 @@ export function renderPage(spec, { id, decided = null } = {}) {
     ${spec.summary ? `<p class="summary">${escapeHtml(spec.summary)}</p>` : ''}
   </header>
   ${banner}
+  ${renderProductChanges(spec.product_changes)}
   <form id="decisions" data-review="${escapeHtml(id)}" novalidate>
     <section class="mode">
       <h2>What may this review do to the branch?</h2>

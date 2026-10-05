@@ -117,7 +117,7 @@ export function idFor(specPath, spec) {
 // never seen by anyone. It happened on a real review, where three items sat in
 // `extra_summary_points` and only surfaced because the reviewer mentioned them.
 const RENDERED = new Set([
-  'id', 'title', 'pr', 'own_pr', 'summary', 'recommendation',
+  'id', 'title', 'pr', 'own_pr', 'summary', 'product_changes', 'recommendation',
   'findings', 'nits', 'tests', 'judges', 'scope',
 ]);
 
