@@ -78,6 +78,22 @@ function tmux(args) {
 // develops on a release branch 14 commits ahead of the master origin/HEAD still
 // points at - honouring the remote there cuts every task from a stale base, and
 // nothing says so.
+// A new branch starts from the remote's tip, not the local branch of the same
+// name. The checkout's own develop is whatever was last pulled into it - ten
+// merges behind after a week away - and a worker built on that starts on code
+// the team has already replaced. The local branch is the fallback only when the
+// remote cannot be reached.
+function startPoint(project) {
+  const branch = defaultBranch(project);
+  try {
+    git(project, ['fetch', '--quiet', 'origin', branch]);
+    git(project, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]);
+    return `origin/${branch}`;
+  } catch {
+    return branch;
+  }
+}
+
 export function defaultBranch(project) {
   const declared = projectConfig(project).default_branch;
   if (declared) return declared;
@@ -460,7 +476,7 @@ export function spawnTask({
   if (baseRef) {
     git(project, ['worktree', 'add', '--detach', wt, baseRef]);
   } else {
-    git(project, ['worktree', 'add', '-b', id, wt, defaultBranch(project)]);
+    git(project, ['worktree', 'add', '--no-track', '-b', id, wt, startPoint(project)]);
   }
 
   const briefDir = dir('briefs', id);
