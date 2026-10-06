@@ -155,7 +155,8 @@ and the report is what survives this session.
 
 You never write a status line. Stopping IS your report - your last message before you
 stop is what reaches Ribhav, so make it two or three lines saying what you
-concluded and what, if anything, you need.`;
+concluded and what, if anything, you need. Anything you need him to decide goes on
+the review page, not in that message - he answers decisions from the pages.`;
 
 // Not every review wants the judge panel. A dependency bump Ribhav wants checked
 // and landed is a review in the harness's eyes - a cold session at the PR head,
