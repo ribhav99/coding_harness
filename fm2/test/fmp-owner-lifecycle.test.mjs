@@ -55,6 +55,37 @@ async function waitFor(predicate, message, timeout = 10_000) {
   assert.fail(message);
 }
 
+test('new panels pass their own project and remote choice without leaking the first server environment', async t => {
+  const realTmux = execFileSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' }).trim();
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'fm2-fmp-context-')));
+  const projects = join(base, "projects with 'quotes");
+  const bin = join(base, 'bin');
+  const socket = `fm2-fmp-context-${randomUUID()}`;
+  mkdirSync(bin);
+  const tmuxPath = join(bin, 'tmux');
+  writeFileSync(tmuxPath, `#!/bin/sh\nexec ${JSON.stringify(realTmux)} -L ${JSON.stringify(socket)} -f /dev/null "$@"\n`, { mode: 0o755 });
+  t.after(() => {
+    try { execFileSync(tmuxPath, ['kill-server'], { stdio: 'ignore' }); } catch {}
+    rmSync(base, { recursive: true, force: true });
+  });
+  const recorder = join(base, 'record.mjs');
+  writeFileSync(recorder, `import {writeFileSync} from 'node:fs'; import {join} from 'node:path';
+    writeFileSync(join(process.env.FM_PROJECT, 'context.json'), JSON.stringify({project:process.env.FM_PROJECT, remote:process.env.FM_REMOTE}));`);
+  for (const [name, choice] of [['alpha', 'yes'], ['beta', '']]) {
+    const project = join(projects, name);
+    mkdirSync(join(project, '.git'), { recursive: true });
+    execFileSync('/bin/bash', [join(ROOT, 'bin-fmp'), name], { env: {
+      ...process.env, PATH: `${bin}:${process.env.PATH}`, TERM: 'xterm-256color', TMUX: '',
+      FM_REPO: dirname(ROOT), FM_PROJECTS: projects, FM_PROJECT: '/wrong/inherited/project',
+      FM_REMOTE: choice, FMP_NO_ATTACH: '1', FMP_CLAUDE_CMD: `node '${recorder}'`,
+    }, stdio: 'ignore' });
+    await waitFor(() => existsSync(join(project, 'context.json')), 'controller context was not written');
+    assert.deepEqual(JSON.parse(readFileSync(join(project, 'context.json'))), {project, remote: choice || 'no'});
+    const sessionEnv = execFileSync(tmuxPath, ['show-environment', '-t', `fm-${name}`, 'FM_REMOTE'], { encoding: 'utf8' }).trim();
+    assert.equal(sessionEnv, `FM_REMOTE=${choice || 'no'}`);
+  }
+});
+
 test('the owning fmp pane controls panel lifetime while secondary clients may disconnect', {
   skip: process.platform !== 'darwin' || !existsSync('/usr/bin/script'),
 }, async (t) => {
@@ -93,7 +124,7 @@ test('the owning fmp pane controls panel lifetime while secondary clients may di
   const children = [];
   const launch = (args, env = process.env) => {
     const child = spawn('/usr/bin/script', ['-q', '/dev/null', ...args], {
-      detached: true, env, stdio: 'ignore',
+      detached: true, env: { ...env, TERM: 'xterm-256color' }, stdio: 'ignore',
     });
     child.unref();
     children.push(child);

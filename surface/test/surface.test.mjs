@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync, utimesSync, readdirSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync, utimesSync, readdirSync, cpSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -125,13 +125,15 @@ const { validate, wakePane } = await import(join(ROOT, 'server.mjs'));
 test('waking a Codex reviewer lets its paste detector settle before submitting', async () => {
   const events = [];
   const send = async (args) => {
-    events.push(args.at(-1) === 'Enter' ? 'submit' : 'type');
+    assert.equal(args[0], 'if-shell');
+    assert.match(args[4], /pane_pid.*123.*synchronize-panes/);
+    events.push(args[5].includes('-H 0d ;') ? 'submit' : 'type');
     return null;
   };
   const wait = async (milliseconds) => { events.push(`wait:${milliseconds}`); };
 
   assert.deepEqual(
-    await wakePane('%7', 'Ribhav decided.', { send, wait }),
+    await wakePane('%7', 'Ribhav decided.', { send, wait, identity: '123:birth' }),
     { woke: true },
   );
   assert.deepEqual(events, ['type', 'wait:250', 'submit']);
@@ -223,8 +225,9 @@ test('a valid send writes the decisions; an invalid one writes nothing', async (
   process.env.SURFACE_HOME = home;
   process.env.SURFACE_PORT = String(port);
 
-  const { register } = await import(`${join(ROOT, 'lib/store.mjs')}?home=${encodeURIComponent(home)}`);
-  register(specPath, { pane: null });
+  const { register, readReview } = await import(`${join(ROOT, 'lib/store.mjs')}?home=${encodeURIComponent(home)}`);
+  const entry = register(specPath, { pane: null });
+  const round = readReview(entry).round;
 
   const { spawn } = await import('node:child_process');
   const server = spawn(process.execPath, [join(ROOT, 'server.mjs')], {
@@ -247,7 +250,7 @@ test('a valid send writes the decisions; an invalid one writes nothing', async (
   const bad = await fetch(`${base}/api/pr-1/decisions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ verdict: 'approve', findings: { f1: { decision: 'inline', comment: '' } } }),
+    body: JSON.stringify({ round, submission_id: 'bad-submission', verdict: 'approve', findings: { f1: { decision: 'inline', comment: '' } } }),
   });
   assert.equal(bad.status, 422, 'a partial payload was accepted');
   assert.ok(!existsSync(decisionsFile), 'a refused send still wrote decisions to disk');
@@ -256,6 +259,7 @@ test('a valid send writes the decisions; an invalid one writes nothing', async (
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      round, submission_id: 'good-submission',
       verdict: 'request-changes',
       findings: { f1: { decision: 'inline', comment: 'say this' }, f2: { decision: 'drop', comment: '' } },
       nits: 'batched',
@@ -522,13 +526,15 @@ test('the server reports the build it is running, and a source change changes it
 
   // A negative control: without this, a stamp that ignored the sources
   // entirely - a constant - would pass everything above.
-  const source = join(ROOT, 'server.mjs');
+  const copy = mkdtempSync(join(tmpdir(), 'surface-build-'));
+  cpSync(ROOT, copy, { recursive: true });
+  t.after(() => rmSync(copy, { recursive: true, force: true }));
+  const source = join(copy, 'server.mjs');
   const original = readFileSync(source, 'utf8');
-  t.after(() => writeFileSync(source, original));
   writeFileSync(source, `${original}\n// touched by the build-stamp test\n`);
-  assert.notEqual(buildStamp(), health.build, 'editing the source did not change the stamp');
+  assert.notEqual(buildStamp({ root: copy }), health.build, 'editing the source did not change the stamp');
   writeFileSync(source, original);
-  assert.equal(buildStamp(), health.build, 'restoring the source did not restore the stamp');
+  assert.equal(buildStamp({ root: copy }), health.build, 'restoring the source did not restore the stamp');
 });
 
 test('a claim from before the pane existed does not block the review running in it', async () => {

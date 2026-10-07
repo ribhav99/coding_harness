@@ -38,6 +38,58 @@ surface stop               # shut it down
 
 There is deliberately no `poll`.
 
+## Reviews on an iPhone
+
+Use the updated TabTail app and Mac adapter with your existing SSH-over-Tailscale
+setup. The surface still listens only on `127.0.0.1:4390`. No public listener,
+cloud host, second login, or copied HTML is needed. Enable it once per project:
+
+```sh
+fm remote yes --project /absolute/path/to/project
+# Restore Mac-browser launches:
+fm remote no --project /absolute/path/to/project
+```
+
+This preserves other `.fm2.json` fields and sets `"remote": true/false`. It is
+read again whenever a review opens, including in existing workers; no live
+session needs restarting. Keep that config local if the choice is personal.
+Without a saved setting, `FM_REMOTE=yes fmp project` works for a newly launched
+panel. Workers receive the project identity and resolved value explicitly,
+rather than inheriting the shared tmux server's environment. No `.env` file is
+executed or auto-loaded. `yes/true/on/1` enables remote delivery;
+`no/false/off/0` or unset preserves desktop behavior. A saved project setting
+wins over an inherited launch value; invalid values fail with an explanation.
+
+In TabTail, choose the Mac, then **Reviews** (also in the terminal's collapsed
+menu). The inbox labels reviews by project and separates waiting and sent
+decisions. Read the same generated form, edit its comments/verdict, and send.
+The terminal remains mounted behind it. Drafts stay in phone memory across
+closing the sheet, backgrounding, and reconnects, scoped to device/review/round.
+Force-quitting loses unsent drafts. The Mac must remain awake and reachable.
+The badge refreshes while connected; there are no background push notifications.
+
+Decisions are saved before notifying the original worker. The page distinguishes
+a confirmed wake from saved decisions without a confirmed notification.
+Durable submission receipts prevent a retry after a lost acknowledgment from
+waking twice, including after a server restart. Old review rounds are refused.
+A second, different submission cannot overwrite a saved round. Reconnecting
+loads the actual saved choices if another page sent them. The original pane's
+socket, PID and process birth time are checked; both typing and Enter are gated
+against pane replacement and synchronized input. A dead/reused pane cannot
+receive an older worker's decisions. Existing page
+URLs remain valid; colliding IDs across projects get a stable path suffix.
+Reopen a review from its owning worker after upgrading an old registration so
+the original pane identity is recorded; reload any already-open browser page.
+
+The local JSON endpoints are `/api/reviews`, `/api/<id>/page`, and
+`/api/<id>/decisions`. The adapter forwards only list/open/submit, never arbitrary
+HTTP hosts/ports/files. The embedded page bundles its assets and has no network
+or native credential access. Same-origin JSON submissions still serve desktop
+pages. Keep the server bound to loopback; these APIs are not a network login.
+For custom `SURFACE_PORT`, install the adapter with matching
+`RELAY_SURFACE_PORT`. An old/missing harness or adapter shows a setup message in
+Reviews without interrupting terminal access.
+
 A review that opens its page again for a new round rewrites its spec first. `open`
 then moves the previous round's `decisions.json` aside as `decisions-<time>.json`,
 so `read` waits for Ribhav's answer to this round instead of returning the last one.

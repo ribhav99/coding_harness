@@ -85,7 +85,7 @@ export function escapeHtml(value) {
 // A finding needs a stable id: it keys the controls, the submitted decisions, and
 // the validation error that points back at the card. Reviews may supply one;
 // where they do not, position is stable enough for a page that is generated once.
-function findingId(finding, index) {
+export function findingId(finding, index) {
   const raw = String(finding.id ?? `f${index + 1}`).trim();
   return raw.replace(/[^A-Za-z0-9_-]/g, '-') || `f${index + 1}`;
 }
@@ -198,7 +198,7 @@ function renderFinding(finding, index, ownPr = false) {
 ${radioGroup(`${id}-decision`, DECISIONS, finding.default ?? 'inline')}
     </div>
     <div class="choices mode-change"${ownPr ? '' : ' hidden'}>
-${radioGroup(`${id}-change`, CHANGE_DECISIONS, 'fix')}
+${radioGroup(`${id}-change`, CHANGE_DECISIONS, finding.change_default || 'fix')}
     </div>
     <label class="draft-label" for="${escapeHtml(id)}-comment">The comment that goes out under your name — edit it</label>
     ${anchor}
@@ -207,7 +207,7 @@ ${radioGroup(`${id}-change`, CHANGE_DECISIONS, 'fix')}
 </article>`;
 }
 
-function renderNits(nits) {
+function renderNits(nits, selected = 'batched') {
   if (!Array.isArray(nits) || nits.length === 0) return '';
   const items = nits.map((n) => `<li>${escapeHtml(n)}</li>`).join('\n');
   return `<section class="nits">
@@ -216,7 +216,7 @@ function renderNits(nits) {
 ${items}
   </ul>
   <div class="choices">
-${radioGroup('nits-decision', NIT_CHOICES, 'batched')}
+${radioGroup('nits-decision', NIT_CHOICES, selected)}
   </div>
 </section>`;
 }
@@ -240,14 +240,17 @@ function renderEvidence(spec) {
   return `<section class="evidence"><h2>Evidence</h2>${blocks.join('\n')}</section>`;
 }
 
-export function renderPage(spec, { id, decided = null } = {}) {
+export function renderPage(spec, { id, decided = null, round = '', embedded = null } = {}) {
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
   const ownPr = defaultModeFor(spec) === 'change';
-  const cards = findings.map((f, i) => renderFinding(f, i, ownPr)).join('\n');
+  const cards = findings.map((f, i) => {
+    const chosen = decided?.findings?.[findingId(f, i)];
+    return renderFinding(chosen ? { ...f, default: chosen.decision, change_default: chosen.decision, comment: chosen.comment } : f, i, ownPr);
+  }).join('\n');
   const rec = spec.recommendation ?? {};
 
   const banner = decided
-    ? `<div class="sent-banner">Sent ${escapeHtml(decided.submitted_at ?? '')}. The reviewer has your decisions; you can close this tab.</div>`
+    ? `<div class="sent-banner">Saved ${escapeHtml(decided.submitted_at ?? '')}. Your decisions are on the Mac.</div>`
     : '';
 
   return `<!doctype html>
@@ -255,23 +258,24 @@ export function renderPage(spec, { id, decided = null } = {}) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; style-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; connect-src ${embedded ? "'none'" : "'self'"}; base-uri 'none'; form-action 'none'">
 <title>${escapeHtml(spec.title ?? 'Review')}</title>
-<link rel="stylesheet" href="/static/surface.css">
+${embedded ? `<style>${embedded.css}</style>` : '<link rel="stylesheet" href="/static/surface.css">'}
 </head>
 <body>
 <main>
   <header class="page-head">
     <h1>${escapeHtml(spec.title ?? 'Review')}</h1>
-    ${spec.pr ? `<a class="pr-link" href="${escapeHtml(spec.pr)}">${escapeHtml(spec.pr)}</a>` : ''}
+    ${/^https:\/\//i.test(spec.pr || '') ? `<a class="pr-link" href="${escapeHtml(spec.pr)}">${escapeHtml(spec.pr)}</a>` : ''}
     ${spec.summary ? `<p class="summary">${escapeHtml(spec.summary)}</p>` : ''}
   </header>
   ${banner}
   ${renderProductChanges(spec.product_changes)}
-  <form id="decisions" data-review="${escapeHtml(id)}" novalidate>
+  <form id="decisions" data-review="${escapeHtml(id)}" data-round="${escapeHtml(round)}" data-embedded="${!!embedded}" data-sent="${!!decided}" novalidate>
     <section class="mode">
       <h2>What may this review do to the branch?</h2>
       <div class="choices">
-${radioGroup('mode', MODES, defaultModeFor(spec))}
+${radioGroup('mode', MODES, decided?.mode || defaultModeFor(spec))}
       </div>
       <p class="mode-note" id="modeNote">Nothing will be committed or pushed. Findings become comments you approve.</p>
     </section>
@@ -280,7 +284,7 @@ ${radioGroup('mode', MODES, defaultModeFor(spec))}
       <h2>Verdict</h2>
       ${rec.why ? `<p class="rec-why">${escapeHtml(rec.why)}</p>` : ''}
       <div class="choices">
-${radioGroup('verdict', VERDICTS, rec.value ?? 'request-changes')}
+${radioGroup('verdict', VERDICTS, decided?.verdict || rec.value || 'request-changes')}
       </div>
     </section>
 
@@ -289,19 +293,19 @@ ${radioGroup('verdict', VERDICTS, rec.value ?? 'request-changes')}
       ${cards}
     </section>
 
-    ${renderNits(spec.nits)}
+    ${renderNits(spec.nits, decided?.nits || 'batched')}
     ${renderEvidence(spec)}
 
     <section class="send">
       <label for="message">Anything else for the reviewer</label>
-      <textarea id="message" name="message" rows="3" placeholder="Optional"></textarea>
+      <textarea id="message" name="message" rows="3" placeholder="Optional">${escapeHtml(decided?.message || '')}</textarea>
       <div id="errors" class="errors" hidden></div>
       <button type="submit" id="send">Send to reviewer</button>
       <div id="sent" class="sent" hidden></div>
     </section>
   </form>
 </main>
-<script src="/static/surface.js"></script>
+${embedded ? `<script>${embedded.js}</script>` : '<script src="/static/surface.js"></script>'}
 </body>
 </html>`;
 }

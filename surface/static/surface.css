@@ -23,6 +23,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -151,6 +152,18 @@ button#send:disabled { opacity: .5; cursor: default; }
 .sent-done .finding, .sent-done .verdict, .sent-done .nits { opacity: .55; }
 
 :target { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: var(--radius); }
+
+@media (max-width: 640px) {
+  main { padding: 24px 16px 48px; }
+  h1 { font-size: 24px; overflow-wrap: anywhere; }
+  .finding, .change { padding: 16px; }
+  .finding header { flex-direction: column; gap: 8px; }
+  .decision { padding: 12px; }
+  .choice { min-height: 44px; }
+  textarea { font-size: 16px; }
+  .pr-link, p, h3, .anchor, li { overflow-wrap: anywhere; }
+  button#send { width: 100%; min-height: 48px; }
+}
 
 .mode { margin-top: 32px; }
 .mode-note { font-size: 13px; color: var(--ink-dim); margin-top: 10px; }

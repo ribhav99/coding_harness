@@ -45,6 +45,7 @@ import { discoverSessions } from './lib/sessions.mjs';
 import { focusCommand } from './focus-pane.mjs';
 import { requestEffort } from './lib/effort.mjs';
 import { requestProviderUpdate } from './lib/provider-update-state.mjs';
+import { projectForSurface, setRemoteReviews } from './lib/remote.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -208,6 +209,16 @@ stop is what reaches Ribhav, so end with two or three lines saying what you foun
 and the call you would make.`;
 
 const [, , command] = process.argv;
+
+if (command === 'remote') {
+  const value = process.argv[3] ?? die('usage: fm remote yes|no [--project <dir>]');
+  try {
+    const project = resolve(arg('--project', projectForSurface()));
+    const enabled = setRemoteReviews(project, value);
+    process.stdout.write(`${project}: reviews ${enabled ? 'available in TabTail; Mac browser stays closed' : 'open in the Mac browser'}\n`);
+  } catch (error) { die(error.message); }
+  process.exit(0);
+}
 
 // --- effort ------------------------------------------------------------------
 // The provider requests only the target level. Its Stop hook performs the

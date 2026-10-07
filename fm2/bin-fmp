@@ -208,6 +208,16 @@ fi
 tmux new-session -d -s "$SES" -n control -c "$FM_REPO" \
   \; set-option -t "$SES" destroy-unattached off
 
+# Set context before creating the other panes. Existing shells do not inherit
+# later set-environment calls, so the first control pane also gets an explicit
+# launch prefix below. A missing override must not inherit another panel's yes.
+tmux set-environment -t "$SES" FM2_PANEL "$SES"
+tmux set-environment -t "$SES" FM2_AGENT "$FMP_AGENT"
+tmux set-environment -t "$SES" FM_PROJECT "$PROJ_DIR"
+tmux set-environment -t "$SES" FM_REMOTE "${FM_REMOTE:-no}"
+tmux set-environment -t "$SES" PATH "$PATH"
+FMP_CONTEXT=$(printf 'FM_PROJECT=%q FM_REMOTE=%q ' "$PROJ_DIR" "${FM_REMOTE:-no}")
+
 # From here the session is protected by its own setting, not the global one. An
 # external fmp invocation blocks in attach-session and can own the panel until
 # that client closes. An invocation already inside tmux uses switch-client,
@@ -247,18 +257,15 @@ done
 # control: firstmate on the left, a project shell on the right.
 tmux split-window -h -t "$SES:control" -c "$PROJ_DIR"
 tmux set-option -t "$SES" @fm-agent "$FMP_AGENT"
-tmux set-environment -t "$SES" FM2_PANEL "$SES"
-tmux set-environment -t "$SES" FM2_AGENT "$FMP_AGENT"
-tmux set-environment -t "$SES" PATH "$PATH"
 
 LEFT=$(tmux list-panes -t "$SES:control" -F '#{pane_id}' | head -1)
 if [ "$FMP_AGENT" = codex ]; then
-  tmux send-keys -t "$LEFT" "$FMP_CODEX_CMD" C-m
+  tmux send-keys -t "$LEFT" "$FMP_CONTEXT$FMP_CODEX_CMD" C-m
 else
   if [ "$FMP_CLAUDE_CMD" = 'claude --dangerously-skip-permissions --effort high' ]; then
-    tmux send-keys -t "$LEFT" "node \"$FM_REPO/fm2/supervisor.mjs\" claude" C-m
+    tmux send-keys -t "$LEFT" "${FMP_CONTEXT}node \"$FM_REPO/fm2/supervisor.mjs\" claude" C-m
   else
-    tmux send-keys -t "$LEFT" "$FMP_CLAUDE_CMD" C-m
+    tmux send-keys -t "$LEFT" "$FMP_CONTEXT$FMP_CLAUDE_CMD" C-m
   fi
 fi
 

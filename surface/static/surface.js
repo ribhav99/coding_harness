@@ -15,9 +15,28 @@
   if (!form) return;
 
   const reviewId = form.dataset.review;
+  const round = form.dataset.round;
+  const native = form.dataset.embedded === 'true';
+  let connected = !native;
+  let busy = false;
+  let sent = form.dataset.sent === 'true';
+  let submission = null;
+  let submittedContent = null;
   const errorBox = document.getElementById('errors');
   const sentBox = document.getElementById('sent');
   const button = document.getElementById('send');
+
+  function post(type, value) {
+    if (native && window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type, id: reviewId, round, ...value }));
+    }
+  }
+
+  function updateButton() {
+    button.disabled = busy || !connected || sent;
+    button.textContent = busy ? 'Sending…' : !connected ? 'Reconnect to send' : sent ? 'Decisions saved' :
+      currentMode() === 'change' ? 'Send to reviewer (will change the branch)' : 'Send to reviewer';
+  }
 
   function findingIds() {
     return Array.from(document.querySelectorAll('article.finding')).map((el) =>
@@ -43,7 +62,7 @@
         : 'Nothing will be committed or pushed. Findings become comments you approve.';
       note.classList.toggle('warn', change);
     }
-    if (button) button.textContent = change ? 'Send to reviewer (will change the branch)' : 'Send to reviewer';
+    updateButton();
   }
 
   for (const el of document.querySelectorAll('input[name="mode"]')) {
@@ -54,7 +73,7 @@
   function collect() {
     const data = new FormData(form);
     const mode = currentMode();
-    const findings = {};
+    const findings = Object.create(null);
     for (const id of findingIds()) {
       findings[id] = {
         decision: data.get(id + (mode === 'change' ? '-change' : '-decision')),
@@ -115,15 +134,67 @@
   }
 
   function showSent(text) {
+    busy = false;
+    sent = true;
     sentBox.textContent = text;
     sentBox.hidden = false;
     errorBox.hidden = true;
     button.disabled = true;
     form.classList.add('sent-done');
+    for (const control of form.querySelectorAll('input, textarea')) control.disabled = true;
+    updateButton();
   }
+
+  function receiptText(receipt) {
+    return receipt && receipt.woke ? 'Sent. The reviewer has been woken and is acting on it.' :
+      'Saved on the Mac. ' + ((receipt && receipt.reason) || 'Reviewer notification was not confirmed. Reopen the review from its worker.');
+  }
+
+  // The embedded page gets only a decision transport, never native credentials,
+  // filesystem access, or arbitrary SSH operations.
+  window.surfaceNativeReceive = function (message) {
+    if (!native) return;
+    if (message.type === 'connection') {
+      connected = message.connected === true;
+      updateButton();
+    } else if (message.type === 'restore' && !sent && !busy) {
+      const value = message.payload;
+      if (!value || typeof value !== 'object') return;
+      function choose(name, choice) {
+        for (const input of form.querySelectorAll('input[type=radio]')) {
+          if (input.name === name) input.checked = input.value === choice;
+        }
+      }
+      choose('mode', value.mode);
+      choose('verdict', value.verdict);
+      choose('nits-decision', value.nits);
+      for (const id of findingIds()) {
+        const decision = value.findings && value.findings[id];
+        if (!decision) continue;
+        choose(id + (value.mode === 'change' ? '-change' : '-decision'), decision.decision);
+        const textarea = form.elements.namedItem(id + '-comment');
+        if (textarea && typeof decision.comment === 'string') textarea.value = decision.comment;
+      }
+      if (typeof value.message === 'string') form.elements.namedItem('message').value = value.message;
+      applyMode();
+    } else if (message.type === 'result') {
+      if (message.ok) {
+        showSent(receiptText(message.receipt));
+      } else {
+        busy = false;
+        showProblems([{ text: message.error || 'Could not send. Your draft is kept on this phone.', anchor: null }]);
+        updateButton();
+      }
+    }
+  };
+
+  function draftChanged() { if (!sent) post('draft', { payload: collect() }); }
+  form.addEventListener('input', draftChanged);
+  form.addEventListener('change', draftChanged);
 
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
+    if (busy || sent || !connected) return;
     const payload = collect();
     const found = problems(payload);
     if (found.length) {
@@ -131,13 +202,25 @@
       return;
     }
 
-    button.disabled = true;
-    button.textContent = 'Sending…';
+    busy = true;
+    updateButton();
+    if (native) {
+      post('submit', { payload });
+      return;
+    }
+    // Retain the same identifier after an uncertain send. Editing the decision
+    // content makes the next explicit submission a different action.
+    const content = JSON.stringify(payload);
+    if (content !== submittedContent) {
+      submittedContent = content;
+      submission = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() :
+        Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    }
     try {
       const response = await fetch('/api/' + encodeURIComponent(reviewId) + '/decisions', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, round, submission_id: submission }),
       });
       const body = await response.json().catch(function () {
         return null;
@@ -146,15 +229,17 @@
         // The server refusing is as loud as the client refusing. Nothing is
         // assumed delivered because a request was made.
         showProblems([{ text: (body && body.error) || 'The reviewer did not accept this (HTTP ' + response.status + ').', anchor: null }]);
-        button.disabled = false;
-        button.textContent = 'Send to reviewer';
+        busy = false;
+        updateButton();
         return;
       }
-      showSent(body && body.woke ? 'Sent. The reviewer has been woken and is acting on it.' : 'Sent. Saved for the reviewer.');
+      showSent(receiptText(body));
     } catch (err) {
       showProblems([{ text: 'Could not reach the review server: ' + err.message, anchor: null }]);
-      button.disabled = false;
-      button.textContent = 'Send to reviewer';
+      busy = false;
+      updateButton();
     }
   });
+  if (sent) showSent('Your decisions have already been saved on the Mac.');
+  post('ready', {});
 })();
