@@ -1066,6 +1066,56 @@ test('a merged review task can be put away, detached head and all', async () => 
   );
 });
 
+// The author pushes again mid-review and the reviewer fetches the new head by
+// `refs/pull/N/head`, which moves no remote-tracking branch. The author's own
+// commits then looked unpushed, and closing the review refused over them.
+test("a review's PR commits are not unpushed work; its own commits still are", async () => {
+  freshHome();
+  const project = makeProject();
+  const { unlandedWork } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const g = (...a) => execFileSync('git', ['-C', project, ...a], { stdio: 'ignore' });
+
+  const origin = join(dirname(project), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g('remote', 'add', 'origin', origin);
+  g('push', '-q', 'origin', 'HEAD:refs/heads/main');
+  g('fetch', '-q', 'origin');
+
+  // The author's commit exists on the forge only as the PR's head.
+  g('checkout', '-q', '-b', 'author-work');
+  writeFileSync(join(project, 'authored.txt'), 'the author pushed this\n');
+  g('add', '-A');
+  g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'author work');
+  g('push', '-q', 'origin', 'HEAD:refs/pull/9/head');
+  const head = execFileSync('git', ['-C', project, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  g('checkout', '-q', '-');
+  g('branch', '-q', '-D', 'author-work');
+
+  const wt = join(dirname(project), 'thing-pr-9');
+  g('worktree', 'add', '-q', '--detach', wt, head);
+  const task = { worktree: wt, project, kind: 'review', pr: 9, repo: 'owner/thing' };
+
+  assert.deepEqual(
+    unlandedWork(task, { mergedPr: () => false, fetchPr: () => {} }),
+    ['1 commit(s) on no remote'],
+    'without the PR head fetched, the author commit should still read as unpushed',
+  );
+  assert.deepEqual(
+    unlandedWork(task, { mergedPr: () => false }),
+    [],
+    "the PR's own commit was counted as work only this worktree holds",
+  );
+
+  writeFileSync(join(wt, 'review-fix.txt'), 'a fix the reviewer never pushed\n');
+  execFileSync('git', ['-C', wt, 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', wt, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'unpushed fix'], { stdio: 'ignore' });
+  assert.deepEqual(
+    unlandedWork(task, { mergedPr: () => false }),
+    ['1 commit(s) on no remote'],
+    "the reviewer's own unpushed commit stopped refusing the close",
+  );
+});
+
 test('a review with no report refuses to close; a ship task is not asked for one', async () => {
   const home = freshHome();
   const { missingReport } = await import(join(ROOT, 'lib/tasks.mjs'));

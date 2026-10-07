@@ -950,7 +950,16 @@ export function switchTask(id, {
 // Unlanded work is work that exists nowhere but this worktree. Uncommitted
 // changes, or commits no remote has. Refusing is the point: a worktree removed
 // with either is gone.
-export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsMerged } = {}) {
+// The PR's own head, as a remote-tracking ref. A review worktree is detached at
+// the PR head, and once the author pushes again the reviewer fetches that head
+// by `refs/pull/N/head` - which updates no remote-tracking branch. The author's
+// commits then look like they are on no remote, and closing the review refused
+// over two commits that were sitting on GitHub the whole time (#516).
+function fetchPullHead(wt, pr) {
+  git(wt, ['fetch', '-q', 'origin', `+refs/pull/${pr}/head:refs/remotes/origin/pr/${pr}`]);
+}
+
+export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsMerged, fetchPr = fetchPullHead } = {}) {
   const wt = task.worktree;
   if (!existsSync(wt)) return [];
   // An adopted worktree outlives its session, so closing strands nothing: the
@@ -989,6 +998,11 @@ export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsM
     const repo = task.repo ?? repoOf(task.project);
     if (task.pr && mergedPr(repo, task.pr)) return problems;
     if (own && isMerged(repo, own)) return problems;
+    // What the PR holds is on a remote by definition. A fetch that fails proves
+    // nothing either way, so the check below still runs on what is known.
+    if (task.pr) {
+      try { fetchPr(wt, task.pr); } catch { /* offline, or no such PR ref */ }
+    }
 
     const others = git(wt, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
       .split('\n').map((l) => l.trim()).filter((b) => b && b !== own);
