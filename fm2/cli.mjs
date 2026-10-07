@@ -186,6 +186,23 @@ You never write a status line. Stopping IS your report - your last message befor
 stop is what reaches Ribhav, so end with two or three lines saying what you built
 and the PR's full URL.`;
 
+// `attach` puts a worker on a branch that already exists, usually one with a PR
+// open. The ship brief was wrong there on both counts: it said to open a PR that
+// already exists, and never to merge, when the task it carries is often exactly
+// the merge - take develop, fix the clash, squash it in. One such worker did all
+// of that and then refused the merge it was sent for (#515). The task decides.
+const ATTACH_BRIEF = (spec, id) => `You are an autonomous worker. Work on your own; do not wait for a human.
+
+${spec}
+
+You are in a worktree on a branch that already exists, usually one with a PR open. Do
+the task as written: it decides whether you push to that PR, open one, or merge it.
+Push with plain pushes only - never force, and never skip hooks.
+
+You never write a status line. Stopping IS your report - your last message before you
+stop is what reaches Ribhav, so end with two or three lines saying what you did and
+the PR's full URL.`;
+
 // Not every worker is shipping something. An open question - how should this
 // work, what is this costing us, is this approach even right - handed the brief
 // above gets a worker that opens a PR to look finished, which is the opposite of
@@ -388,7 +405,7 @@ if (command === 'attach') {
       project,
       worktree,
       window,
-      brief: spec ? SHIP_BRIEF(spec, id) : null,
+      brief: spec ? ATTACH_BRIEF(spec, id) : null,
       resume,
       agent,
     });
