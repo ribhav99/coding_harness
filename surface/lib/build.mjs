@@ -28,12 +28,12 @@ const ROOT = join(HERE, '..');
 // here; listing it would force restarts that change nothing.
 const SOURCES = ['server.mjs', 'lib/render.mjs', 'lib/store.mjs', 'lib/build.mjs'];
 
-export function buildStamp() {
+export function buildStamp({ root = ROOT } = {}) {
   const hash = createHash('sha256');
   for (const name of SOURCES) {
     hash.update(name);
     hash.update('\0');
-    hash.update(readFileSync(join(ROOT, name)));
+    hash.update(readFileSync(join(root, name)));
     hash.update('\0');
   }
   return hash.digest('hex').slice(0, 12);

@@ -11,15 +11,17 @@
 // addressed by id alone and served from disk on every request, so reloading a
 // tab, opening it twice, or coming back to it tomorrow all behave identically.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { findingId } from './render.mjs';
 
 export const REGISTRY = process.env.SURFACE_HOME || join(homedir(), '.surface');
 
 function registryPath() {
-  mkdirSync(REGISTRY, { recursive: true });
+  mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
   return join(REGISTRY, 'reviews.json');
 }
 
@@ -36,7 +38,65 @@ export function loadRegistry() {
 }
 
 function saveRegistry(reg) {
-  writeFileSync(registryPath(), JSON.stringify(reg, null, 2));
+  atomicJson(registryPath(), reg);
+}
+
+export function atomicJson(path, value) {
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(value, null, 2), { mode: 0o600 });
+    renameSync(temp, path);
+  } finally {
+    if (existsSync(temp)) unlinkSync(temp);
+  }
+}
+
+// Concurrent reviewers register from separate CLI processes. Keep their
+// read/modify/write transactions from losing one another's pages.
+function withRegistryLock(fn) {
+  const lock = join(dirname(registryPath()), 'registry.lock');
+  const until = Date.now() + 5000;
+  let fd;
+  while (fd === undefined) {
+    try {
+      fd = openSync(lock, 'wx', 0o600);
+      writeFileSync(fd, String(process.pid));
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      try {
+        const pid = Number(readFileSync(lock, 'utf8'));
+        if (pid > 0) {
+          try { process.kill(pid, 0); } catch (probe) {
+            if (probe.code === 'ESRCH') { unlinkSync(lock); continue; }
+          }
+        } else if (Date.now() - statSync(lock).mtimeMs > 30000) {
+          unlinkSync(lock); continue;
+        }
+      } catch { /* the other process may just have released the lock */ }
+      if (Date.now() >= until) throw new Error('the review registry is busy; retry surface open');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try { return fn(); } finally { closeSync(fd); unlinkSync(lock); }
+}
+
+export function paneSocket(pane) {
+  if (!pane) return null;
+  try {
+    return execFileSync('tmux', ['display-message', '-p', '-t', pane, '#{socket_path}'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim() || null;
+  } catch { return null; }
+}
+
+export function paneIdentity(pane, socket = null) {
+  if (!pane) return null;
+  try {
+    const pid = execFileSync('tmux', [...(socket ? ['-S', socket] : []), 'display-message', '-p', '-t', pane, '#{pane_pid}'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim();
+    const born = execFileSync('ps', ['-o', 'lstart=', '-p', pid],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim();
+    return pid && born ? `${pid}:${born}` : null;
+  } catch { return null; }
 }
 
 function supervisorPaneFile() {
@@ -64,9 +124,9 @@ export function supervisorPane() {
 // The pane id is not the identity; the shell running in it is. Ask when that
 // shell started, and a claim registered before it is talking about a pane that
 // no longer exists.
-function paneBornAt(pane) {
+function paneBornAt(pane, socket = null) {
   try {
-    const pid = execFileSync('tmux', ['display-message', '-p', '-t', pane, '#{pane_pid}'], {
+    const pid = execFileSync('tmux', [...(socket ? ['-S', socket] : []), 'display-message', '-p', '-t', pane, '#{pane_pid}'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
     if (!pid) return null;
@@ -85,20 +145,26 @@ function paneBornAt(pane) {
 // not a guard.
 function claimIsStale(entry, pane) {
   if (!entry || !entry.registered_at) return false;
-  const born = paneBornAt(pane);
+  const born = paneBornAt(pane, entry.pane_socket);
   if (!born) return false;
   const claimed = new Date(entry.registered_at);
   return !Number.isNaN(claimed.getTime()) && claimed < born;
 }
 
 export function claimSupervisorPane(pane) {
+  return withRegistryLock(() => claimSupervisor(pane));
+}
+
+function claimSupervisor(pane) {
   if (!pane) throw new Error('no pane to claim: run this inside a tmux pane, or set SURFACE_PANE');
   const reg = loadRegistry();
-  const claimedBy = Object.values(reg).find((e) => e.pane === pane && !claimIsStale(e, pane));
+  const socket = paneSocket(pane);
+  const claimedBy = Object.values(reg).find((e) => e.pane === pane && sameSocket(e.pane_socket, socket) && !claimIsStale(e, pane));
   if (claimedBy) {
     throw new Error(`pane ${pane} is already bound to review "${claimedBy.id}"; it is not the supervisor's`);
   }
   writeFileSync(supervisorPaneFile(), `${pane}\n`);
+  atomicJson(join(registryDir(), 'supervisor-binding.json'), { pane, socket });
   return pane;
 }
 
@@ -108,7 +174,7 @@ export function claimSupervisorPane(pane) {
 export function idFor(specPath, spec) {
   const declared = spec && spec.id ? String(spec.id) : basename(dirname(resolve(specPath)));
   const safe = declared.replace(/[^A-Za-z0-9._-]/g, '-');
-  return safe || 'review';
+  return (safe || 'review').slice(0, 160);
 }
 
 // Every key the page actually reads. A spec is written by a reviewer, not by a
@@ -121,6 +187,15 @@ const RENDERED = new Set([
   'findings', 'nits', 'tests', 'judges', 'scope',
 ]);
 
+function sameSocket(a, b) { return !a || !b || a === b; }
+
+function supervisorSocket(pane) {
+  try {
+    const binding = JSON.parse(readFileSync(join(registryDir(), 'supervisor-binding.json'), 'utf8'));
+    return binding.pane === pane ? binding.socket : null;
+  } catch { return null; }
+}
+
 // Empty is not content: a key carrying `[]` or `""` loses nothing by being
 // dropped, and refusing over it would be noise.
 function carriesContent(value) {
@@ -131,10 +206,22 @@ function carriesContent(value) {
   return true;
 }
 
-export function register(specPath, { pane = null } = {}) {
+export function register(specPath, options = {}) {
+  return withRegistryLock(() => registerLocked(specPath, options));
+}
+
+function registerLocked(specPath, { pane = null, project = null, remote = false } = {}) {
   const abs = resolve(specPath);
   if (!existsSync(abs)) throw new Error(`no spec at ${abs}`);
   const spec = JSON.parse(readFileSync(abs, 'utf8'));
+  if (spec.findings != null && !Array.isArray(spec.findings)) throw new Error('spec findings must be an array');
+  const findingIds = new Set();
+  for (const [index, finding] of (spec.findings || []).entries()) {
+    if (!finding || typeof finding !== 'object' || Array.isArray(finding)) throw new Error(`finding ${index + 1} must be an object`);
+    const id = findingId(finding, index);
+    if (findingIds.has(id)) throw new Error(`duplicate finding id "${id}" after normalization`);
+    findingIds.add(id);
+  }
 
   // Loud at registration, because that is the last moment anyone is looking. The
   // reviewer folds the content into findings or nits and re-opens; Ribhav
@@ -148,9 +235,15 @@ export function register(specPath, { pane = null } = {}) {
     );
   }
 
-  const id = idFor(abs, spec);
   const reg = loadRegistry();
+  // Keep existing bookmarked URLs; new paths get a namespace even when two
+  // repositories both declare their review as pr-1.
+  const baseId = idFor(abs, spec);
+  const suffix = createHash('sha256').update(abs).digest('hex').slice(0, 10);
+  const id = Object.values(reg).find(e => e.spec === abs)?.id ||
+    (reg[baseId] && reg[baseId].spec !== abs ? `${baseId}-${suffix}` : baseId);
   const previous = reg[id] ?? null;
+  const socket = pane ? paneSocket(pane) : previous?.pane_socket ?? null;
 
   // The pane binding decides where Ribhav's decisions get typed, so getting
   // it wrong types into someone else's session. Registering from the wrong
@@ -162,14 +255,14 @@ export function register(specPath, { pane = null } = {}) {
     // decisions there instead of at a reviewer - which happened twice while
     // building this, because running `surface open` from the supervisor's own
     // session is the natural way to try it out.
-    if (pane === supervisorPane()) {
+    if (pane === supervisorPane() && sameSocket(supervisorSocket(pane), socket)) {
       throw new Error(
         `pane ${pane} is the supervisor's own session; a review bound to it would ` +
           "type Ribhav's decisions into their chat. Run `surface open` from the " +
           'review\'s session, or set SURFACE_PANE to it.',
       );
     }
-    const claimedBy = Object.values(reg).find((e) => e.pane === pane && e.id !== id && !claimIsStale(e, pane));
+    const claimedBy = Object.values(reg).find((e) => e.pane === pane && sameSocket(e.pane_socket, socket) && e.id !== id && !claimIsStale(e, pane));
     if (claimedBy) {
       throw new Error(
         `pane ${pane} already belongs to review "${claimedBy.id}"; ` +
@@ -184,6 +277,10 @@ export function register(specPath, { pane = null } = {}) {
     // Captured at registration from the session that owns the review, so the
     // server never has to guess which session a page belongs to.
     pane: pane ?? previous?.pane ?? null,
+    pane_identity: pane ? paneIdentity(pane, socket) : previous?.pane_identity ?? null,
+    pane_socket: socket,
+    project: project || previous?.project || null,
+    remote,
     registered_at: new Date().toISOString(),
   };
   reg[id] = entry;
@@ -206,6 +303,30 @@ export function readSpec(entry) {
   return JSON.parse(readFileSync(entry.spec, 'utf8'));
 }
 
+export function readReview(entry) {
+  const before = statSync(entry.spec);
+  if (before.size > 1024 * 1024) throw new Error('review spec exceeds 1 MiB');
+  const raw = readFileSync(entry.spec, 'utf8');
+  const after = statSync(entry.spec);
+  if (before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size)
+    throw new Error('review changed while being read; reload it');
+  const round = createHash('sha256').update(raw).update(String(after.mtimeMs)).digest('hex');
+  let decided = readDecisions(entry);
+  if (decided && ((decided.round && decided.round !== round) ||
+      statSync(decisionsPath(entry)).mtimeMs < after.mtimeMs)) decided = null;
+  return { spec: JSON.parse(raw), round, decided };
+}
+
+export function receiptPath(entry, submission) {
+  if (!/^[A-Za-z0-9_-]{8,100}$/.test(submission)) throw new Error('invalid submission id');
+  return join(dirname(entry.spec), `submission-${submission}.json`);
+}
+
+export function readReceipt(entry, submission) {
+  const path = receiptPath(entry, submission);
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+}
+
 export function decisionsPath(entry) {
   return join(dirname(entry.spec), 'decisions.json');
 }
@@ -222,7 +343,7 @@ export function readDecisions(entry) {
 
 export function writeDecisions(entry, payload) {
   const p = decisionsPath(entry);
-  writeFileSync(p, JSON.stringify(payload, null, 2));
+  atomicJson(p, payload);
   return p;
 }
 
@@ -248,6 +369,10 @@ export function listReviews() {
 }
 
 export function pruneMissing() {
+  return withRegistryLock(pruneMissingLocked);
+}
+
+function pruneMissingLocked() {
   const reg = loadRegistry();
   let removed = 0;
   for (const [id, entry] of Object.entries(reg)) {
@@ -261,7 +386,7 @@ export function pruneMissing() {
 }
 
 export function registryDir() {
-  mkdirSync(REGISTRY, { recursive: true });
+  mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
   return REGISTRY;
 }
 

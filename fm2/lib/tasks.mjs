@@ -33,6 +33,7 @@ import { configurePanelQuotaStatus } from './quota-status.mjs';
 import { DEFAULT_EFFORT, effortFor, normalizeEffort, setEffort } from './effort.mjs';
 import { providerAvailable, providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
+import { remoteReviews } from './remote.mjs';
 import {
   agentOf,
   normalizeAgent,
@@ -314,7 +315,7 @@ export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.code
   return { root, added: true };
 }
 
-export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '', effort = null }) {
+export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = null, resume = null, panel = currentPanel() ?? '', effort = null, project = loadTask(id)?.project || process.env.FM_PROJECT }) {
   const provider = normalizeAgent(agent);
   const executable = shellQuote(providerExecutable(provider));
   const reasoning = effort === null ? effortFor(id, provider) : normalizeEffort(provider, effort);
@@ -324,7 +325,8 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   // into the wrong home, which looks exactly like the hook not firing at all.
   const env =
     `FM2_TASK=${shellQuote(id)} FM2_HOME=${shellQuote(homeDir())} FM2_AGENT=${shellQuote(provider)} FM2_PANEL=${shellQuote(panel)} FM2_EFFORT=${shellQuote(reasoning)}` +
-    (provider === 'codex' ? " FM2_CODEX_BACKEND='embedded'" : '');
+    (provider === 'codex' ? " FM2_CODEX_BACKEND='embedded'" : '') +
+    (project ? ` FM_PROJECT=${shellQuote(resolve(project))} FM_REMOTE=${shellQuote(remoteReviews(project) ? 'yes' : 'no')}` : '');
   // The family is explicit and the version follows its latest release:
   // Claude's opus alias and Codex's latest stable Sol catalog entry. Effort
   // remains an independent per-task choice, including when resuming history.
@@ -351,9 +353,9 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   return `${env} ${executable} ${flags}${prompt}`;
 }
 
-function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent = 'claude') {
+function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent = 'claude', project = null) {
   if (normalizeAgent(agent) === 'codex') { try { ensureCodexTrust(cwd); } catch { /* best effort; Codex will ask */ } }
-  const command = launchCommand({ agent, id, settingsFile, briefPath, resume });
+  const command = launchCommand({ agent, id, settingsFile, briefPath, resume, project: project || loadTask(id)?.project });
   let session = sessionName();
   if (!session) {
     session = 'fm';
@@ -491,7 +493,7 @@ export function spawnTask({
   // rolls back.
   let pane;
   try {
-    pane = openPane(window, wt, briefPath, id, settingsFile, null, provider);
+    pane = openPane(window, wt, briefPath, id, settingsFile, null, provider, project);
     clearStartupPrompts(pane, { agent: provider });
     assertStarted(pane, id);
   } catch (err) {
@@ -571,7 +573,7 @@ export function adoptTask({
 
   // Nothing to roll back. The worktree was not ours to make, so a launch that
   // fails leaves it exactly as it was found - which is the whole point.
-  const pane = openPane(target, wt, briefPath, id, settingsFile, resume, provider);
+  const pane = openPane(target, wt, briefPath, id, settingsFile, resume, provider, project);
   clearStartupPrompts(pane, { agent: provider });
   assertStarted(pane, id);
 

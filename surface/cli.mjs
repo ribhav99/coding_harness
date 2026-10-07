@@ -25,6 +25,7 @@ import {
   archiveStaleDecisions,
 } from './lib/store.mjs';
 import { buildStamp } from './lib/build.mjs';
+import { projectForSurface, remoteReviews } from '../fm2/lib/remote.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.SURFACE_PORT || 4390);
@@ -106,7 +107,7 @@ function entryFor(specPath) {
   const abs = resolve(specPath);
   if (!existsSync(abs)) die(`no spec at ${abs}`);
   const id = idFor(abs, JSON.parse(readFileSync(abs, 'utf8')));
-  const entry = lookup(id);
+  const entry = listReviews().find(e => e.spec === abs) || (lookup(id)?.spec === abs ? lookup(id) : null);
   return entry ?? { id, spec: abs, pane: null };
 }
 
@@ -118,8 +119,11 @@ if (command === 'open') {
   // running in without being told. That pane is where its decisions arrive.
   const pane = process.env.SURFACE_PANE || process.env.TMUX_PANE || null;
   let entry;
+  let remote;
   try {
-    entry = register(specPath, { pane });
+    const project = projectForSurface();
+    remote = remoteReviews(project);
+    entry = register(specPath, { pane, project, remote });
   } catch (err) {
     die(err.message);
   }
@@ -135,7 +139,7 @@ if (command === 'open') {
   }
   await ensureServer();
   const url = `${BASE}/r/${encodeURIComponent(entry.id)}`;
-  if (!rest.includes('--no-open')) {
+  if (!remote && !rest.includes('--no-open')) {
     try {
       execFileSync('open', [url], { stdio: 'ignore' });
     } catch {
@@ -144,6 +148,7 @@ if (command === 'open') {
     }
   }
   process.stdout.write(`${url}\n`);
+  if (remote) process.stdout.write('Available in TabTail → this Mac → Reviews.\n');
   if (!pane) {
     process.stderr.write(
       'surface: no tmux pane detected, so Ribhav\'s decisions cannot wake this session.\n' +

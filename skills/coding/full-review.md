@@ -277,6 +277,12 @@ surface open <spec>
 It registers the review, starts the server if it is not already up, opens the page,
 prints the URL, and returns immediately.
 
+With remote reviews enabled (`fm remote yes --project <repo>` or `FM_REMOTE=yes`
+at launch), the same command registers the page for TabTail and leaves the Mac
+browser closed. Tell the user it is available under that Mac's **Reviews**.
+The review, decisions, and wake-up procedure stay identical. Do not publish the
+page, change its loopback address, or create an alternative form.
+
 **Then stop your turn.** Do not wait, do not poll, do not loop. There is no `poll`
 command and its absence is deliberate: the previous tool had you block on a connection
 that died every half hour, and each death woke you for nothing.

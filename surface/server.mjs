@@ -19,16 +19,18 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
-import { renderPage } from './lib/render.mjs';
+import { createHash } from 'node:crypto';
+import { renderPage, findingId } from './lib/render.mjs';
 import { buildStamp } from './lib/build.mjs';
 import {
-  register,
   lookup,
-  readSpec,
-  readDecisions,
   writeDecisions,
-  decisionsPath,
   listReviews,
+  readReview,
+  readReceipt,
+  receiptPath,
+  atomicJson,
+  paneIdentity,
 } from './lib/store.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +38,7 @@ const STATIC = join(HERE, 'static');
 const PORT = Number(process.env.SURFACE_PORT || 4390);
 const HOST = '127.0.0.1';
 const BUILD = buildStamp();
+const submitting = new Map();
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 
@@ -53,7 +56,8 @@ function json(res, status, obj) {
 // exactly what Ribhav would do by hand.
 function sendKeys(args) {
   return new Promise((resolve) => {
-    execFile('tmux', args, (error) => resolve(error));
+    execFile('tmux', args, { timeout: 3000 }, (error, stdout) => resolve(error ||
+      (stdout.trim() === 'SURFACE_SENT' ? null : new Error('Reviewer notification blocked: the pane changed or has synchronized input enabled.'))));
   });
 }
 
@@ -63,12 +67,21 @@ function sendKeys(args) {
 const SUBMIT_SETTLE_MS = 250;
 const settleComposer = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function wakePane(pane, line, { send = sendKeys, wait = settleComposer } = {}) {
+async function wakePane(pane, line, { send = sendKeys, wait = settleComposer, identity = null, socket = null } = {}) {
   if (!pane) return { woke: false, reason: 'no pane recorded for this review' };
-  const typed = await send(['send-keys', '-t', pane, '-l', line]);
+  const pid = identity?.split(':')[0];
+  if (!/^%\d+$/.test(pane) || !/^\d+$/.test(pid || '')) return { woke: false, reason: 'The original reviewer identity is unavailable. Reopen the review from its worker.' };
+  const guarded = text => {
+    const hex = Array.from(Buffer.from(text, 'utf8'), byte => byte.toString(16).padStart(2, '0')).join(' ');
+    const command = `send-keys -t ${pane} -H ${hex} ; display-message -p SURFACE_SENT`;
+    const condition = `#{&&:#{==:#{pane_pid},${pid}},#{!=:#{synchronize-panes},1}}`;
+    return [...(socket ? ['-S', socket] : []), 'if-shell', '-F', '-t', pane, condition,
+      command, 'display-message -p SURFACE_BLOCKED'];
+  };
+  const typed = await send(guarded(line));
   if (typed) return { woke: false, reason: typed.message };
   await wait(SUBMIT_SETTLE_MS);
-  const submitted = await send(['send-keys', '-t', pane, 'Enter']);
+  const submitted = await send(guarded('\r'));
   if (submitted) return { woke: false, reason: submitted.message };
   return { woke: true };
 }
@@ -90,7 +103,7 @@ async function readBody(req, limit = 2 * 1024 * 1024) {
 function validate(spec, payload) {
   const problems = [];
   if (!payload || typeof payload !== 'object') return ['the payload was not an object'];
-  if (!payload.verdict) problems.push('no verdict was chosen');
+  if (!['approve', 'approve-with-comments', 'request-changes', 'needs-discussion'].includes(payload.verdict)) problems.push('no valid verdict was chosen');
   // An absent or unknown mode is comments. The dangerous option is never the
   // one you get by default, or by sending a malformed payload.
   if (payload.mode && payload.mode !== 'comment' && payload.mode !== 'change') {
@@ -98,19 +111,85 @@ function validate(spec, payload) {
   }
 
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
-  const decided = payload.findings && typeof payload.findings === 'object' ? payload.findings : {};
+  if (payload.findings != null && (typeof payload.findings !== 'object' || Array.isArray(payload.findings))) problems.push('findings must be an object');
+  const decided = payload.findings && typeof payload.findings === 'object' && !Array.isArray(payload.findings) ? payload.findings : {};
+  const allowed = payload.mode === 'change' ? ['fix', 'inline', 'drop'] : ['inline', 'summary', 'drop'];
+  const ids = new Set();
   findings.forEach((finding, index) => {
-    const id = String(finding.id ?? `f${index + 1}`).replace(/[^A-Za-z0-9_-]/g, '-');
-    const choice = decided[id];
+    const id = findingId(finding, index);
+    ids.add(id);
+    const choice = Object.hasOwn(decided, id) ? decided[id] : null;
     if (!choice || !choice.decision) {
       problems.push(`finding ${id} has no decision`);
       return;
     }
+    if (!allowed.includes(choice.decision)) problems.push(`finding ${id} has an invalid decision for this mode`);
+    if (typeof choice.comment !== 'string' || choice.comment.length > 65536) problems.push(`finding ${id} has invalid comment text`);
     if (choice.decision !== 'drop' && choice.decision !== 'fix' && !String(choice.comment ?? '').trim()) {
       problems.push(`finding ${id} is set to "${choice.decision}" with an empty comment`);
     }
   });
+  if (Object.keys(decided).some(id => !ids.has(id))) problems.push('decisions contain an unknown finding');
+  if (payload.nits != null && !['batched', 'all', 'skip'].includes(payload.nits)) problems.push('invalid nits decision');
+  if (payload.message != null && (typeof payload.message !== 'string' || payload.message.length > 65536)) problems.push('invalid reviewer message');
   return problems;
+}
+
+function summary(entry, review = readReview(entry)) {
+  const { spec, round, decided } = review;
+  return {
+    id: entry.id, title: String(spec.title || entry.id), pr: typeof spec.pr === 'string' ? spec.pr : null,
+    project: entry.project ? entry.project.split('/').filter(Boolean).at(-1) : 'Reviews',
+    remote: entry.remote === true, round, status: decided ? 'sent' : 'waiting',
+    registered_at: entry.registered_at, submitted_at: decided?.submitted_at || null,
+    submission_id: decided?.submission_id || null,
+  };
+}
+
+async function submit(entry, round, payload) {
+  // Hash only the decision contract, with a stable finding order. Transport
+  // identifiers never change the words approved by the user.
+  const content = { mode: payload.mode || 'comment', verdict: payload.verdict,
+    findings: Object.fromEntries(Object.entries(payload.findings || {}).sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, choice]) => [id, { decision: choice.decision, comment: choice.comment }])),
+    nits: payload.nits ?? null, message: payload.message ?? '' };
+  const hash = createHash('sha256').update(JSON.stringify({ round, ...content })).digest('hex');
+  const previous = readReceipt(entry, payload.submission_id);
+  if (previous && previous.hash !== hash) return { code: 409, body: { error: 'This submission id already belongs to different decisions.' } };
+  const key = `${entry.id}/${payload.submission_id}`;
+  if (submitting.has(key)) return submitting.get(key);
+  if (previous && previous.phase !== 'reserved') return { code: 200, body: previous.result };
+  const current = readReview(entry);
+  if (current.round !== round) return { code: 409, body: { error: 'This review changed before it could be saved. Reload the latest round.' } };
+  if (current.decided && current.decided.submission_id !== payload.submission_id)
+    return { code: 409, body: { error: 'Decisions were already saved for this round. Reload to see them before continuing.' } };
+  const operation = (async () => {
+    const path = receiptPath(entry, payload.submission_id);
+    atomicJson(path, { hash, round, phase: 'reserved' });
+    const submitted_at = new Date().toISOString();
+    const record = {
+      _fields: {
+        mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
+        verdict: "Ribhav's call on the PR, and the review action to post.",
+      },
+      ...content, round, submission_id: payload.submission_id, submitted_at,
+    };
+    const written = writeDecisions(entry, record);
+    // Commit a durable receipt before notification. Retrying a send whose
+    // acknowledgment was lost must never type into the worker a second time.
+    let result = { status: 'saved', submission_id: payload.submission_id, submitted_at,
+      woke: false, reason: 'Saved; reviewer notification was not confirmed.' };
+    atomicJson(path, { hash, round, phase: 'saved', result });
+    const identity = paneIdentity(entry.pane, entry.pane_socket);
+    const woke = entry.pane_identity && identity === entry.pane_identity
+      ? await wakePane(entry.pane, `Ribhav has decided on this review. Read ${written} and act on it.`, { identity, socket: entry.pane_socket })
+      : { woke: false, reason: 'The original reviewer pane is unavailable. Reopen the review from its worker to restore notification.' };
+    result = { ...result, ...woke };
+    atomicJson(path, { hash, round, phase: 'done', result });
+    return { code: 200, body: result };
+  })();
+  submitting.set(key, operation);
+  try { return await operation; } finally { submitting.delete(key); }
 }
 
 // A review whose spec has gone from disk is a review that was closed: the
@@ -127,7 +206,12 @@ function closedMessage(id) {
   );
 }
 
-const server = createServer(async (req, res) => {
+async function handle(req, res) {
+  // The surface is a loopback service, not a network login endpoint. Reject
+  // DNS rebinding and cross-site form/fetch submissions at the boundary.
+  const host = req.headers.host;
+  if (![`${HOST}:${PORT}`, `localhost:${PORT}`].includes(host)) return json(res, 403, { error: 'invalid review host' });
+  if (req.headers.origin && req.headers.origin !== `http://${host}`) return json(res, 403, { error: 'cross-origin review requests are refused' });
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const path = url.pathname;
 
@@ -138,7 +222,31 @@ const server = createServer(async (req, res) => {
   // one will find it, while a pattern loose enough to match would also kill a
   // server a test is running on another port.
   if (path === '/health')
-    return json(res, 200, { ok: true, reviews: listReviews().length, build: BUILD, pid: process.pid });
+    return json(res, 200, { ok: true, service: 'firstmate-surface', protocol: 1, reviews: listReviews().length, build: BUILD, pid: process.pid });
+
+  if (path === '/api/reviews' && req.method === 'GET') {
+    const reviews = [], warnings = [];
+    for (const entry of listReviews()) {
+      try { reviews.push(summary(entry)); } catch { warnings.push(`Review ${entry.id} could not be read. Reopen it from its worker.`); }
+    }
+    reviews.sort((a, b) => b.registered_at.localeCompare(a.registered_at));
+    return json(res, 200, { protocol: 1, reviews, warnings });
+  }
+
+  const bundleMatch = path.match(/^\/api\/([^/]+)\/page$/);
+  if (bundleMatch && req.method === 'GET') {
+    const entry = lookup(decodeURIComponent(bundleMatch[1]));
+    if (!entry) return json(res, 404, { error: 'This review is not registered.' });
+    if (!existsSync(entry.spec)) return json(res, 410, { error: closedMessage(entry.id) });
+    const review = readReview(entry);
+    const { spec, round, decided } = review;
+    const html = renderPage(spec, { id: entry.id, round, decided, embedded: {
+      css: readFileSync(join(STATIC, 'surface.css'), 'utf8'),
+      js: readFileSync(join(STATIC, 'surface.js'), 'utf8'),
+    } });
+    return json(res, 200, { ...summary(entry, review), html,
+      receipt: decided?.submission_id ? readReceipt(entry, decided.submission_id)?.result || null : null });
+  }
 
   if (path.startsWith('/static/')) {
     const file = join(STATIC, path.slice('/static/'.length));
@@ -163,16 +271,17 @@ const server = createServer(async (req, res) => {
     if (!existsSync(entry.spec)) return send(res, 410, 'text/plain', closedMessage(id));
     let spec;
     try {
-      spec = readSpec(entry);
+      spec = readReview(entry);
     } catch (err) {
       // A malformed spec is the review's bug, and saying so beats a blank page.
       return send(res, 500, 'text/plain', `the review spec for "${id}" is not valid JSON: ${err.message}`);
     }
-    return send(res, 200, 'text/html; charset=utf-8', renderPage(spec, { id, decided: readDecisions(entry) }));
+    return send(res, 200, 'text/html; charset=utf-8', renderPage(spec.spec, { id, round: spec.round, decided: spec.decided }));
   }
 
   const apiMatch = path.match(/^\/api\/([^/]+)\/decisions$/);
   if (apiMatch && req.method === 'POST') {
+    if (!String(req.headers['content-type'] || '').startsWith('application/json')) return json(res, 415, { error: 'Review submissions require JSON.' });
     const id = decodeURIComponent(apiMatch[1]);
     const entry = lookup(id);
     if (!entry) return json(res, 404, { error: `no review registered as "${id}"` });
@@ -191,12 +300,14 @@ const server = createServer(async (req, res) => {
 
     let spec;
     try {
-      spec = readSpec(entry);
+      spec = readReview(entry);
     } catch (err) {
       return json(res, 500, { error: `the review spec is unreadable: ${err.message}` });
     }
 
-    const problems = validate(spec, payload);
+    if (payload?.round !== spec.round) return json(res, 409, { error: 'This review has changed. Reload the latest round before sending.' });
+    if (!/^[A-Za-z0-9_-]{8,100}$/.test(payload?.submission_id || '')) return json(res, 422, { error: 'A unique submission id is required.' });
+    const problems = validate(spec.spec, payload);
     if (problems.length) return json(res, 422, { error: problems.join('; '), problems });
 
     // `_fields` travels with the decisions because the reviewer reads this file
@@ -204,28 +315,18 @@ const server = createServer(async (req, res) => {
     // close enough to swap: a reviewer once read `mode: comment` as "post a
     // COMMENTED review" and withheld an approval Ribhav had given in
     // `verdict`. The file has to say which is which at the point it is read.
-    const record = {
-      _fields: {
-        mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
-        verdict: 'Ribhav\'s call on the PR, and the review action to post.',
-      },
-      mode: 'comment',
-      ...payload,
-      submitted_at: new Date().toISOString(),
-    };
-    const written = writeDecisions(entry, record);
-
-    // Decisions are on disk before the reviewer is woken. If the wake fails the
-    // work is not lost - the reviewer reads the file when it next runs - so the
-    // response reports the wake separately rather than failing the whole send.
-    const woke = await wakePane(
-      entry.pane,
-      `Ribhav has decided on this review. Read ${written} and act on it.`,
-    );
-    return json(res, 200, { status: 'saved', decisions: written, ...woke });
+    const response = await submit(entry, spec.round, payload);
+    return json(res, response.code, response.body);
   }
 
   send(res, 404, 'text/plain', 'not found');
+}
+
+const server = createServer((req, res) => {
+  handle(req, res).catch(() => {
+    if (!res.headersSent) json(res, 500, { error: 'The review could not be read or saved. Reopen it from its worker and try again.' });
+    else res.destroy();
+  });
 });
 
 // Listen only when run as a script. Importing this file - which the tests do, to
