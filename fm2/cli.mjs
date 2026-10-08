@@ -28,12 +28,11 @@
 // is the only trigger; it knocks on the supervisor's pane as it goes, and
 // `fm read` is how its words reach you.
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, adoptTask, closeTask, unlandedWork, missingReport } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask } from './lib/tasks.mjs';
 import { tmux, sendToPane, paneAlive } from './lib/tmux.mjs';
 import { currentBranch, mainCheckoutOf, pushedBranchOf } from './lib/git.mjs';
 import { launchCommand, writeWorkerSettings, ensureCodexTrust } from './lib/launch.mjs';
@@ -41,7 +40,8 @@ import { clearStartupPrompts } from './lib/panes.mjs';
 import { preserveSession } from './lib/handoff.mjs';
 import { switchTask } from './lib/switch.mjs';
 import { drain, count } from './lib/notify.mjs';
-import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
+import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, prForBranch, landedPrForBranch } from './lib/forge.mjs';
+import { ATTACH_BRIEF, INVESTIGATE_BRIEF, PLAIN_REVIEW_BRIEF, REVIEW_BRIEF, SHIP_BRIEF } from './lib/briefs.mjs';
 import { supervisorCommand } from './supervisor.mjs';
 import { agentOf, normalizeAgent, resolveSession, controllerId } from './lib/sessions.mjs';
 import { queuePanelSwitch } from './lib/panel-switch.mjs';
@@ -52,8 +52,6 @@ import { requestEffort } from './lib/effort.mjs';
 import { requestProviderUpdate } from './lib/provider-update-state.mjs';
 import { projectForSurface, setRemoteReviews } from './lib/remote.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 function die(msg, code = 1) {
   process.stderr.write(`fm: ${msg}\n`);
   process.exit(code);
@@ -62,6 +60,12 @@ function die(msg, code = 1) {
 function arg(flag, fallback = null) {
   const i = process.argv.indexOf(flag);
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+}
+
+// A spec given inline, or as @file.
+function specArg() {
+  const spec = arg('--spec');
+  return spec && spec.startsWith('@') ? readFileSync(spec.slice(1), 'utf8') : spec;
 }
 
 function selectedAgent(value) {
@@ -79,101 +83,9 @@ function defaultAgent() {
   return process.env.FM2_AGENT || 'claude';
 }
 
-// Kicking off a review is invoking the review skill on the PR. Nothing else.
-//
-// This brief was once fifty lines re-deriving the skill's own rules - the modes,
-// the surface, comments-only by default, what an approve means, where fixes get
-// pushed. All of it already lives in `full-review`, which is the thing that
-// actually runs. A second copy in the launch prompt does not reinforce the skill,
-// it competes with it: the moment the skill changes, the brief is stale
-// instructions arriving first and outranking it by being in the prompt.
-//
-// What stays is only what the skill cannot know, because it belongs to the
-// harness rather than the review: where the report goes so the findings outlive
-// the session, and that stopping is how a worker reports at all.
-const REVIEW_BRIEF = (prUrl, id, reportPath, specPath) => `Run the \`full-review\` skill against ${prUrl}, and follow it to completion.
-
-Two things the skill does not know about, because they are this harness's and not its:
-
-Keep your review's own files out of the worktree - put the spec at ${specPath} and
-write your outcome to ${reportPath}. The project's pre-push gate lints everything it
-finds in its tree and will fail the author's gate on scaffolding that is not theirs,
-and the report is what survives this session.
-
-You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches Ribhav, so make it two or three lines saying what you
-concluded and what, if anything, you need. Anything you need him to decide goes on
-the review page, not in that message - he answers decisions from the pages.`;
-
-// Not every review wants the judge panel. A dependency bump Ribhav wants checked
-// and landed is a review in the harness's eyes - a cold session at the PR head,
-// a report, a close that asks for one - but the brief is his words, not the
-// skill's. What the harness owns is unchanged; only what is asked differs.
-const PLAIN_REVIEW_BRIEF = (spec, prUrl, id, reportPath) => `You are reviewing ${prUrl}. Do not run the \`full-review\` skill; this is what is asked instead:
-
-${spec}
-
-You are in an isolated git worktree, detached at the PR's head. Keep your own files out of
-it - write your outcome to ${reportPath}. The project's pre-push gate lints everything it
-finds in its tree, and the report is what survives this session.
-
-You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches Ribhav, so make it two or three lines saying what you
-concluded and what, if anything, you need.`;
-
-const SHIP_BRIEF = (spec, id) => `You are an autonomous worker. Work on your own; do not wait for a human.
-
-${spec}
-
-You are in an isolated git worktree on your own branch. Implement it, push, and open a
-PR. Do not merge it.
-
-You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches Ribhav, so end with two or three lines saying what you built
-and the PR's full URL.`;
-
-// `attach` puts a worker on a branch that already exists, usually one with a PR
-// open. The ship brief was wrong there on both counts: it said to open a PR that
-// already exists, and never to merge, when the task it carries is often exactly
-// the merge - take develop, fix the clash, squash it in. One such worker did all
-// of that and then refused the merge it was sent for (#515). The task decides.
-const ATTACH_BRIEF = (spec, id) => `You are an autonomous worker. Work on your own; do not wait for a human.
-
-${spec}
-
-You are in a worktree on a branch that already exists, usually one with a PR open. Do
-the task as written: it decides whether you push to that PR, open one, or merge it.
-Push with plain pushes only - never force, and never skip hooks.
-
-You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches Ribhav, so end with two or three lines saying what you did and
-the PR's full URL.`;
-
-// Not every worker is shipping something. An open question - how should this
-// work, what is this costing us, is this approach even right - handed the brief
-// above gets a worker that opens a PR to look finished, which is the opposite of
-// what an unanswered question needs.
-const INVESTIGATE_BRIEF = (spec, id) => `You are a worker on an open question. Think it through. Do not implement it.
-
-${spec}
-
-You are in an isolated git worktree on your own branch. Read as widely across the project
-as the question needs, and keep whatever you produce - notes, a proposal, a throwaway
-prototype used only as evidence - inside this worktree. Do not open a PR, and do not
-change how the project works to prove a point.
-
-Ribhav is going to work this through WITH you, so what this first pass owes them is
-a proposal worth arguing with: what the real constraint is, the options you can actually
-see and what each costs, and which one you would pick and why. Where you are guessing,
-say you are guessing - a confident wrong answer costs more here than an open question.
-
-You never write a status line. Stopping IS your report - your last message before you
-stop is what reaches Ribhav, so end with two or three lines saying what you found
-and the call you would make.`;
-
 const [, , command] = process.argv;
 
-if (command === 'remote') {
+function remote() {
   const value = process.argv[3] ?? die('usage: fm remote yes|no [--project <dir>]');
   try {
     const project = resolve(arg('--project', projectForSurface()));
@@ -187,7 +99,7 @@ if (command === 'remote') {
 // The provider requests only the target level. Its Stop hook performs the
 // replacement after the current turn has ended, so the command that queues the
 // transition is never responsible for killing its own process tree.
-if (command === 'effort') {
+function effort() {
   const level = process.argv[3] ?? die('usage: fm effort <level>');
   if (process.argv.length !== 4) die('usage: fm effort <level>');
   const id = process.env.FM2_TASK ?? die('fm effort is only available inside an fm-managed session');
@@ -207,7 +119,7 @@ if (command === 'effort') {
 // Queue from a controller and execute only after its current turn has ended.
 // The Stop hook opens an independent maintenance pane, so the coordinator can
 // safely stop and later resume the conversation that requested the update.
-if (command === 'update' || command === 'upgrade') {
+function update() {
   const provider = process.argv[3] ?? die(`usage: fm ${command} <claude|codex>`);
   if (process.argv.length !== 4) die(`usage: fm ${command} <claude|codex>`);
   const id = process.env.FM2_TASK ?? die('fm update is only available inside an fm control session');
@@ -227,28 +139,17 @@ if (command === 'update' || command === 'upgrade') {
 
 // --- focus -------------------------------------------------------------------
 
-if (command === 'focus') {
+async function focus() {
   try { await focusCommand(process.argv.slice(3)); } catch (error) { die(error.message); }
   process.exit(0);
 }
 
 // --- review ------------------------------------------------------------------
 
-if (command === 'review') {
-  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>] [--agent claude|codex]');
-  const project = resolve(arg('--project', process.cwd()));
-  const agent = selectedAgent(arg('--agent', defaultAgent()));
-  // Ribhav's own brief for the review, when the full skill is more than he wants.
-  let spec = arg('--spec');
-  if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
-  // A batch of reviews Ribhav wants kept apart from the day's work gets its
-  // own window, the same way `ship` batches do. Naming one that does not exist
-  // yet is how you get it.
-  const window = arg('--window', 'reviews');
-  const repo = repoOf(project) ?? die(`no github remote on ${project}`);
-  const caps = capabilities();
-  if (!caps.gh) die('gh is not authenticated, so the PR cannot be read');
-
+// A cold review session on a PR: a worktree detached at the PR's head, named
+// for its branch, with a brief that says where the report goes. `review` opens
+// one by hand; `handoff` opens one on the PR a finished ship task left behind.
+function startReview({ project, repo, number, spec = null, window, agent }) {
   const meta = pr(repo, number);
   const slug = String(meta.headRefName || '').split('/').pop().replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 40);
   const id = `pr-${number}${slug ? `-${slug}` : ''}`;
@@ -261,30 +162,47 @@ if (command === 'review') {
   const task = spawnTask({
     id,
     project,
-    brief: spec ? PLAIN_REVIEW_BRIEF(spec, meta.url, id, reportPath) : REVIEW_BRIEF(meta.url, id, reportPath, specPath),
+    brief: spec ? PLAIN_REVIEW_BRIEF(spec, meta.url, reportPath) : REVIEW_BRIEF(meta.url, reportPath, specPath),
     baseRef: ref,
     window,
     agent,
     env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
   });
-  process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
+  return { task, meta };
+}
+
+function review() {
+  const number = process.argv[3] ?? die('usage: fm review <pr-number> [--project <dir>] [--window <name>] [--spec <text|@file>] [--agent claude|codex]');
+  const project = resolve(arg('--project', process.cwd()));
+  const agent = selectedAgent(arg('--agent', defaultAgent()));
+  // Ribhav's own brief for the review, when the full skill is more than he wants.
+  const spec = specArg();
+  // A batch of reviews Ribhav wants kept apart from the day's work gets its
+  // own window, the same way `ship` batches do. Naming one that does not exist
+  // yet is how you get it.
+  const window = arg('--window', 'reviews');
+  const repo = repoOf(project) ?? die(`no github remote on ${project}`);
+  const caps = capabilities();
+  if (!caps.gh) die('gh is not authenticated, so the PR cannot be read');
+
+  const { task } = startReview({ project, repo, number, spec, window, agent });
+  process.stdout.write(`${task.id}\t${task.pane}\t${task.worktree}\n`);
   process.exit(0);
 }
 
 // --- ship --------------------------------------------------------------------
 
-if (command === 'ship') {
+function ship() {
   const id = process.argv[3] ?? die('usage: fm ship <id> --spec <text|@file> [--window <name>] [--investigate] [--agent claude|codex]');
   const project = resolve(arg('--project', process.cwd()));
   const agent = selectedAgent(arg('--agent', defaultAgent()));
-  let spec = arg('--spec') ?? die('a ship task needs --spec');
-  if (spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
+  const spec = specArg() ?? die('a ship task needs --spec');
   // A window per batch, when Ribhav wants one. `fm` creates it on demand, so
   // naming one that does not exist yet is how you get it.
   const window = arg('--window', 'workers');
   // An open question gets a worker told to answer it, not one told to open a PR.
   const investigate = process.argv.includes('--investigate');
-  const brief = investigate ? INVESTIGATE_BRIEF(spec, id) : SHIP_BRIEF(spec, id);
+  const brief = investigate ? INVESTIGATE_BRIEF(spec) : SHIP_BRIEF(spec);
   const task = spawnTask({ id, project, brief, window, agent });
   process.stdout.write(`${id}\t${task.pane}\t${task.worktree}\n`);
   process.exit(0);
@@ -301,7 +219,7 @@ if (command === 'ship') {
 // always what sitting back down with a branch means: an idle session that has to
 // be told the history again is the same session started twice.
 
-if (command === 'attach') {
+function attach() {
   const target = process.argv[3] ?? die('usage: fm attach <worktree> [--project <dir>] [--id <id>] [--spec <text|@file>] [--window <name>] [--resume [<session>]] [--agent claude|codex]');
   const worktree = resolve(target);
   // A worktree knows which checkout it belongs to, so asking it beats defaulting
@@ -320,8 +238,7 @@ if (command === 'attach') {
   if (existing && agent !== agentOf(existing)) {
     die(`"${id}" belongs to ${agentOf(existing)}; use fm switch ${id} --agent ${agent} to preserve its history`);
   }
-  let spec = arg('--spec');
-  if (spec && spec.startsWith('@')) spec = readFileSync(spec.slice(1), 'utf8');
+  const spec = specArg();
   // Left null on purpose: adoptTask picks the window, because only it knows
   // whether this is a fresh adoption or a review being reopened.
   const window = arg('--window');
@@ -351,7 +268,7 @@ if (command === 'attach') {
       project,
       worktree,
       window,
-      brief: spec ? ATTACH_BRIEF(spec, id) : null,
+      brief: spec ? ATTACH_BRIEF(spec) : null,
       resume,
       agent,
     });
@@ -362,12 +279,9 @@ if (command === 'attach') {
   process.exit(0);
 }
 
-// --- switch ------------------------------------------------------------------
-// Keep the task, branch, worktree and reporting route; replace only the CLI.
-// The source transcript is resolved before the old process is stopped, copied
-// outside the worktree, and handed to the target session in full.
+// --- panel-switch ------------------------------------------------------------
 
-if (command === 'panel-switch') {
+async function panelSwitch() {
   const agent = arg('--agent') ?? die('usage: fm panel-switch --agent claude|codex [--panel <session>] [--sessions @file]');
   try {
     const sessionsFile = arg('--sessions');
@@ -404,7 +318,7 @@ function liveSession(task) {
 // window, a split, or a panel. Each task's pane is respawned in place, carrying
 // its own conversation, in the order it appears.
 
-if (command === 'reload') {
+function reload() {
   // Named, never inferred. The panel's recorded agent is what it was STARTED
   // with, so defaulting to it turns "reload onto Codex" into "put everything
   // back on Claude" without saying so - which is exactly what it did once.
@@ -491,7 +405,12 @@ if (command === 'reload') {
   process.exit(failed ? 1 : 0);
 }
 
-if (command === 'switch') {
+// --- switch ------------------------------------------------------------------
+// Keep the task, branch, worktree and reporting route; replace only the CLI.
+// The source transcript is resolved before the old process is stopped, copied
+// outside the worktree, and handed to the target session in full.
+
+function switchProvider() {
   const id = process.argv[3] ?? die('usage: fm switch <id> --agent claude|codex [--session <source-id>]');
   const agent = arg('--agent') ?? die('a switch needs --agent claude|codex');
   const session = arg('--session');
@@ -511,7 +430,7 @@ if (command === 'switch') {
 // The automatic chain: a ship task that opened a PR reviews its own work once,
 // then is closed and replaced by a session that never saw it written.
 
-if (command === 'handoff') {
+function handoff() {
   const id = process.argv[3] ?? die('usage: fm handoff <id>');
   const task = loadTask(id) ?? die(`no task "${id}"`);
   const stage = arg('--stage', task.handoff_stage ?? 'self-review');
@@ -560,28 +479,14 @@ if (command === 'handoff') {
   }
   const project = closed.project;
   const repo = closed.repo ?? repoOf(project);
-  const meta = pr(repo, number);
-  const reviewId = `pr-${number}-${String(meta.headRefName || '').split('/').pop().replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 40)}`;
-  const ref = `refs/fm2/${reviewId}`;
-  fetchPrHead(project, number, ref);
-  const reportPath = join(dir('briefs', reviewId), 'report.md');
-  const specPath = join(dir('briefs', reviewId), 'review.json');
-  const review = spawnTask({
-    id: reviewId,
-    project,
-    brief: REVIEW_BRIEF(meta.url, reviewId, reportPath, specPath),
-    baseRef: ref,
-    window: 'reviews',
-    agent: reviewAgent,
-    env: { pr: number, repo, pr_url: meta.url, pr_author: meta.author?.login ?? null },
-  });
-  process.stdout.write(`${id} closed; ${reviewId} now reviewing ${meta.url}\n`);
+  const { task: review, meta } = startReview({ project, repo, number, window: 'reviews', agent: reviewAgent });
+  process.stdout.write(`${id} closed; ${review.id} now reviewing ${meta.url}\n`);
   process.exit(0);
 }
 
 // --- read --------------------------------------------------------------------
 
-if (command === 'read') {
+function read() {
   const items = drain(currentPanel() ?? undefined);
   if (!items.length) {
     process.stdout.write('nothing new\n');
@@ -595,7 +500,7 @@ if (command === 'read') {
 
 // --- status ------------------------------------------------------------------
 
-if (command === 'status') {
+function status() {
   const tasks = allTasks();
   if (!tasks.length) {
     process.stdout.write('no tasks\n');
@@ -699,7 +604,7 @@ if (command === 'status') {
 // What it deliberately does NOT do is invent a reason to speak. Whether a
 // session should be told something is a judgement made before running this.
 
-if (command === 'tell') {
+function tell() {
   const id = process.argv[3] ?? die('usage: fm tell <id> <message>');
   const message = process.argv.slice(4).join(' ').trim();
   if (!message) die('usage: fm tell <id> <message>');
@@ -726,7 +631,7 @@ if (command === 'tell') {
 // infer this - "he replied to it recently" is true of every session that is
 // going well - so it is something he says, once, about the one he has taken.
 
-if (command === 'quiet') {
+function quiet() {
   const id = process.argv[3] ?? die('usage: fm quiet <id> [--off]');
   const task = loadTask(id) ?? die(`no task "${id}"`);
   const off = process.argv.includes('--off');
@@ -737,7 +642,7 @@ if (command === 'quiet') {
 
 // --- close -------------------------------------------------------------------
 
-if (command === 'close') {
+function close() {
   const id = process.argv[3] ?? die('usage: fm close <id> [--force]');
   const force = process.argv.includes('--force');
   try {
@@ -751,7 +656,7 @@ if (command === 'close') {
 
 // --- announce ----------------------------------------------------------------
 
-if (command === 'announce') {
+function announce() {
   const id = process.argv[3] ?? die('usage: fm announce <id>');
   const task = loadTask(id) ?? die(`no task "${id}"`);
   if (!task.pr) die(`"${id}" has no PR`);
@@ -775,9 +680,34 @@ if (command === 'announce') {
   process.exit(0);
 }
 
-if (command === 'caps') {
+function caps() {
   process.stdout.write(`${JSON.stringify(capabilities({ refresh: true }), null, 2)}\n`);
   process.exit(0);
 }
 
-die('usage: fm review|ship|attach|switch|effort|update|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');
+const COMMANDS = {
+  remote,
+  effort,
+  update,
+  upgrade: update,
+  focus,
+  review,
+  ship,
+  attach,
+  'panel-switch': panelSwitch,
+  reload,
+  switch: switchProvider,
+  handoff,
+  read,
+  status,
+  tell,
+  quiet,
+  close,
+  announce,
+  caps,
+};
+
+if (!Object.hasOwn(COMMANDS, command)) {
+  die('usage: fm review|ship|attach|switch|effort|update|reload|panel-switch|handoff|read|status|tell|quiet|close|announce|focus|caps');
+}
+await COMMANDS[command]();
