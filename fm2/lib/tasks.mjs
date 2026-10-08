@@ -11,7 +11,7 @@ import { syncSkills } from './skills.mjs';
 import { branchIsMerged, prIsMerged, repoOf } from './forge.mjs';
 import { configurePanelQuotaStatus } from './quota-status.mjs';
 import { normalizeAgent } from './sessions.mjs';
-import { git } from './git.mjs';
+import { currentBranch, git, worktreePaths } from './git.mjs';
 import { tmux, paneAlive } from './tmux.mjs';
 import { writeWorkerSettings } from './launch.mjs';
 import { assertStarted, clearStartupPrompts, openPane, sessionName } from './panes.mjs';
@@ -167,11 +167,7 @@ export function adoptTask({
   // It must be a worktree of THIS project. Attaching to a checkout of something
   // else would put the pane in a panel it has nothing to do with, and `fm status`
   // would then read it against the wrong repository.
-  const known = git(project, ['worktree', 'list', '--porcelain'])
-    .split('\n')
-    .filter((line) => line.startsWith('worktree '))
-    .map((line) => resolve(line.slice('worktree '.length)));
-  if (!known.includes(wt)) throw new Error(`${wt} is not a worktree of ${resolve(project)}`);
+  if (!worktreePaths(project).includes(wt)) throw new Error(`${wt} is not a worktree of ${resolve(project)}`);
 
   let briefPath = null;
   if (brief) {
@@ -186,11 +182,7 @@ export function adoptTask({
   clearStartupPrompts(pane, { agent: provider });
   assertStarted(pane, id);
 
-  // symbolic-ref, not `rev-parse --abbrev-ref`, which answers the literal string
-  // "HEAD" for a detached checkout. A review worktree is always detached, and a
-  // record claiming it sits on a branch called HEAD is a record that lies.
-  let branch = null;
-  try { branch = git(wt, ['symbolic-ref', '-q', '--short', 'HEAD']) || null; } catch { /* detached */ }
+  const branch = currentBranch(wt);
 
   return saveTask(
     reopened(existing, {
@@ -275,10 +267,8 @@ export function unlandedWork(task, { isMerged = branchIsMerged, mergedPr = prIsM
     // which this close does not touch. Only what is reachable from here and
     // nowhere else dies with the worktree.
     // Its own branch is not an escape hatch, so it is the one ref not excluded.
-    // A detached review head has none, and `symbolic-ref` exits non-zero saying
-    // so - which must not take the whole check down with it.
-    let own = '';
-    try { own = git(wt, ['symbolic-ref', '-q', '--short', 'HEAD']).trim(); } catch { /* detached */ }
+    // A detached review head has none.
+    const own = currentBranch(wt);
 
     // A squash-merged branch keeps commits that are on no remote forever - the
     // merge rewrote them into one new commit on the main line, so the originals

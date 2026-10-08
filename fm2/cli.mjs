@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
 import { spawnTask, adoptTask, closeTask, unlandedWork, missingReport } from './lib/tasks.mjs';
 import { tmux, sendToPane, paneAlive } from './lib/tmux.mjs';
+import { currentBranch, mainCheckoutOf, pushedBranchOf } from './lib/git.mjs';
 import { launchCommand, writeWorkerSettings, ensureCodexTrust } from './lib/launch.mjs';
 import { clearStartupPrompts } from './lib/panes.mjs';
 import { preserveSession } from './lib/handoff.mjs';
@@ -52,65 +53,6 @@ import { requestProviderUpdate } from './lib/provider-update-state.mjs';
 import { projectForSurface, setRemoteReviews } from './lib/remote.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-// What branch a worktree is on right now. Null when it has gone, or when the
-// checkout is detached - a review worktree, which never needs this.
-function branchOf(worktree) {
-  if (!worktree || !existsSync(worktree)) return null;
-  try {
-    return execFileSync('git', ['-C', worktree, 'symbolic-ref', '-q', '--short', 'HEAD'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-// The name the forge knows this branch by, which is not always the local one.
-//
-// A worker that pushes `HEAD:ribhav/wo-354-match-quantity` leaves its worktree on
-// a branch called `wo-354-match-quantity` and a PR whose head is the prefixed
-// name. `gh pr list --head` matches only what was pushed, so asking with the
-// local name gets "no PR open on that branch" for a branch that plainly has one -
-// and `handoff --stage swap` then refuses to open the cold review on a task that
-// did everything right.
-//
-// git already records where a branch pushes to, so ask it rather than guessing at
-// the convention. A branch with no upstream has not been pushed anywhere, and its
-// local name is the only name there is.
-function pushedBranchOf(worktree, local = branchOf(worktree)) {
-  if (!worktree || !local || !existsSync(worktree)) return local;
-  try {
-    const upstream = execFileSync(
-      'git',
-      ['-C', worktree, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', `${local}@{upstream}`],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    ).trim();
-    if (!upstream) return local;
-    // "origin/ribhav/wo-354" -> "ribhav/wo-354". Only the remote comes off; a
-    // branch name with its own slashes keeps every one of them.
-    const cut = upstream.indexOf('/');
-    return cut === -1 ? upstream : upstream.slice(cut + 1);
-  } catch {
-    // No upstream recorded - never pushed, or pushed without tracking.
-    return local;
-  }
-}
-
-// The checkout a worktree hangs off, from git rather than from a naming
-// convention: `--git-common-dir` resolves to the main checkout's .git, whose
-// parent is the checkout itself.
-function mainCheckoutOf(worktree) {
-  if (!existsSync(worktree)) return null;
-  try {
-    const common = execFileSync('git', ['-C', worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    return common.endsWith('/.git') ? dirname(common) : null;
-  } catch {
-    return null;
-  }
-}
 
 function die(msg, code = 1) {
   process.stderr.write(`fm: ${msg}\n`);
@@ -686,7 +628,7 @@ if (command === 'status') {
       // list looking like work. A detached review worktree has no branch, so it
       // costs those nothing.
       const repo = task.repo ?? repoOf(task.project);
-      const branch = pushedBranchOf(task.worktree, task.branch ?? branchOf(task.worktree));
+      const branch = pushedBranchOf(task.worktree, task.branch ?? currentBranch(task.worktree));
       const landedIn = landedPrForBranch(repo, branch);
       if (landedIn) {
         forge = ` | PR ${landedIn} MERGED`;

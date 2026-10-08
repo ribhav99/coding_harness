@@ -21,7 +21,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { dir, home as homeDir } from './config.mjs';
 import { pending } from './notify.mjs';
 import { agentOf, normalizeAgent } from './sessions.mjs';
-import { git } from './git.mjs';
+import { currentBranch, git } from './git.mjs';
 
 function worktreeContentFingerprint(worktree) {
   const metadata = (args) => execFileSync('git', ['-C', worktree, ...args], {
@@ -57,8 +57,7 @@ function worktreeContentFingerprint(worktree) {
 }
 
 export function worktreeState(worktree) {
-  let branch = null;
-  try { branch = git(worktree, ['symbolic-ref', '-q', '--short', 'HEAD']) || null; } catch { /* detached */ }
+  const branch = currentBranch(worktree);
   let unpushed = '';
   try { unpushed = git(worktree, ['log', '--oneline', 'HEAD', '--not', '--remotes', '--']); } catch { /* no remote */ }
   return {

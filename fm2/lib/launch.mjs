@@ -13,7 +13,7 @@ import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 import { remoteReviews } from './remote.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote, tomlValue } from './shell.mjs';
-import { git } from './git.mjs';
+import { worktreePaths } from './git.mjs';
 
 const FM2 = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -130,12 +130,7 @@ function launchWord(arg) {
 // worktree beside it.
 export function ensureCodexTrust(worktree, { configPath = join(homedir(), '.codex', 'config.toml') } = {}) {
   let root;
-  try {
-    const first = git(worktree, ['worktree', 'list', '--porcelain']).split('\n')[0];
-    root = first.startsWith('worktree ') ? resolve(first.slice('worktree '.length)) : resolve(worktree);
-  } catch {
-    root = resolve(worktree);
-  }
+  try { root = worktreePaths(worktree)[0] ?? resolve(worktree); } catch { root = resolve(worktree); }
   let config = '';
   try { config = readFileSync(configPath, 'utf8'); } catch { /* first Codex run on this machine */ }
   const header = `[projects."${root}"]`;
