@@ -15,22 +15,15 @@
 
 import { pending } from '../lib/notify.mjs';
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
-import { controllerId, rememberSession } from '../lib/sessions.mjs';
-import { providerProcess } from '../lib/provider-processes.mjs';
+import { controllerId } from '../lib/sessions.mjs';
+import { finishHook, readHookInput, rememberHookSession } from '../lib/hook-io.mjs';
 import { schedulePendingEffort } from '../lib/effort.mjs';
 import {
   providerUpdateOwnsStop,
   schedulePendingProviderUpdate,
 } from '../lib/provider-update-state.mjs';
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-for await (const chunk of process.stdin) raw += chunk;
-
-function done() {
-  if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
-  process.exit(0);
-}
+const raw = await readHookInput();
 
 // Where the supervisor lives, so a stopping worker knows where to knock. Written
 // on every stop rather than once, because a supervisor can be restarted into a
@@ -42,28 +35,23 @@ try {
   const payload = JSON.parse(raw || '{}');
   panel = currentPanel();
   task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
-  if (task && !task.startsWith('controller:')) done();
+  if (task && !task.startsWith('controller:')) finishHook();
   recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
-  rememberSession({
-    task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
-    cwd: payload.cwd, panel, pane: process.env.TMUX_PANE,
-    backend: process.env.FM2_CODEX_BACKEND || null,
-    providerPid: providerProcess(agent),
-  });
+  rememberHookSession(payload, { task, agent, panel });
 } catch { /* never hold up a turn for bookkeeping */ }
 
 try {
-  if (task && schedulePendingProviderUpdate(task, agent)) done();
+  if (task && schedulePendingProviderUpdate(task, agent)) finishHook();
 } catch { /* retain normal stop behavior if scheduling failed */ }
 
 // The coordinator deliberately stops every session on the provider. Those
 // lifecycle stops are neither completed work nor unread reports.
 try {
-  if (providerUpdateOwnsStop(agent, task)) done();
+  if (providerUpdateOwnsStop(agent, task)) finishHook();
 } catch { /* retain normal stop behavior if state cannot be read */ }
 
 try {
-  if (task && schedulePendingEffort(task, agent)) done();
+  if (task && schedulePendingEffort(task, agent)) finishHook();
 } catch { /* retain normal stop behavior if scheduling failed */ }
 
 let items = [];
@@ -72,10 +60,10 @@ try {
 } catch {
   // If the notify directory cannot be read, let the turn end. A supervisor that
   // cannot stop is worse than one that misses a report it can still read later.
-  done();
+  finishHook();
 }
 
-if (items.length === 0) done();
+if (items.length === 0) finishHook();
 
 const lines = items.map((item) => {
   const first = String(item.text || '').split('\n').find((l) => l.trim()) || '(no text)';
