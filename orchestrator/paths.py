@@ -13,10 +13,6 @@ def harness_state_dir(project_root: Path) -> Path:
     return project_root / "harness" / "state"
 
 
-def harness_logs_dir(project_root: Path) -> Path:
-    return project_root / "harness" / "logs"
-
-
 def reviews_archive_dir(project_root: Path, loop_name: str, attempt: int) -> Path:
     return project_root / "harness" / "state" / "reviews" / loop_name / f"attempt-{attempt}"
 

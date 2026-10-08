@@ -1,22 +1,24 @@
 """Reconcile dotted-hidden meta files alongside generator-written `<slug>.md` content.
 
-Per BLUEPRINT.md §3.3 (`requirements-loop`, post-generator meta materialisation):
+Per BLUEPRINT.md §3.3 (post-generator meta materialisation):
 
-For each directory in the requirements tree, ensure two dotted-hidden meta
-files sit alongside every visible `<slug>.md`:
-    .<slug>.<kind>.meta.yaml             (overview | feature)
+For each directory in the requirements and blueprints trees, ensure two
+dotted-hidden meta files sit alongside every visible `<slug>.md`:
+    .<slug>.<kind>.meta.yaml             (overview | feature | container | component)
     .<slug>.requirements.meta.yaml
 
 Remove meta files whose `<slug>.md` counterpart was deleted. Prune empty
 `<slug>_children/` directories. Preserve existing meta-file fields whose
 values are non-null (an SF mirror sync may have populated IDs).
+
+The work-orders tree is flat instead: one `.wo-<slug>.meta.yaml` per
+`wo-<slug>.md`, plus a regenerated `_external-blockers.md`.
+
+The small YAML reader and writer at the bottom cover exactly the shapes these
+meta files use; `wo_planner` reads and rewrites work-order metas through them.
 """
 
-import re
 from pathlib import Path
-
-
-SLUG_BAD = re.compile(r"[^a-z0-9-]")
 
 
 def reconcile_requirements_tree(requirements_root: Path) -> None:
@@ -92,7 +94,7 @@ def _reconcile_wo_meta(work_orders_root: Path, slug: str) -> None:
     blocked_by = _extract_wo_depends_work_orders(body)
 
     if meta_path.exists():
-        existing = _parse_yaml_meta(meta_path.read_text())
+        existing = parse_yaml_meta(meta_path.read_text())
         status = existing.get("status") or "ready"
         priority = existing.get("priority")
         parent_id = existing.get("parent_id")
@@ -110,7 +112,7 @@ def _reconcile_wo_meta(work_orders_root: Path, slug: str) -> None:
         "blocked_by": blocked_by,
         "blueprint_ids": [],
     }
-    meta_path.write_text(_yaml_dump_wo(fields))
+    meta_path.write_text(yaml_dump(fields))
 
 
 def _remove_orphaned_wo_metas(work_orders_root: Path, visible_slugs: list[str]) -> None:
@@ -126,7 +128,7 @@ def _remove_orphaned_wo_metas(work_orders_root: Path, visible_slugs: list[str]) 
             entry.unlink()
 
 
-def _extract_wo_section(body: str, heading: str) -> str:
+def extract_section(body: str, heading: str) -> str:
     """Return the body of a `## <heading>` section up to the next `## ` heading or EOF."""
     lines = body.splitlines()
     start = None
@@ -149,7 +151,7 @@ def _extract_wo_type(body: str) -> str:
 
     Defaults to `feature` if the section is absent or unrecognised.
     """
-    section = _extract_wo_section(body, "Type")
+    section = extract_section(body, "Type")
     if not section:
         return "feature"
     value = section.strip().split("\n", 1)[0].strip()
@@ -164,11 +166,11 @@ def _extract_wo_depends_work_orders(body: str) -> list[str]:
     Handles both inline form (`work_orders: [wo-a, wo-b]`) and dash-list form
     (`work_orders:\\n  - wo-a\\n  - wo-b`). Empty list (`[]`) returns [].
     """
-    section = _extract_wo_section(body, "Depends on")
+    section = extract_section(body, "Depends on")
     if not section:
         return []
 
-    fence_lines = _strip_fence(section)
+    fence_lines = strip_fence(section)
     if fence_lines is None:
         return []
 
@@ -176,13 +178,13 @@ def _extract_wo_depends_work_orders(body: str) -> list[str]:
 
 
 def _extract_wo_goal(body: str) -> str:
-    section = _extract_wo_section(body, "Goal")
+    section = extract_section(body, "Goal")
     return section.strip()
 
 
 def _extract_wo_ac_lines(body: str) -> list[str]:
     """Return the raw `- [ ]` lines of `## Acceptance criteria` for a work order."""
-    section = _extract_wo_section(body, "Acceptance criteria")
+    section = extract_section(body, "Acceptance criteria")
     out = []
     for line in section.splitlines():
         stripped = line.strip()
@@ -191,7 +193,7 @@ def _extract_wo_ac_lines(body: str) -> list[str]:
     return out
 
 
-def _strip_fence(section: str) -> list[str] | None:
+def strip_fence(section: str) -> list[str] | None:
     """Return the lines inside a fenced ```yaml ... ``` block; None if no fence found."""
     lines = section.splitlines()
     in_block = False
@@ -242,30 +244,6 @@ def _parse_yaml_list_field(lines: list[str], field: str) -> list[str]:
     return out
 
 
-def _yaml_dump_wo(fields: dict) -> str:
-    """Serialise a work-order meta dict to YAML. Lists rendered inline; scalars on one line."""
-    lines = []
-    for k, v in fields.items():
-        if v is None:
-            lines.append(f"{k}: null")
-        elif isinstance(v, list):
-            if not v:
-                lines.append(f"{k}: []")
-            else:
-                rendered = ", ".join(str(item) for item in v)
-                lines.append(f"{k}: [{rendered}]")
-        elif isinstance(v, str):
-            needs_quote = any(c in v for c in (":", "#", "\n", '"', "'", "[", "]", "{", "}"))
-            if needs_quote:
-                escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-                lines.append(f'{k}: "{escaped}"')
-            else:
-                lines.append(f"{k}: {v}")
-        else:
-            lines.append(f"{k}: {v}")
-    return "\n".join(lines) + "\n"
-
-
 def _regenerate_external_blockers(work_orders_root: Path, visible_slugs: list[str]) -> None:
     """Rebuild `_external-blockers.md` from current meta state.
 
@@ -280,7 +258,7 @@ def _regenerate_external_blockers(work_orders_root: Path, visible_slugs: list[st
         meta_path = work_orders_root / f".{slug}.meta.yaml"
         if not meta_path.exists():
             continue
-        meta = _parse_yaml_meta(meta_path.read_text())
+        meta = parse_yaml_meta(meta_path.read_text())
         status = meta.get("status")
         type_ = meta.get("type")
         body = (work_orders_root / f"{slug}.md").read_text()
@@ -297,37 +275,24 @@ def _regenerate_external_blockers(work_orders_root: Path, visible_slugs: list[st
         return
 
     out = ["# External blockers", "", "Operator action required before the loop can drain further. Mark each work order's `.wo-<slug>.meta.yaml.status` to `done` (operator-action) or `ready` (blocked_external) once the action is complete.", ""]
-    out.append("## Anticipated operator actions")
-    out.append("")
-    if anticipated:
-        for slug, goal, acs in anticipated:
-            out.append(f"### `{slug}`")
-            if goal:
-                out.append(f"**Goal:** {goal}")
-            if acs:
-                out.append("**Acceptance criteria:**")
-                for ac in acs:
-                    out.append(ac)
-            out.append("")
-    else:
-        out.append("(none)")
-        out.append("")
-    out.append("## Discovered mid-execution blockers")
-    out.append("")
-    if discovered:
-        for slug, goal, acs in discovered:
-            out.append(f"### `{slug}`")
-            if goal:
-                out.append(f"**Goal:** {goal}")
-            if acs:
-                out.append("**Acceptance criteria:**")
-                for ac in acs:
-                    out.append(ac)
-            out.append("")
-    else:
-        out.append("(none)")
-        out.append("")
+    out += _blocker_section("Anticipated operator actions", anticipated)
+    out += _blocker_section("Discovered mid-execution blockers", discovered)
     blockers_path.write_text("\n".join(out))
+
+
+def _blocker_section(heading: str, entries: list[tuple[str, str, list[str]]]) -> list[str]:
+    out = [f"## {heading}", ""]
+    if not entries:
+        return out + ["(none)", ""]
+    for slug, goal, acs in entries:
+        out.append(f"### `{slug}`")
+        if goal:
+            out.append(f"**Goal:** {goal}")
+        if acs:
+            out.append("**Acceptance criteria:**")
+            out.extend(acs)
+        out.append("")
+    return out
 
 
 def _reconcile_dir(directory: Path, kind: str) -> None:
@@ -371,7 +336,7 @@ def _add_missing_metas(directory: Path, slugs: list[str], kind: str) -> None:
         title = _read_h1(directory / f"{slug}.md") or slug
 
         if not node_meta.exists():
-            node_meta.write_text(_yaml_dump({
+            node_meta.write_text(yaml_dump({
                 "id": None,
                 "parent_id": None,
                 "position": position,
@@ -381,7 +346,7 @@ def _add_missing_metas(directory: Path, slugs: list[str], kind: str) -> None:
             _refresh_position_and_title(node_meta, position, title)
 
         if not doc_meta.exists():
-            doc_meta.write_text(_yaml_dump({"id": None}))
+            doc_meta.write_text(yaml_dump({"id": None}))
 
 
 def _remove_orphaned_metas(directory: Path, slugs: list[str], kind: str) -> None:
@@ -415,19 +380,19 @@ def _read_h1(content_file: Path) -> str | None:
 def _refresh_position_and_title(meta_path: Path, position: int, title: str) -> None:
     """Update position + title in place, preserving existing non-null id/parent_id."""
     text = meta_path.read_text()
-    fields = _parse_yaml_meta(text)
+    fields = parse_yaml_meta(text)
     if fields.get("position") != position:
         fields["position"] = position
     if fields.get("title") != title and not _id_is_set(fields):
         fields["title"] = title
-    meta_path.write_text(_yaml_dump(fields))
+    meta_path.write_text(yaml_dump(fields))
 
 
 def _id_is_set(fields: dict) -> bool:
     return fields.get("id") not in (None, "null", "")
 
 
-def _parse_yaml_meta(text: str) -> dict:
+def parse_yaml_meta(text: str) -> dict:
     out: dict = {}
     for raw in text.splitlines():
         line = raw.rstrip()
@@ -445,11 +410,18 @@ def _parse_yaml_meta(text: str) -> dict:
     return out
 
 
-def _yaml_dump(data: dict) -> str:
+def yaml_dump(fields: dict) -> str:
+    """Serialise a meta dict to YAML. Lists rendered inline; scalars on one line."""
     lines = []
-    for k, v in data.items():
+    for k, v in fields.items():
         if v is None:
             lines.append(f"{k}: null")
+        elif isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                rendered = ", ".join(str(item) for item in v)
+                lines.append(f"{k}: [{rendered}]")
         elif isinstance(v, str):
             needs_quote = any(c in v for c in (":", "#", "\n", '"', "'", "[", "]", "{", "}"))
             if needs_quote:
