@@ -59,7 +59,8 @@ export function writeWorkerSettings(id, agent = 'claude', panel = currentPanel()
   return file;
 }
 
-// What a Codex worker is launched on, said outright rather than inherited.
+// What every Codex session fm starts - worker or controller - is launched on,
+// said outright rather than inherited.
 //
 // This is the same rule the Claude path already follows with `--model opus`: a
 // default is not a choice. These used to come from ~/.codex/config.toml on the
@@ -87,30 +88,32 @@ export const CODEX_STATUS_LINE = [
   'fast-mode',
   'context-used',
 ];
-// The hook prompt is the harness's own hooks being offered back to it.
-//
-// Codex asks once per changed hook set, and the wrong answer is available and
-// quiet: `continue without trusting` yields a session that works, stops, and
-// never reports, because reporting IS the Stop hook. Eight panes asked at once
-// after a reload. These hook files are written by writeWorkerSettings moments
-// earlier from this checkout, so the source is already vetted - which is the
-// stated condition for this flag.
-function codexSessionFlags(effort) {
+export function codexSessionArgs(effort, hooks = {}) {
   return [
-    `-c model=${JSON.stringify(latestCodexModel())}`,
-    `-c model_reasoning_effort=${JSON.stringify(effort)}`,
-    '-c approval_policy="never"',
-    '-c sandbox_mode="danger-full-access"',
-    `-c ${shellQuote(`tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`)}`,
+    '-c', `model=${JSON.stringify(latestCodexModel())}`,
+    '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
+    '-c', 'approval_policy="never"',
+    '-c', 'sandbox_mode="danger-full-access"',
+    '-c', `tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`,
+    // The hook prompt is the harness's own hooks being offered back to it.
+    //
+    // Codex asks once per changed hook set, and the wrong answer is available
+    // and quiet: `continue without trusting` yields a session that works,
+    // stops, and never reports, because reporting IS the Stop hook. Eight panes
+    // asked at once after a reload. These hooks are written from this checkout
+    // moments before the launch, so the source is already vetted - which is
+    // the stated condition for this flag.
     '--dangerously-bypass-hook-trust',
-  ].join(' ');
+    ...Object.entries(hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
+  ];
 }
 
-function codexHookFlags(settingsFile) {
-  const config = JSON.parse(readFileSync(settingsFile, 'utf8'));
-  return Object.entries(config.hooks ?? {})
-    .map(([event, groups]) => `-c ${shellQuote(`hooks.${event}=${tomlValue(groups)}`)}`)
-    .join(' ');
+// One word of a worker's launch command. Scalar overrides keep the readable
+// `key="value"` form these commands have always had - the shell drops the
+// double quotes and Codex reads the bare value as the same string. Arrays and
+// tables are single-quoted whole.
+function launchWord(arg) {
+  return /^[\w./:=-]*$/.test(arg) || /^[\w.]+="[\w./:-]*"$/.test(arg) ? arg : shellQuote(arg);
 }
 
 // Codex will not run in a directory it has not been trusted with, and the prompt
@@ -185,7 +188,8 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
     );
   }
 
-  const flags = `--no-alt-screen ${codexSessionFlags(reasoning)} ${codexHookFlags(settingsFile)}`;
+  const { hooks } = JSON.parse(readFileSync(settingsFile, 'utf8'));
+  const flags = ['--no-alt-screen', ...codexSessionArgs(reasoning, hooks ?? {})].map(launchWord).join(' ');
   if (resume) return `${env} ${executable} resume ${flags} ${shellQuote(resume)}${prompt}`;
   return `${env} ${executable} ${flags}${prompt}`;
 }
