@@ -102,6 +102,13 @@ remove_legacy_picker() {
   mv "$temporary" "$input"
 }
 
+append_source_line() {
+  {
+    printf '\n# Firstmate remote tmux picker (installed by coding_harness)\n'
+    printf '%s\n' "$SOURCE_LINE"
+  } >> "$ZSHRC"
+}
+
 if [ "$CHECK" = 1 ]; then
   if [ -f "$PICKER" ] && cmp -s "$REPO/fm2/remote-picker.zsh" "$PICKER"; then
     ok "$PICKER"
@@ -130,20 +137,14 @@ else
     ok "$ZSHRC already sources it"
   elif grep -q 'FM_REMOTE_PICKER_SHOWN' "$ZSHRC" 2>/dev/null; then
     if remove_legacy_picker "$ZSHRC"; then
-      {
-        printf '\n# Firstmate remote tmux picker (installed by coding_harness)\n'
-        printf '%s\n' "$SOURCE_LINE"
-      } >> "$ZSHRC"
+      append_source_line
       ok "$ZSHRC migrated from the legacy full-panel picker"
     else
       todo "could not safely replace the legacy picker in $ZSHRC"
     fi
   else
     touch "$ZSHRC"
-    {
-      printf '\n# Firstmate remote tmux picker (installed by coding_harness)\n'
-      printf '%s\n' "$SOURCE_LINE"
-    } >> "$ZSHRC"
+    append_source_line
     ok "$ZSHRC now sources it"
   fi
 fi
