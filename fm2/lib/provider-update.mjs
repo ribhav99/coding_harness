@@ -12,7 +12,7 @@ import {
   sessionFromTranscript,
 } from './sessions.mjs';
 import { supervisorRecord } from './presence.mjs';
-import { tmux } from './tmux.mjs';
+import { tmux, panePid } from './tmux.mjs';
 import { launchCommand, writeWorkerSettings } from './launch.mjs';
 import { clearStartupPrompts } from './panes.mjs';
 import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
@@ -215,7 +215,7 @@ function systemStart(entry, command, provider) {
   clearStartupPrompts(entry.pane.id, { agent: provider });
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      const pid = Number(tmux(['display-message', '-p', '-t', entry.pane.id, '#{pane_pid}']));
+      const pid = panePid(entry.pane.id);
       if (providerAt({ pid }) === provider) {
         // A hook can retain an old identity after resume. The actual open
         // transcript proves the exact conversation AND its current writer.

@@ -23,6 +23,11 @@ export function tmux(args) {
     throw error;
   }
 }
+// The pid of what a pane runs: its shell, or the provider launched in it.
+export function panePid(pane) {
+  return Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+}
+
 // Pasted, not typed.
 //
 // `send-keys -l` hands the text to the pane as a stream of keystrokes, and a

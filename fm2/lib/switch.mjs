@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { saveTask, loadTask } from './config.mjs';
 import { syncSkills } from './skills.mjs';
-import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
+import { sessionOwnership, stopProvider } from './provider-processes.mjs';
 import { currentPanel } from './presence.mjs';
 import { configurePanelQuotaStatus } from './quota-status.mjs';
 import { effortFor, normalizeEffort, setEffort } from './effort.mjs';
@@ -21,9 +21,9 @@ import {
   resolveSession,
   resumableSession,
 } from './sessions.mjs';
-import { tmux } from './tmux.mjs';
+import { tmux, panePid } from './tmux.mjs';
 import { ensureCodexTrust, launchCommand, writeWorkerSettings } from './launch.mjs';
-import { clearStartupPrompts, openPane } from './panes.mjs';
+import { assertProviderStarted, clearStartupPrompts, openPane } from './panes.mjs';
 import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
 
 const FM2 = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -42,18 +42,13 @@ const SWITCH_RUNTIME = {
     catch { return false; }
   },
   interrupt(pane, { from, source, task, explicit = false, targetLaunch = false } = {}) {
-    const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
-    return stopProvider({ id: pane, pid, cwd: task.worktree }, { tmux, agent: from, source,
+    return stopProvider({ id: pane, pid: panePid(pane), cwd: task.worktree }, { tmux, agent: from, source,
       explicit, allowUnrecordedEmbedded: targetLaunch && from === 'codex', allowMissingProvider: targetLaunch });
   },
   replace: replacePane,
   open: openPane,
   clear: clearStartupPrompts,
-  assert(pane, id, agent) {
-    const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
-    if (tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0' && providerAt({ pid }) === agent) return;
-    throw new Error(`"${id}" did not start its ${agent} provider`);
-  },
+  assert: assertProviderStarted,
 };
 
 export function switchTask(id, {
@@ -81,8 +76,7 @@ export function switchTask(id, {
   const source = resolveSession(task, from, { explicit: session, claudeRoot, codexRoot });
   const wasAlive = runtime.alive(task.pane);
   if (runtime === SWITCH_RUNTIME && wasAlive) {
-    const pid = Number(tmux(['display-message', '-p', '-t', task.pane, '#{pane_pid}']));
-    sessionOwnership({ id: task.pane, pid }, source, { explicit: Boolean(session) });
+    sessionOwnership({ id: task.pane, pid: panePid(task.pane) }, source, { explicit: Boolean(session) });
   }
   rememberSession({
     task: id,

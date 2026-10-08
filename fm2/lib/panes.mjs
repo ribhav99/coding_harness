@@ -6,7 +6,8 @@ import { loadTask, allTasks } from './config.mjs';
 import { currentPanel } from './presence.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { sleepSync } from './wait.mjs';
-import { tmux, paneAlive } from './tmux.mjs';
+import { providerAt } from './provider-processes.mjs';
+import { tmux, paneAlive, panePid } from './tmux.mjs';
 import { ensureCodexTrust, launchCommand } from './launch.mjs';
 
 // tmux window targets are ambiguous without a session: a bare name is read as a
@@ -152,4 +153,13 @@ export function assertStarted(pane, id) {
     `"${id}" did not start: its pane exited immediately. ` +
       'A --resume that names no real conversation does this.',
   );
+}
+
+// Started means the pane is still there and the provider it was asked to run
+// is what is running in it. A replacement that came up as the wrong provider,
+// or as a bare shell, is not one that started.
+export function assertProviderStarted(pane, id, agent, { verb = 'start' } = {}) {
+  const pid = panePid(pane);
+  if (tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0' && providerAt({ pid }) === agent) return;
+  throw new Error(`"${id}" did not ${verb} its ${agent} provider`);
 }
