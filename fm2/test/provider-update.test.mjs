@@ -78,6 +78,25 @@ function codexTranscript(root, id, cwd) {
   return path;
 }
 
+test('an unreadable provider-update state path still reads as inactive', t => {
+  const root = fixture(t);
+  writeFileSync(join(root, 'home', 'provider-updates'), 'a file blocks the state directory');
+  assert.equal(providerUpdateInProgress('claude'), false);
+  assert.equal(providerUpdateOwnsStop('claude', 'worker'), false);
+});
+
+test('provider-update reads distinguish missing or malformed JSON from parsed null', t => {
+  const root = fixture(t);
+  assert.equal(providerUpdateInProgress('claude'), false);
+  const path = join(root, 'home', 'provider-updates', 'state.json');
+  writeFileSync(path, '{broken');
+  assert.equal(providerUpdateInProgress('claude'), false);
+  assert.equal(providerUpdateOwnsStop('claude', 'worker'), false);
+  writeFileSync(path, 'null');
+  assert.throws(() => providerUpdateInProgress('claude'), TypeError);
+  assert.throws(() => providerUpdateOwnsStop('claude', 'worker'), TypeError);
+});
+
 test('provider lookup survives the desktop app moving its Codex executable', t => {
   const root = fixture(t);
   const nested = join(root, 'CodexCLI.app', 'Contents', 'MacOS');

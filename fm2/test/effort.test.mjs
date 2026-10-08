@@ -43,6 +43,44 @@ test('provider vocabularies are validated before any transition is queued', t =>
   assert.equal(pendingEffort('controller:test'), null);
 });
 
+test('task names outside the effort vocabulary still launch at default effort', t => {
+  const home = fixture(t);
+  const settingsFile = join(home, 'hooks.json');
+  writeFileSync(settingsFile, JSON.stringify({ hooks: {} }));
+  for (const id of ['feature+demo', 'café']) {
+    assert.equal(pendingEffort(id), null);
+    for (const agent of ['claude', 'codex']) {
+      assert.equal(effortFor(id, agent), DEFAULT_EFFORT);
+      assert.match(
+        launchCommand({ agent, id, settingsFile, panel: '', project: null }),
+        /FM2_EFFORT='high'/u,
+      );
+    }
+    // Reading the default never relaxed the identity check on writes.
+    assert.throws(() => requestEffort(id, 'claude', 'low'), /invalid effort-session identity/u);
+  }
+});
+
+test('an unreadable effort-state path uses defaults but cannot be written', t => {
+  const home = fixture(t);
+  writeFileSync(join(home, 'efforts'), 'a file blocks the state directory');
+  assert.equal(effortFor('worker', 'claude'), DEFAULT_EFFORT);
+  assert.equal(pendingEffort('worker'), null);
+  assert.throws(() => requestEffort('worker', 'claude', 'low'), /EEXIST|ENOTDIR/u);
+});
+
+test('effort reads distinguish missing or malformed JSON from parsed null', t => {
+  const home = fixture(t);
+  assert.equal(effortFor('worker', 'claude'), DEFAULT_EFFORT);
+  const path = join(home, 'efforts', 'worker.json');
+  writeFileSync(path, '{broken');
+  assert.equal(effortFor('worker', 'claude'), DEFAULT_EFFORT);
+  assert.equal(pendingEffort('worker'), null);
+  writeFileSync(path, 'null');
+  assert.throws(() => effortFor('worker', 'claude'), TypeError);
+  assert.throws(() => pendingEffort('worker'), TypeError);
+});
+
 test('a queued change is scheduled once, claimed once, and becomes the next default', t => {
   const home = fixture(t);
   const requested = requestEffort('controller:test', 'codex', 'ultra', { current: 'high' });

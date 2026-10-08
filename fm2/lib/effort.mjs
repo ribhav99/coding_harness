@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
-import { readJson, writeJsonAtomic } from './json-file.mjs';
+import { writeJsonAtomic } from './json-file.mjs';
 
 export const DEFAULT_EFFORT = 'high';
 export const EFFORT_LEVELS = Object.freeze({
@@ -26,7 +27,10 @@ function safeId(id) {
 function stateFile(id) { return join(dir('efforts'), `${safeId(id)}.json`); }
 
 function readState(id) {
-  return readJson(stateFile(id)) ?? { version: 1, current: {} };
+  // Path validation and directory creation can fail too. Only a failed read
+  // uses defaults; successfully parsed null retains its original error behavior.
+  try { return JSON.parse(readFileSync(stateFile(id), 'utf8')); }
+  catch { return { version: 1, current: {} }; }
 }
 
 function writeState(id, state) {

@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
-import { readJson, writeJson, writeJsonAtomic } from './json-file.mjs';
+import { writeJson, writeJsonAtomic } from './json-file.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPLY = join(dirname(HERE), 'provider-update-apply.mjs');
@@ -16,7 +16,10 @@ function stateFile() { return join(dir('provider-updates'), 'state.json'); }
 function lockDir() { return join(dir('provider-updates'), 'active.lock'); }
 
 function readState() {
-  return readJson(stateFile()) ?? { version: 1, current: null, last: null };
+  // Include directory creation in the guard, without treating parsed null as
+  // an absent record. Both distinctions are part of the existing stop contract.
+  try { return JSON.parse(readFileSync(stateFile(), 'utf8')); }
+  catch { return { version: 1, current: null, last: null }; }
 }
 
 function writeState(state) {
