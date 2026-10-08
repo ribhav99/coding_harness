@@ -3,18 +3,11 @@
 // one. Hooks record exact ids for new sessions; transcript discovery exists
 // only to adopt older sessions, and refuses whenever metadata is ambiguous.
 
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { dir, loadTask, saveTask } from './config.mjs';
+import { readJson, writeJsonAtomic } from './json-file.mjs';
 
 const AGENTS = new Set(['claude', 'codex']);
 
@@ -44,10 +37,6 @@ function sessionRecordPath(task, agent) {
     throw new Error('invalid provider-session task identity');
   }
   return join(dir('sessions', task), `${normalizeAgent(agent)}.json`);
-}
-
-function readJson(path) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
 export function allRecordedSessions(agent = null) {
@@ -94,9 +83,7 @@ export function rememberSession({ task, agent, sessionId, transcriptPath = null,
     provider_pid: providerPid ?? same?.provider_pid ?? null,
     recorded_at: new Date().toISOString(),
   };
-  const temporary = `${recordPath}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(entry, null, 2), { mode: 0o600 });
-  renameSync(temporary, recordPath);
+  writeJsonAtomic(recordPath, entry);
 
   if (task.startsWith('controller:')) return entry;
   const known = loadTask(task);
@@ -153,16 +140,7 @@ function parseClaudeTranscript(path) {
       if (text) userTexts.push(text);
     }
   }
-  const filenameId = basename(path, '.jsonl');
-  if (sessionIds.size > 1) return null;
-  const root = transcriptRoot(cwds);
-  return {
-    id: [...sessionIds][0] ?? filenameId,
-    transcript: resolve(path),
-    cwd: root.conflict ? null : root.cwd,
-    metadata_conflict: root.conflict,
-    userTexts,
-  };
+  return transcriptSession(path, { sessionIds, cwds, userTexts }, basename(path, '.jsonl'));
 }
 
 function parseCodexTranscript(path) {
@@ -181,8 +159,14 @@ function parseCodexTranscript(path) {
       if (text) userTexts.push(text);
     }
   }
-  if (sessionIds.size > 1) return null;
   const filenameId = basename(path, '.jsonl').match(/([0-9a-f]{8}-[0-9a-f-]{27,})/i)?.[1] ?? null;
+  return transcriptSession(path, { sessionIds, cwds, userTexts }, filenameId);
+}
+
+// What either provider's transcript says about itself. One that names two
+// session ids is not one session, and is refused outright.
+function transcriptSession(path, { sessionIds, cwds, userTexts }, filenameId) {
+  if (sessionIds.size > 1) return null;
   const root = transcriptRoot(cwds);
   return {
     id: [...sessionIds][0] ?? filenameId,
@@ -191,6 +175,10 @@ function parseCodexTranscript(path) {
     metadata_conflict: root.conflict,
     userTexts,
   };
+}
+
+function parseTranscript(provider, path) {
+  return provider === 'claude' ? parseClaudeTranscript(path) : parseCodexTranscript(path);
 }
 
 function readJsonLines(path) {
@@ -214,8 +202,7 @@ function readJsonLines(path) {
 // be resumed without guessing among several conversations in the same repo.
 export function sessionFromTranscript(agent, path) {
   const provider = normalizeAgent(agent);
-  const parse = provider === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
-  const session = parse(path);
+  const session = parseTranscript(provider, path);
   if (!session?.id || session.metadata_conflict) return null;
   return { ...session, agent: provider };
 }
@@ -245,9 +232,8 @@ export function discoverSessions(agent, cwd, {
     files = walkJsonl(codexRoot);
   }
 
-  const parse = provider === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
   return files
-    .map(parse)
+    .map((file) => parseTranscript(provider, file))
     .filter((entry) => entry && entry.id && !entry.metadata_conflict && entry.cwd === wanted);
 }
 
@@ -255,16 +241,11 @@ function checkedRecorded(task, agent) {
   const entry = recordedSession(task, agent);
   if (!entry) return null;
   checkRecordedIdentity(task, normalizeAgent(agent), entry);
-  if (entry.cwd && canonicalCwd(entry.cwd) !== canonicalCwd(task.worktree)) {
-    throw new Error(
-      `recorded ${agent} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
-    );
-  }
+  checkRecordedCwd(task, agent, entry);
   if (!entry.transcript || !existsSync(entry.transcript)) {
     throw new Error(`recorded ${agent} session ${entry.id} has no readable full transcript`);
   }
-  const parse = normalizeAgent(agent) === 'claude' ? parseClaudeTranscript : parseCodexTranscript;
-  const fromFile = parse(entry.transcript);
+  const fromFile = parseTranscript(normalizeAgent(agent), entry.transcript);
   if (!fromFile || fromFile.metadata_conflict || !fromFile.id) {
     throw new Error(`recorded ${agent} session ${entry.id} has invalid or conflicting transcript metadata`);
   }
@@ -277,6 +258,14 @@ function checkedRecorded(task, agent) {
     throw new Error(`recorded ${agent} session id ${entry.id} does not match its transcript (${fromFile.id})`);
   }
   return { ...entry, transcript: resolve(entry.transcript), cwd: canonicalCwd(task.worktree) };
+}
+
+function checkRecordedCwd(task, provider, entry) {
+  if (entry.cwd && canonicalCwd(entry.cwd) !== canonicalCwd(task.worktree)) {
+    throw new Error(
+      `recorded ${provider} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
+    );
+  }
 }
 
 function checkRecordedIdentity(task, provider, entry) {
@@ -347,11 +336,7 @@ export function resumableSession(task, agent) {
   const entry = recordedSession(task, provider);
   if (!entry) return null;
   checkRecordedIdentity(task, provider, entry);
-  if (entry.cwd && canonicalCwd(entry.cwd) !== canonicalCwd(task.worktree)) {
-    throw new Error(
-      `recorded ${provider} session ${entry.id} belongs to ${entry.cwd}, not ${task.worktree}`,
-    );
-  }
+  checkRecordedCwd(task, provider, entry);
   if (entry.transcript) return checkedRecorded(task, provider);
   if (!entry.cwd) {
     throw new Error(`recorded ${provider} session has no verified task and working-directory identity`);

@@ -12,7 +12,77 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-class LoopState:
+def _verification(reviewer_verdicts: dict[str, str]) -> dict[str, dict]:
+    """`verification.<reviewer>` as BLUEPRINT.md §7 names it: underscores, not dashes."""
+    return {
+        reviewer.replace("-", "_"): {"result": v, "ran_at": _now_iso()}
+        for reviewer, v in reviewer_verdicts.items()
+    }
+
+
+class _AttemptState:
+    """What every state file shares: the role sessions resumed across attempts,
+    rate-limit failures, the per-invocation history entry, and saving.
+
+    Subclasses set `self.path` and `self.data`.
+    """
+
+    path: Path
+    data: dict[str, Any]
+
+    def get_generator_session_id(self) -> str | None:
+        return (self.data.get("sessions") or {}).get("generator")
+
+    def set_generator_session_id(self, session_id: str) -> None:
+        self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
+        self.data["sessions"]["generator"] = session_id
+        self._touch()
+
+    def get_reviewer_session_id(self, reviewer_name: str) -> str | None:
+        return (self.data.get("sessions") or {}).get("reviewers", {}).get(reviewer_name)
+
+    def set_reviewer_session_id(self, reviewer_name: str, session_id: str) -> None:
+        sessions = self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
+        sessions.setdefault("reviewers", {})[reviewer_name] = session_id
+        self._touch()
+
+    def record_rate_limit_exhaustion(
+        self,
+        subprocess_kind: str,
+        attempt_n: int,
+        captured_stderr: str,
+        reviewer_name: str | None = None,
+    ) -> None:
+        self.data["rate_limit_failures"].append({
+            "at": _now_iso(),
+            "subprocess_kind": subprocess_kind,
+            "reviewer_name": reviewer_name,
+            "attempt_n": attempt_n,
+            "stderr_tail": captured_stderr[-2000:],
+        })
+        self._touch()
+
+    def finalise(self, final_verdict: str) -> None:
+        self.data["status"] = final_verdict
+        attempts = self.data.get("attempts") or []
+        last_summary = attempts[-1]["summary"] if attempts else ""
+        self.data["history"].append({
+            "session": len(self.data["history"]) + 1,
+            "at": _now_iso(),
+            "final_verdict": final_verdict,
+            "output": last_summary,
+        })
+        self._touch()
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self.data, indent=2) + "\n")
+
+    def _touch(self) -> None:
+        self.data["updated_at"] = _now_iso()
+
+
+class LoopState(_AttemptState):
     """Read/modify/write a loop-level state file.
 
     State is fresh per orchestrator invocation: `attempts[]` is cleared at the
@@ -75,22 +145,6 @@ class LoopState:
         self.data["sessions"] = {"generator": None, "reviewers": {}}
         self._touch()
 
-    def get_generator_session_id(self) -> str | None:
-        return (self.data.get("sessions") or {}).get("generator")
-
-    def set_generator_session_id(self, session_id: str) -> None:
-        self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
-        self.data["sessions"]["generator"] = session_id
-        self._touch()
-
-    def get_reviewer_session_id(self, reviewer_name: str) -> str | None:
-        return (self.data.get("sessions") or {}).get("reviewers", {}).get(reviewer_name)
-
-    def set_reviewer_session_id(self, reviewer_name: str, session_id: str) -> None:
-        sessions = self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
-        sessions.setdefault("reviewers", {})[reviewer_name] = session_id
-        self._touch()
-
     def record_attempt(
         self,
         n: int,
@@ -111,50 +165,12 @@ class LoopState:
         })
         self.data["attempt_count"] = n
         self.data["current"]["last_output"] = summary
-        self.data["verification"] = {
-            reviewer.replace("-", "_"): {"result": v, "ran_at": _now_iso()}
-            for reviewer, v in reviewer_verdicts.items()
-        }
+        self.data["verification"] = _verification(reviewer_verdicts)
         self.data["open_questions"] = open_questions
         self._touch()
 
-    def record_rate_limit_exhaustion(
-        self,
-        subprocess_kind: str,
-        attempt_n: int,
-        captured_stderr: str,
-        reviewer_name: str | None = None,
-    ) -> None:
-        self.data["rate_limit_failures"].append({
-            "at": _now_iso(),
-            "subprocess_kind": subprocess_kind,
-            "reviewer_name": reviewer_name,
-            "attempt_n": attempt_n,
-            "stderr_tail": captured_stderr[-2000:],
-        })
-        self._touch()
 
-    def finalise(self, final_verdict: str) -> None:
-        self.data["status"] = final_verdict
-        attempts = self.data.get("attempts") or []
-        last_summary = attempts[-1]["summary"] if attempts else ""
-        self.data["history"].append({
-            "session": len(self.data["history"]) + 1,
-            "at": _now_iso(),
-            "final_verdict": final_verdict,
-            "output": last_summary,
-        })
-        self._touch()
-
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2) + "\n")
-
-    def _touch(self) -> None:
-        self.data["updated_at"] = _now_iso()
-
-
-class WorkOrderState:
+class WorkOrderState(_AttemptState):
     """Per-work-order state file at `harness/state/<wo-slug>.json`.
 
     Schema per BLUEPRINT.md §7.2: `wo_slug`, `local.*`, `status`, `attempt_count`,
@@ -216,22 +232,6 @@ class WorkOrderState:
         self.data["sessions"] = {"generator": None, "reviewers": {}}
         self._touch()
 
-    def get_generator_session_id(self) -> str | None:
-        return (self.data.get("sessions") or {}).get("generator")
-
-    def set_generator_session_id(self, session_id: str) -> None:
-        self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
-        self.data["sessions"]["generator"] = session_id
-        self._touch()
-
-    def get_reviewer_session_id(self, reviewer_name: str) -> str | None:
-        return (self.data.get("sessions") or {}).get("reviewers", {}).get(reviewer_name)
-
-    def set_reviewer_session_id(self, reviewer_name: str, session_id: str) -> None:
-        sessions = self.data.setdefault("sessions", {"generator": None, "reviewers": {}})
-        sessions.setdefault("reviewers", {})[reviewer_name] = session_id
-        self._touch()
-
     def set_pr_info(self, pr_url: str | None, pr_number: int | None) -> None:
         execution = self.data.setdefault("execution", {})
         if pr_url is not None:
@@ -260,43 +260,5 @@ class WorkOrderState:
         self.data["attempt_count"] = n
         self.data["current"]["last_output"] = summary
         if reviewer_verdicts:
-            self.data["verification"] = {
-                reviewer.replace("-", "_"): {"result": v, "ran_at": _now_iso()}
-                for reviewer, v in reviewer_verdicts.items()
-            }
+            self.data["verification"] = _verification(reviewer_verdicts)
         self._touch()
-
-    def record_rate_limit_exhaustion(
-        self,
-        subprocess_kind: str,
-        attempt_n: int,
-        captured_stderr: str,
-        reviewer_name: str | None = None,
-    ) -> None:
-        self.data["rate_limit_failures"].append({
-            "at": _now_iso(),
-            "subprocess_kind": subprocess_kind,
-            "reviewer_name": reviewer_name,
-            "attempt_n": attempt_n,
-            "stderr_tail": captured_stderr[-2000:],
-        })
-        self._touch()
-
-    def finalise(self, final_verdict: str) -> None:
-        self.data["status"] = final_verdict
-        attempts = self.data.get("attempts") or []
-        last_summary = attempts[-1]["summary"] if attempts else ""
-        self.data["history"].append({
-            "session": len(self.data["history"]) + 1,
-            "at": _now_iso(),
-            "final_verdict": final_verdict,
-            "output": last_summary,
-        })
-        self._touch()
-
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2) + "\n")
-
-    def _touch(self) -> None:
-        self.data["updated_at"] = _now_iso()

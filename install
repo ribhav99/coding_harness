@@ -19,7 +19,6 @@ set -eu
 
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 BIN="${FM_BIN:-/opt/homebrew/bin}"
-SKILLS="$HOME/.claude/skills"
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
@@ -209,7 +208,7 @@ else
   ok 'no ~/.tmux.conf - tmux defaults are fine'
 fi
 
-printf '\nnot handled here (per machine, never in the repo):\n' 
+printf '\nnot handled here (per machine, never in the repo):\n'
 printf '  - the Software Factory MCP server, in the global mcpServers of ~/.claude.json\n'
 printf '  - anything a project needs to build; the harness only launches sessions\n'
 

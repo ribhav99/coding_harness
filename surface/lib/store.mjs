@@ -11,7 +11,7 @@
 // addressed by id alone and served from disk on every request, so reloading a
 // tab, opening it twice, or coming back to it tomorrow all behave identically.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -21,8 +21,7 @@ import { findingId } from './render.mjs';
 export const REGISTRY = process.env.SURFACE_HOME || join(homedir(), '.surface');
 
 function registryPath() {
-  mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
-  return join(REGISTRY, 'reviews.json');
+  return join(registryDir(), 'reviews.json');
 }
 
 export function loadRegistry() {
@@ -297,12 +296,8 @@ export function lookup(id) {
   return reg[id] ?? null;
 }
 
-export function readSpec(entry) {
-  // Read on every request rather than caching: a review that rewrites its spec
-  // after a round of decisions should be visible on reload with no restart.
-  return JSON.parse(readFileSync(entry.spec, 'utf8'));
-}
-
+// Read on every request rather than caching: a review that rewrites its spec
+// after a round of decisions should be visible on reload with no restart.
 export function readReview(entry) {
   const before = statSync(entry.spec);
   if (before.size > 1024 * 1024) throw new Error('review spec exceeds 1 MiB');
@@ -317,8 +312,13 @@ export function readReview(entry) {
   return { spec: JSON.parse(raw), round, decided };
 }
 
+// The id a page generates for one send, so a retried send is recognised.
+export function isSubmissionId(value) {
+  return /^[A-Za-z0-9_-]{8,100}$/.test(value);
+}
+
 export function receiptPath(entry, submission) {
-  if (!/^[A-Za-z0-9_-]{8,100}$/.test(submission)) throw new Error('invalid submission id');
+  if (!isSubmissionId(submission)) throw new Error('invalid submission id');
   return join(dirname(entry.spec), `submission-${submission}.json`);
 }
 
@@ -368,26 +368,7 @@ export function listReviews() {
   return Object.values(reg).filter((e) => existsSync(e.spec));
 }
 
-export function pruneMissing() {
-  return withRegistryLock(pruneMissingLocked);
-}
-
-function pruneMissingLocked() {
-  const reg = loadRegistry();
-  let removed = 0;
-  for (const [id, entry] of Object.entries(reg)) {
-    if (!existsSync(entry.spec)) {
-      delete reg[id];
-      removed += 1;
-    }
-  }
-  if (removed) saveRegistry(reg);
-  return removed;
-}
-
 export function registryDir() {
   mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
   return REGISTRY;
 }
-
-export { readdirSync };

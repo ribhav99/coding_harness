@@ -5,6 +5,7 @@ orchestrator runs in no-commit mode — everything else (reviewers, state
 files, snapshots) still works; commits are skipped with a warning.
 """
 
+import json
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -106,19 +107,6 @@ def checkout_task_branch(project_root: Path, branch: str, base_branch: str) -> N
         )
 
 
-def current_branch(project_root: Path) -> str | None:
-    if not is_git_repo(project_root):
-        return None
-    out = subprocess.run(
-        ["git", "-C", str(project_root), "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True,
-    )
-    if out.returncode != 0:
-        return None
-    name = out.stdout.strip()
-    return name or None
-
-
 def lookup_pr(project_root: Path, branch: str) -> tuple[int | None, str | None, str | None]:
     """Return (pr_number, pr_url, state) for the open/closed PR on `branch`, or (None, None, None).
 
@@ -140,10 +128,9 @@ def lookup_pr(project_root: Path, branch: str) -> tuple[int | None, str | None, 
         return None, None, None
     if out.returncode != 0 or not out.stdout.strip():
         return None, None, None
-    import json as _json
     try:
-        items = _json.loads(out.stdout)
-    except _json.JSONDecodeError:
+        items = json.loads(out.stdout)
+    except json.JSONDecodeError:
         return None, None, None
     if not items:
         return None, None, None

@@ -93,7 +93,7 @@ def load_work_order(work_orders_root: Path, slug: str) -> WorkOrder | None:
     meta_path = work_orders_root / f".{slug}.meta.yaml"
     if not body_path.exists() or not meta_path.exists():
         return None
-    meta_fields = meta_mod._parse_yaml_meta(meta_path.read_text())
+    meta_fields = meta_mod.parse_yaml_meta(meta_path.read_text())
     return WorkOrder(
         slug=slug,
         body_path=body_path,
@@ -155,14 +155,14 @@ def in_progress_slugs(work_orders_root: Path) -> list[str]:
 def set_status(wo: WorkOrder, new_status: str) -> None:
     """Update `status` on the meta file in place, preserving other fields."""
     text = wo.meta_path.read_text()
-    fields = meta_mod._parse_yaml_meta(text)
+    fields = meta_mod.parse_yaml_meta(text)
     fields["status"] = new_status
     # Preserve list fields that the flat parser flattens to strings.
     blocked_by = _parse_meta_list(text, "blocked_by")
     blueprint_ids = _parse_meta_list(text, "blueprint_ids")
     fields["blocked_by"] = blocked_by
     fields["blueprint_ids"] = blueprint_ids
-    wo.meta_path.write_text(meta_mod._yaml_dump_wo(fields))
+    wo.meta_path.write_text(meta_mod.yaml_dump(fields))
 
 
 def read_gates(wo: WorkOrder) -> dict[str, str]:
@@ -173,10 +173,10 @@ def read_gates(wo: WorkOrder) -> dict[str, str]:
     operator-action WOs which already get skipped before reviewer dispatch).
     """
     body = wo.body_path.read_text()
-    section = meta_mod._extract_wo_section(body, "Gates")
+    section = meta_mod.extract_section(body, "Gates")
     if not section:
         return {}
-    fence_lines = meta_mod._strip_fence(section)
+    fence_lines = meta_mod.strip_fence(section)
     if fence_lines is None:
         return {}
     out: dict[str, str] = {}

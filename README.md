@@ -207,6 +207,7 @@ coding_harness/
   BLUEPRINT.md              # architecture (read this if you want to understand "how")
   config.yaml               # one config, every project: caps + per-role model selection
   orchestrator/             # the Python orchestrator
+    tests/                  # python3 -m unittest discover -s orchestrator/tests -t .
   skills/                   # generator + reviewer skill markdown
     requirements/
     blueprints/

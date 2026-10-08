@@ -31,6 +31,16 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.SURFACE_PORT || 4390);
 const BASE = `http://127.0.0.1:${PORT}`;
 
+// The pane this command runs in. Inside tmux it is known without being told,
+// and a review's decisions arrive wherever it registered from.
+function currentPane() {
+  return process.env.SURFACE_PANE || process.env.TMUX_PANE || null;
+}
+
+function pageUrl(entry) {
+  return `${BASE}/r/${encodeURIComponent(entry.id)}`;
+}
+
 function die(message, code = 1) {
   process.stderr.write(`surface: ${message}\n`);
   process.exit(code);
@@ -59,16 +69,6 @@ function spawnServer() {
   child.unref();
 }
 
-// Start detached and wait for it to answer. Detached because the server outlives
-// the session that happened to need it first; a review opened at noon must still
-// serve a tab opened at five.
-//
-// Outliving the session is the point; outliving the code is the bug. Because
-// nothing ever restarted it, a server started in August served August's code
-// for weeks - which is how a word renamed out of the harness kept appearing in
-// files written long after the rename. So compare what the running process was
-// built from against the source on disk, and replace it when they differ. This
-// CLI is a fresh process each time, so its own stamp is always current.
 // Stop whatever is serving this port, by the pid it reports rather than by
 // matching a command line. Returns false if something is still answering.
 async function stopServer(pid) {
@@ -88,6 +88,16 @@ async function stopServer(pid) {
   return !(await serverAlive());
 }
 
+// Start detached and wait for it to answer. Detached because the server outlives
+// the session that happened to need it first; a review opened at noon must still
+// serve a tab opened at five.
+//
+// Outliving the session is the point; outliving the code is the bug. Because
+// nothing ever restarted it, a server started in August served August's code
+// for weeks - which is how a word renamed out of the harness kept appearing in
+// files written long after the rename. So compare what the running process was
+// built from against the source on disk, and replace it when they differ. This
+// CLI is a fresh process each time, so its own stamp is always current.
 async function ensureServer() {
   const health = await serverHealth();
   if (health) {
@@ -107,7 +117,8 @@ function entryFor(specPath) {
   const abs = resolve(specPath);
   if (!existsSync(abs)) die(`no spec at ${abs}`);
   const id = idFor(abs, JSON.parse(readFileSync(abs, 'utf8')));
-  const entry = listReviews().find(e => e.spec === abs) || (lookup(id)?.spec === abs ? lookup(id) : null);
+  const registered = lookup(id);
+  const entry = listReviews().find(e => e.spec === abs) || (registered?.spec === abs ? registered : null);
   return entry ?? { id, spec: abs, pane: null };
 }
 
@@ -115,9 +126,7 @@ const [, , command, ...rest] = process.argv;
 
 if (command === 'open') {
   const specPath = rest[0] ?? die('usage: surface open <spec.json>');
-  // TMUX_PANE is set inside a tmux pane, so a review registers the pane it is
-  // running in without being told. That pane is where its decisions arrive.
-  const pane = process.env.SURFACE_PANE || process.env.TMUX_PANE || null;
+  const pane = currentPane();
   let entry;
   let remote;
   try {
@@ -138,7 +147,7 @@ if (command === 'open') {
     process.stderr.write(`surface: the last round's decisions moved to ${archived}; this page waits for new ones.\n`);
   }
   await ensureServer();
-  const url = `${BASE}/r/${encodeURIComponent(entry.id)}`;
+  const url = pageUrl(entry);
   if (!remote && !rest.includes('--no-open')) {
     try {
       execFileSync('open', [url], { stdio: 'ignore' });
@@ -168,7 +177,7 @@ if (command === 'read') {
 
 if (command === 'url') {
   const entry = entryFor(rest[0] ?? die('usage: surface url <spec.json>'));
-  process.stdout.write(`${BASE}/r/${encodeURIComponent(entry.id)}\n`);
+  process.stdout.write(`${pageUrl(entry)}\n`);
   process.exit(0);
 }
 
@@ -180,7 +189,7 @@ if (command === 'list') {
 }
 
 if (command === 'claim-supervisor') {
-  const pane = process.env.SURFACE_PANE || process.env.TMUX_PANE || null;
+  const pane = currentPane();
   try {
     process.stdout.write(`surface: ${claimSupervisorPane(pane)} recorded as the supervisor's pane; no review can bind to it\n`);
   } catch (err) {

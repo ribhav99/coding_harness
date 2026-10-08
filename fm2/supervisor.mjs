@@ -7,25 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_STATUS_LINE } from './lib/tasks.mjs';
-import { CLAUDE_MODEL, latestCodexModel } from './lib/provider-model.mjs';
+import { codexSessionArgs } from './lib/launch.mjs';
+import { CLAUDE_MODEL } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
+import { shellQuote } from './lib/shell.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
-
-function tomlValue(value) {
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(tomlValue).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value).map(([key, item]) => `${key}=${tomlValue(item)}`).join(',')}}`;
-  }
-  throw new Error('unsupported hook configuration value');
-}
 
 export function supervisorHookConfig(agent = 'claude') {
   normalizeAgent(agent);
@@ -65,17 +53,9 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
     : [
         ...(resume ? ['resume'] : []),
         '--no-alt-screen',
-        // Named, not inherited - see CODEX_SESSION_FLAGS in lib/tasks.mjs for why
+        // Named, not inherited - see codexSessionArgs in lib/launch.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
-        '-c', `model=${JSON.stringify(latestCodexModel())}`,
-        '-c', `model_reasoning_effort=${JSON.stringify(reasoning)}`,
-        '-c', 'approval_policy="never"',
-        '-c', 'sandbox_mode="danger-full-access"',
-        '-c', `tui.status_line=${tomlValue(CODEX_STATUS_LINE)}`,
-        // Its own hooks, written from this checkout moments ago; see
-        // CODEX_SESSION_FLAGS in lib/tasks.mjs.
-        '--dangerously-bypass-hook-trust',
-        ...Object.entries(config.hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
+        ...codexSessionArgs(reasoning, config.hooks),
         ...(resume ? [resume] : []),
       ];
   return {

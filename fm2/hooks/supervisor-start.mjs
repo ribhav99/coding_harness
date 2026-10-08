@@ -2,12 +2,10 @@
 
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
 import { configurePanelQuotaStatus } from '../lib/quota-status.mjs';
-import { controllerId, rememberSession } from '../lib/sessions.mjs';
-import { providerProcess } from '../lib/provider-processes.mjs';
+import { controllerId } from '../lib/sessions.mjs';
+import { finishHook, readHookInput, rememberHookSession } from '../lib/hook-io.mjs';
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-for await (const chunk of process.stdin) raw += chunk;
+const raw = await readHookInput();
 
 try {
   const payload = JSON.parse(raw || '{}');
@@ -16,16 +14,10 @@ try {
   const agent = process.env.FM2_AGENT || 'claude';
   if (task && !task.startsWith('controller:')) process.exit(0);
   recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
-  rememberSession({
-    task, agent, sessionId: payload.session_id, transcriptPath: payload.transcript_path,
-    cwd: payload.cwd, panel, pane: process.env.TMUX_PANE, source: payload.source,
-    backend: process.env.FM2_CODEX_BACKEND || null,
-    providerPid: providerProcess(agent),
-  });
+  rememberHookSession(payload, { task, agent, panel, source: payload.source });
   configurePanelQuotaStatus(panel, agent);
 } catch {
   // Provider bookkeeping must not block a session or expose transcript contents.
 }
 
-if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
-process.exit(0);
+finishHook();

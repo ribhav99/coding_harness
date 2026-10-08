@@ -1,9 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import {
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { allTasks, loadTask, saveTask } from './config.mjs';
 import {
@@ -16,15 +12,10 @@ import {
   sessionFromTranscript,
 } from './sessions.mjs';
 import { supervisorRecord } from './presence.mjs';
-import {
-  clearStartupPrompts,
-  launchCommand,
-  preserveSession,
-  refreshPreservedTranscript,
-  tmux,
-  worktreeState,
-  writeWorkerSettings,
-} from './tasks.mjs';
+import { tmux, panePid } from './tmux.mjs';
+import { launchCommand, writeWorkerSettings } from './launch.mjs';
+import { clearStartupPrompts } from './panes.mjs';
+import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import {
   descendants,
@@ -37,18 +28,11 @@ import {
 } from './provider-processes.mjs';
 import { providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
-
-function wait(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function writeJson(path, value) {
-  writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
-}
+import { shellQuote } from './shell.mjs';
+import { writeJson } from './json-file.mjs';
+import { sleepSync } from './wait.mjs';
 
 function lines(value) { return String(value || '').split('\n').filter(Boolean); }
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
-
 function supportsSelfUpdate(executable) {
   try {
     const help = execFileSync(executable, ['--help'], {
@@ -231,14 +215,14 @@ function systemStart(entry, command, provider) {
   clearStartupPrompts(entry.pane.id, { agent: provider });
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      const pid = Number(tmux(['display-message', '-p', '-t', entry.pane.id, '#{pane_pid}']));
+      const pid = panePid(entry.pane.id);
       if (providerAt({ pid }) === provider) {
         // A hook can retain an old identity after resume. The actual open
         // transcript proves the exact conversation AND its current writer.
         if (verifyProviderRestart(entry, { ...entry.pane, pid, dead: false }, provider)) return;
       }
     } catch { /* the next iteration gives the provider time to start */ }
-    wait(100);
+    sleepSync(100);
   }
   throw new Error(`${provider} did not restart in pane ${entry.pane.id}`);
 }

@@ -9,6 +9,7 @@
 // a plain comment had landed, and only reading the PR caught it.
 
 import { execFileSync } from 'node:child_process';
+import { sleepSync } from './wait.mjs';
 
 // A forge that is briefly down is not an answer about the repository.
 //
@@ -23,11 +24,6 @@ import { execFileSync } from 'node:child_process';
 // never to do is hand a caller a value it cannot tell from a real answer.
 const TRANSIENT = /HTTP (429|50[0234])|timeout|TLS handshake|connection reset|unexpected EOF|no such host/i;
 
-function pause(ms) {
-  // Synchronous, because everything downstream of here is.
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function gh(args, { attempts = 4 } = {}) {
   for (let i = 0; ; i += 1) {
     try {
@@ -35,7 +31,7 @@ function gh(args, { attempts = 4 } = {}) {
     } catch (err) {
       const text = `${err.stderr || ''}\n${err.message || ''}`;
       if (i >= attempts - 1 || !TRANSIENT.test(text)) throw err;
-      pause(1000 * 2 ** i);
+      sleepSync(1000 * 2 ** i);
     }
   }
 }
@@ -46,6 +42,11 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
   } catch (err) {
     throw new Error(`could not read PR ${number} on ${repo}: ${err.message}`);
   }
+}
+
+// The PRs whose head is this branch, in one state.
+function branchPrs(repo, branch, state, ...extra) {
+  return JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', state, '--json', 'number', ...extra]));
 }
 
 // The PR a branch has open, if any.
@@ -62,7 +63,7 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
 // say that on the strength of a question nobody got to ask.
 export function prForBranch(repo, branch) {
   if (!repo || !branch) return null;
-  const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'open', '--json', 'number']));
+  const rows = branchPrs(repo, branch, 'open');
   return rows.length ? rows[0].number : null;
 }
 
@@ -74,8 +75,7 @@ export function prForBranch(repo, branch) {
 export function branchIsMerged(repo, branch) {
   if (!repo || !branch) return false;
   try {
-    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number']));
-    return rows.length > 0;
+    return branchPrs(repo, branch, 'merged').length > 0;
   } catch {
     // No `gh`, no network, no answer - and an unanswered question is not a yes.
     return false;
@@ -93,7 +93,7 @@ export function branchIsMerged(repo, branch) {
 export function landedPrForBranch(repo, branch) {
   if (!repo || !branch) return null;
   try {
-    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number', '--limit', '1']));
+    const rows = branchPrs(repo, branch, 'merged', '--limit', '1');
     return rows.length ? rows[0].number : null;
   } catch {
     // No `gh`, no network, no answer - and an unanswered question is not a yes.
@@ -118,14 +118,11 @@ export function prIsMerged(repo, number) {
 
 // What actually landed, as opposed to what a worker says it did.
 export function reviewState(repo, number) {
-  const data = pr(repo, number, ['state', 'reviewDecision', 'reviews']);
-  const mine = (data.reviews || []).filter((r) => r.state !== 'COMMENTED' || true);
+  const data = pr(repo, number, ['state', 'reviewDecision']);
   return {
     prState: data.state,
     decision: data.reviewDecision,
     approved: data.reviewDecision === 'APPROVED',
-    changesRequested: data.reviewDecision === 'CHANGES_REQUESTED',
-    lastReview: mine.length ? mine[mine.length - 1] : null,
   };
 }
 

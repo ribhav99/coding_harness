@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
+import { shellQuote } from './shell.mjs';
+import { writeJsonAtomic } from './json-file.mjs';
 
 export const DEFAULT_EFFORT = 'high';
 export const EFFORT_LEVELS = Object.freeze({
@@ -25,15 +27,14 @@ function safeId(id) {
 function stateFile(id) { return join(dir('efforts'), `${safeId(id)}.json`); }
 
 function readState(id) {
-  try { return JSON.parse(readFileSync(stateFile(id), 'utf8')); } catch { return { version: 1, current: {} }; }
+  // Path validation and directory creation can fail too. Only a failed read
+  // uses defaults; successfully parsed null retains its original error behavior.
+  try { return JSON.parse(readFileSync(stateFile(id), 'utf8')); }
+  catch { return { version: 1, current: {} }; }
 }
 
 function writeState(id, state) {
-  const path = stateFile(id);
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 });
-  renameSync(temporary, path);
-  return state;
+  return writeJsonAtomic(stateFile(id), state);
 }
 
 export function normalizeEffort(agent, effort) {
@@ -86,8 +87,6 @@ export function pendingEffort(id, agent = null) {
   return pending;
 }
 
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
-
 export function schedulePendingEffort(id, agent, { hookPid = process.pid, run = execFileSync } = {}) {
   const provider = normalizeAgent(agent);
   const state = readState(id);
@@ -129,9 +128,4 @@ export function finishEffort(id, token, { error = null } = {}) {
   }
   writeState(id, next);
   return true;
-}
-
-export function effortStatePath(id) {
-  const path = stateFile(id);
-  return existsSync(path) ? path : null;
 }

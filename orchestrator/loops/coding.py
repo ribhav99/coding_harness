@@ -25,10 +25,10 @@ until the queue is empty. `--one` runs a single WO and exits.
 """
 
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .. import claude, comm, git_ops, meta, paths, verdict, wo_planner
+from .. import attempts, claude, comm, git_ops, meta, paths, verdict, wo_planner
+from ..attempts import FAIL_EXIT, PASS_EXIT
 from ..config import load_config
 from ..hooks import settings as hook_settings
 from ..state import WorkOrderState
@@ -36,9 +36,7 @@ from ..wo_planner import WorkOrder
 
 
 LOOP_NAME = "coding-loop"
-PASS_EXIT = 0
-FAIL_EXIT = 1
-NOTHING_TO_DO_EXIT = 0
+NOTHING_TO_DO_EXIT = PASS_EXIT
 
 
 def run_coding_loop(
@@ -179,8 +177,8 @@ def _run_one_work_order(
     if not with_playwright and "playwright-runner" in reviewer_skills:
         reviewer_skills = [s for s in reviewer_skills if s != "playwright-runner"]
         print(
-            f"  playwright gate disabled by default (re-run with --with-playwright "
-            f"to enable); WO declared playwright: required but it is being skipped.",
+            "  playwright gate disabled by default (re-run with --with-playwright "
+            "to enable); WO declared playwright: required but it is being skipped.",
             flush=True,
         )
     print(
@@ -188,11 +186,8 @@ def _run_one_work_order(
         flush=True,
     )
 
-    skill_body = _strip_frontmatter(paths.skill_path("implement-work-order").read_text())
-    reviewer_skill_bodies = {
-        name: _strip_frontmatter(paths.skill_path(name).read_text())
-        for name in reviewer_skills
-    }
+    skill_body = attempts.load_skill_body("implement-work-order")
+    reviewer_skill_bodies = {name: attempts.load_skill_body(name) for name in reviewer_skills}
 
     # Ensure the per-WO communication folder and touch each agent's file so
     # both sides can read on first attempt. The folder is never wiped — it
@@ -278,7 +273,7 @@ def _run_one_work_order(
             return "exhausted"
 
         gen_verdict, _ = verdict.parse_generator_verdict(gen_result.stdout)
-        gen_summary_tail = _summary_tail(gen_result.stdout)
+        gen_summary_tail = attempts.summary_tail(gen_result.stdout)
 
         # Refresh PR info now that the generator may have opened it.
         pr_number, pr_url, pr_state = git_ops.lookup_pr(project_root, branch)
@@ -343,10 +338,7 @@ def _run_one_work_order(
                 for name, sid in new_sessions.items():
                     state.set_reviewer_session_id(name, sid)
             if rate_limited:
-                for entry in rate_limited:
-                    state.record_rate_limit_exhaustion(
-                        "reviewer", attempt, entry["stderr"], reviewer_name=entry["reviewer"]
-                    )
+                attempts.record_reviewer_rate_limits(state, attempt, rate_limited)
                 state.finalise("exhausted")
                 state.save()
                 wo_planner.set_status(wo, "ready")
@@ -455,14 +447,10 @@ def _run_reviewers_parallel(
     execution gates run their suite; LLM judges run `git diff` to read the
     diff. `Write, Edit` are allowed but path-guarded to the comm file only.
     """
-    verdicts: dict[str, str] = {}
-    rate_limited: list[dict] = []
-    new_sessions: dict[str, str] = {}
-
-    def _one(reviewer_name: str) -> tuple[str, claude.ClaudeResult | None, str | None]:
-        comm_file = comm.comm_file_for(project_root, LOOP_NAME, reviewer_name, wo_slug=wo.slug)
-        comm_file.parent.mkdir(parents=True, exist_ok=True)
-        comm_file.touch(exist_ok=True)
+    def _one(reviewer_name: str) -> attempts.ReviewerOutcome:
+        comm_file = attempts.prepare_reviewer_comm_file(
+            comm.comm_file_for(project_root, LOOP_NAME, reviewer_name, wo_slug=wo.slug)
+        )
 
         existing_sid = None if memoryless else reviewer_session_ids.get(reviewer_name)
         if existing_sid is None:
@@ -518,35 +506,9 @@ def _run_reviewers_parallel(
             return reviewer_name, None, f"spawn error: {e}"
         return reviewer_name, res, None
 
-    print(f"  spawning {len(reviewer_skills)} reviewers in parallel", flush=True)
-    with ThreadPoolExecutor(max_workers=len(reviewer_skills)) as pool:
-        futures = [pool.submit(_one, name) for name in reviewer_skills]
-        for fut in as_completed(futures):
-            name, res, err = fut.result()
-            if err is not None:
-                print(f"  {name}: {err}", file=sys.stderr)
-                verdicts[name] = "fail"
-                continue
-            if res is None:
-                verdicts[name] = "fail"
-                continue
-            if res.rate_limited_out:
-                rate_limited.append({"reviewer": name, "stderr": res.stderr})
-                verdicts[name] = "fail"
-                continue
-            if not memoryless and reviewer_session_ids.get(name) is None:
-                new_sessions[name] = res.session_id
-            v = verdict.parse_reviewer_verdict(res.stdout)
-            if v is None:
-                print(
-                    f"  {name}: malformed VERDICT trailer; recording as fail",
-                    file=sys.stderr,
-                )
-                verdicts[name] = "fail"
-            else:
-                verdicts[name] = v
-                print(f"  {name}: {v}", flush=True)
-    return verdicts, rate_limited, new_sessions
+    return attempts.run_reviewers_parallel(
+        reviewer_skills, _one, memoryless=memoryless, reviewer_session_ids=reviewer_session_ids,
+    )
 
 
 def _coding_env(
@@ -804,18 +766,3 @@ fixes (status remains `in_progress`) or close the PR and re-scope the work
 order.
 """
     git_ops.post_pr_comment(project_root, pr_number, body)
-
-
-def _strip_frontmatter(text: str) -> str:
-    if not text.startswith("---\n"):
-        return text
-    end = text.find("\n---\n", 4)
-    if end == -1:
-        return text
-    return text[end + 5:].lstrip()
-
-
-def _summary_tail(text: str, limit: int = 4000) -> str:
-    if len(text) <= limit:
-        return text
-    return "...\n" + text[-limit:]

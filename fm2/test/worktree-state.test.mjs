@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, statSync, utimesSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { worktreeState } from '../lib/tasks.mjs';
+import { worktreeState } from '../lib/handoff.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'fm2-worktree-state-'));

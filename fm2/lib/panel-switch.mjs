@@ -1,30 +1,29 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, openSync, closeSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { allTasks, loadTask, saveTask, dir, home } from './config.mjs';
 import { agentOf, normalizeAgent, resolveSession, resumableSession, rememberSession, recordedSession, controllerId } from './sessions.mjs';
 import { currentPanel, recordSupervisor, supervisorPane } from './presence.mjs';
-import { preserveSession, refreshPreservedTranscript, worktreeState, launchCommand, writeWorkerSettings } from './tasks.mjs';
+import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
+import { launchCommand, writeWorkerSettings } from './launch.mjs';
 import { syncSkills } from './skills.mjs';
 import { capturePanel, createPanel, applyPanelLayout, openITermPanel } from './panel-layout.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import { pending } from './notify.mjs';
 import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
 import { providerAvailable } from './provider-command.mjs';
+import { readJson, writeJson } from './json-file.mjs';
+import { sleepSync } from './wait.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const safe = (value) => String(value).replace(/[^A-Za-z0-9._-]/g, '-');
-const json = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
-const write = (path, value) => writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
 const stateFile = (panel) => join(dir('panels'), `${safe(panel)}.json`);
 
 function tmux(args) {
   return execFileSync('tmux', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
-
-function wait(ms) { execFileSync('sleep', [String(ms / 1000)]); }
 
 function stopPane(pane, entry) {
   return stopProvider(pane, { tmux, agent: entry.from, source: entry.source, explicit: entry.explicit,
@@ -33,7 +32,7 @@ function stopPane(pane, entry) {
 
 function startPane(pane, cwd, command, agent) {
   tmux(['respawn-pane', '-k', '-t', pane, '-c', cwd, command]);
-  wait(700);
+  sleepSync(700);
   const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
   const currentCommand = tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}']);
   if (providerAt({ pid, currentCommand }) !== agent) throw new Error(`${agent} did not start in pane ${pane}`);
@@ -68,7 +67,7 @@ export function preparePanelSwitch({ agent, panel = currentPanel(), sessions = {
     const operationDir = dir('panel-handoffs', `${safe(panel)}-${Date.now()}-${randomUUID().slice(0, 8)}`);
     const snapshot = capturePanel(panel, { tmux: runtime.tmux, scrollbackDir: join(operationDir, 'scrollback') });
     const panes = snapshot.windows.flatMap((window) => window.panes);
-    const previous = json(stateFile(panel));
+    const previous = readJson(stateFile(panel));
     const tasks = allTasks();
     const controllerPane = supervisorPane(panel) ?? snapshot.windows.find((window) => window.name === 'control')?.panes[0]?.id;
     const entries = [];
@@ -106,7 +105,7 @@ export function preparePanelSwitch({ agent, panel = currentPanel(), sessions = {
     for (const entry of entries) entry.command = commandFor(entry, to, target, entry.preserved.promptPath, entry.target?.id);
     const manifest = { version: 1, phase: 'prepared', from: panel, to: target, agent: to, lock,
       path: join(operationDir, 'panel.json'), snapshot, entries, created_at: new Date().toISOString() };
-    write(manifest.path, manifest);
+    writeJson(manifest.path, manifest);
     return manifest;
   } catch (error) { rmSync(lock, { recursive: true, force: true }); throw error; }
 }
@@ -124,7 +123,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     runtime.tmux(['set-environment', '-t', manifest.to, 'FM2_AGENT', manifest.agent]);
     runtime.tmux(['set-environment', '-t', manifest.to, 'PATH', process.env.PATH]);
     if (open) runtime.open(manifest.to, { socketPath: manifest.snapshot.socketPath });
-    manifest.phase = 'stopping'; write(manifest.path, manifest);
+    manifest.phase = 'stopping'; writeJson(manifest.path, manifest);
     for (const entry of manifest.entries) {
       if (!entry.paneInfo.dead) {
         stopping = entry;
@@ -136,10 +135,10 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
           { encoding: 'utf8', timeout: 35_000, stdio: ['ignore', 'pipe', 'pipe'] }));
       }
       refreshPreservedTranscript(entry.preserved, entry.source);
-      const handoff = json(entry.preserved.manifestPath);
+      const handoff = readJson(entry.preserved.manifestPath);
       handoff.worktree = { path: resolve(entry.task.worktree), ...worktreeState(entry.task.worktree) };
       if (entry.codexState) handoff.source.codex_state = entry.codexState;
-      write(entry.preserved.manifestPath, handoff);
+      writeJson(entry.preserved.manifestPath, handoff);
       entry.before = worktreeState(entry.task.worktree);
       rememberSession({ task: entry.task.id, agent: entry.from, sessionId: entry.source.id,
         transcriptPath: entry.source.transcript, cwd: entry.task.worktree });
@@ -155,19 +154,19 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     applyPanelLayout(manifest.snapshot, paneMap, manifest.to, { tmux: runtime.tmux });
     const taskIds = new Set(manifest.entries.map((entry) => entry.task.id));
     for (const item of pending().filter((item) => item.panel === manifest.from || (item.panel == null && taskIds.has(item.task)))) {
-      const original = json(item.file);
+      const original = readJson(item.file);
       notifications.push({ path: item.file, original });
-      write(item.file, { ...original, panel: manifest.to });
+      writeJson(item.file, { ...original, panel: manifest.to });
     }
     const control = manifest.entries.find((entry) => entry.controller);
     const updated = manifest.entries.map((entry) => ({ ...entry.task, pane: paneMap[entry.pane], agent: manifest.agent,
       panel: manifest.to, resumed: entry.target?.id ?? null,
       handoffs: [...(entry.task.handoffs ?? []), entry.preserved.manifestPath] }));
     for (let i = 0; i < updated.length; i += 1) if (manifest.entries[i].registered) saveTask({ ...loadTask(updated[i].id), ...updated[i] });
-    write(stateFile(manifest.to), { controller: control.task.id,
+    writeJson(stateFile(manifest.to), { controller: control.task.id,
       entries: updated.map((task) => ({ pane: task.pane, task })), handoff: manifest.path });
     recordSupervisor(paneMap[control.pane], { panel: manifest.to, agent: manifest.agent, task: control.task.id, cwd: control.task.worktree });
-    manifest.phase = 'starting'; write(manifest.path, manifest);
+    manifest.phase = 'starting'; writeJson(manifest.path, manifest);
     for (const entry of manifest.entries) {
       if (JSON.stringify(worktreeState(entry.task.worktree)) !== JSON.stringify(entry.before)) {
         throw new Error(`worktree still changed after stopping ${entry.task.id}; refusing to start another writer`);
@@ -180,7 +179,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     runtime.tmux(['set-option', '-t', manifest.from, '@fm-successor', manifest.to]);
     runtime.tmux(['set-option', '-t', manifest.to, '@fm-agent', manifest.agent]);
     manifest.phase = 'complete'; manifest.paneMap = paneMap; manifest.completed_at = new Date().toISOString();
-    write(manifest.path, manifest);
+    writeJson(manifest.path, manifest);
     return manifest;
   } catch (error) {
     const recovery = [];
@@ -198,7 +197,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
       catch (failure) { recovery.push(`shell ${pair.source}: ${failure.message}`); }
     }
     for (const entry of manifest.entries) if (entry.registered) saveTask(entry.task);
-    for (const item of notifications) write(item.path, item.original);
+    for (const item of notifications) writeJson(item.path, item.original);
     const control = manifest.entries.find((entry) => entry.controller);
     recordSupervisor(control.pane, { panel: manifest.from, task: control.task.id, agent: control.from, cwd: control.task.worktree });
     for (const entry of stopped) {
@@ -208,7 +207,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     }
     if (paneMap && !recovery.length) { try { runtime.tmux(['kill-session', '-t', manifest.to]); } catch {} }
     manifest.phase = recovery.length ? 'recovery-required' : 'rolled-back'; manifest.error = error.message; manifest.recovery = recovery;
-    write(manifest.path, manifest);
+    writeJson(manifest.path, manifest);
     throw new Error(`${error.message}. Full recovery record: ${manifest.path}${recovery.length ? ` (${recovery.join('; ')})` : ''}`);
   } finally { rmSync(manifest.lock, { recursive: true, force: true }); }
 }
@@ -224,7 +223,7 @@ export async function queuePanelSwitch(options = {}) {
     await new Promise((resolve, reject) => {
       child.once('spawn', resolve);
       child.once('error', (error) => {
-        manifest.phase = 'failed'; manifest.error = error.message; write(manifest.path, manifest);
+        manifest.phase = 'failed'; manifest.error = error.message; writeJson(manifest.path, manifest);
         rmSync(manifest.lock, { recursive: true, force: true }); reject(error);
       });
     });

@@ -11,9 +11,8 @@
 import { record, lastAssistantMessage, anyUnread } from '../lib/notify.mjs';
 import { knock } from '../lib/knock.mjs';
 import { loadTask, saveTask } from '../lib/config.mjs';
-import { rememberSession } from '../lib/sessions.mjs';
 import { currentPanel } from '../lib/presence.mjs';
-import { providerProcess } from '../lib/provider-processes.mjs';
+import { finishHook, readHookInput, rememberHookSession } from '../lib/hook-io.mjs';
 import { schedulePendingEffort } from '../lib/effort.mjs';
 import { providerUpdateOwnsStop } from '../lib/provider-update-state.mjs';
 
@@ -21,16 +20,7 @@ import { providerUpdateOwnsStop } from '../lib/provider-update-state.mjs';
 // last_assistant_message. Verified against a real hook firing. Reading the
 // transcript is kept only as a fallback for a payload that lacks it.
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-for await (const chunk of process.stdin) raw += chunk;
-
-function done() {
-  // Codex Stop hooks require JSON on a successful exit. Claude accepts the
-  // same hook with no output, so keep its existing behavior unchanged.
-  if (process.env.FM2_AGENT === 'codex') process.stdout.write('{}\n');
-  process.exit(0);
-}
+const raw = await readHookInput();
 
 try {
   const payload = JSON.parse(raw || '{}');
@@ -38,17 +28,7 @@ try {
   const agent = process.env.FM2_AGENT || 'claude';
   const panel = currentPanel();
   try {
-    rememberSession({
-      task,
-      agent,
-      sessionId: payload.session_id,
-      transcriptPath: payload.transcript_path,
-      cwd: payload.cwd,
-      panel,
-      pane: process.env.TMUX_PANE,
-      backend: process.env.FM2_CODEX_BACKEND || null,
-      providerPid: providerProcess(agent),
-    });
+    rememberHookSession(payload, { task, agent, panel });
   } catch { /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is
   // restarted by hand - to pick up a Claude Code update, say - comes back in a
@@ -67,20 +47,20 @@ try {
   // identity bookkeeping above, but do not turn that lifecycle stop into a
   // completion report or a knock on the controller.
   try {
-    if (providerUpdateOwnsStop(agent, task)) done();
+    if (providerUpdateOwnsStop(agent, task)) finishHook();
   } catch { /* report normally if update state cannot be read */ }
   // An effort change is a lifecycle transition, not a completed task. Queue the
   // replacement outside this provider's process tree, let this hook return, and
   // suppress the ordinary report/notification for this intermediate stop.
   try {
-    if (schedulePendingEffort(task, agent)) done();
+    if (schedulePendingEffort(task, agent)) finishHook();
   } catch { /* report normally if the replacement could not be scheduled */ }
   // A task Ribhav is running himself. He is already in that pane reading the
   // replies as they land, so a report about it is not news - it is the same
   // words a second time, arriving as an interruption. Silence is the whole
   // feature: no notification is written and no knock is sent, so there is
   // nothing for the supervisor's own Stop hook to block on either.
-  if (loadTask(task)?.quiet) done();
+  if (loadTask(task)?.quiet) finishHook();
   const direct = typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.trim() : '';
   const text = direct || lastAssistantMessage(payload.transcript_path);
   // Asked before recording, because recording is what would make it true. The
@@ -109,4 +89,4 @@ try {
   // failing here would make a reporting bug look like a work bug.
 }
 
-done();
+finishHook();

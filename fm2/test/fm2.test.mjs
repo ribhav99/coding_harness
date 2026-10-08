@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { seedModelCatalog } from './model-fixture.mjs';
+import { privateTmux } from './private-tmux.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
@@ -473,7 +474,7 @@ test('a Codex launch trusts the repository root, once, and never a sibling', asy
   const worktree = join(dirname(project), 'thing-wo-trust');
   execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-trust', worktree]);
   const config = join(home, 'codex-config.toml');
-  const { ensureCodexTrust } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { ensureCodexTrust } = await import(join(ROOT, 'lib/launch.mjs'));
 
   // Keyed on the repository ROOT, not the worktree it was asked about - that is
   // what Codex keys it on, so one entry covers every worktree beside it.
@@ -521,7 +522,7 @@ test('a session reloads onto the same agent, in its own pane, carrying its conve
   );
 
   const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
-  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/switch.mjs'));
   saveTask({
     id: 'wo-reload',
     project,
@@ -602,7 +603,7 @@ test('a task switches to Codex and back without changing its work or report rout
 
   const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
   const { record, pending } = await import(join(ROOT, 'lib/notify.mjs'));
-  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/switch.mjs'));
   saveTask({
     id: 'wo-switch',
     project,
@@ -797,8 +798,10 @@ test('an adopted worktree is never blamed for the work sitting in it', async () 
   );
 });
 
-test('closing an adopted task takes the session down and leaves the worktree', async () => {
+test('closing an adopted task with a missing pane leaves other windows and its worktree intact', async (t) => {
   const home = freshHome();
+  const { tmux, window } = privateTmux(t);
+  const before = tmux(['list-panes', '-t', window, '-F', '#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}']);
   const project = makeProject();
   const { closeTask } = await import(join(ROOT, 'lib/tasks.mjs'));
   const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
@@ -812,10 +815,50 @@ test('closing an adopted task takes the session down and leaves the worktree', a
   saveTask({ id: 'keepme', project, worktree: wt, pane: '%99999', kind: 'adopted', adopted: true });
   closeTask('keepme');
 
+  assert.equal(tmux(['list-panes', '-t', window, '-F', '#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}']), before,
+    'closing a missing pane changed the current unrelated window');
   assert.ok(existsSync(wt), 'closing an adopted task destroyed Ribhav\'s worktree');
   assert.ok(existsSync(join(wt, 'README.md')), 'the uncommitted work went with the session');
   assert.equal(loadTask('keepme'), null, 'the task record outlived the close');
 });
+
+test('closing the last live task preserves its window with one replacement shell', async (t) => {
+  freshHome();
+  const { tmux, pane, window } = privateTmux(t);
+  const project = makeProject();
+  const { closeTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+  saveTask({ id: 'live-close', project, worktree: project, pane, kind: 'adopted', adopted: true });
+  closeTask('live-close');
+  const survivors = tmux(['list-panes', '-t', window, '-F', '#{pane_id}']).split('\n');
+  assert.equal(survivors.length, 1);
+  assert.notEqual(survivors[0], pane, 'the closed task remained alive');
+  assert.ok(existsSync(project), 'closing an adopted task destroyed its checkout');
+  assert.equal(loadTask('live-close'), null);
+});
+
+for (const failure of ['membership', 'window']) {
+  test(`an unreadable pane ${failure} preserves the task, pane and checkout`, async (t) => {
+    freshHome();
+    const { tmux, pane, window, tmuxPath } = privateTmux(t);
+    const project = makeProject();
+    const { closeTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+    const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
+    saveTask({ id: 'lookup-failure', project, worktree: project, pane, kind: 'ship' });
+    const original = readFileSync(tmuxPath, 'utf8');
+    // Only the failing response is faked; every other call stays on the
+    // fixture's private socket, including membership checks and cleanup.
+    const guard = failure === 'membership'
+      ? 'if [ "$1" = list-panes ] && [ "$2" = -a ]; then exit 1; fi'
+      : 'if [ "$1" = display-message ] && [ "$5" = "#{window_id}" ]; then exit 0; fi';
+    writeFileSync(tmuxPath, original.replace('#!/bin/sh\n',
+      `#!/bin/sh\n${guard}\n`));
+    assert.throws(() => closeTask('lookup-failure', { force: true }), /could not verify its pane|could not resolve its live pane's exact window/);
+    assert.deepEqual(tmux(['list-panes', '-t', window, '-F', '#{pane_id}']).split('\n'), [pane]);
+    assert.ok(loadTask('lookup-failure'), 'failed cleanup removed the live task record');
+    assert.ok(existsSync(project), 'failed cleanup removed the live checkout');
+  });
+}
 
 // A tmux server going takes every pane with it and nothing else. What comes back
 // has to be the same task, not a new one wearing its id.
@@ -1308,9 +1351,10 @@ test('a worktree names the checkout it belongs to', async () => {
   assert.equal(dirname(common), realpathSync(repo), 'a worktree failed to name its own checkout');
 });
 
-test("a long message reaches the worker's prompt whole", async () => {
+test("a long message reaches the worker's prompt whole", async (t) => {
   freshHome();
-  const { sendToPane } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { tmux } = privateTmux(t);
+  const { sendToPane } = await import(join(ROOT, 'lib/pane-input.mjs'));
 
   // A real pane, in a session of this test's own, running `cat` into a file so
   // what ARRIVED can be compared byte for byte against what was sent. Reading
@@ -1318,13 +1362,7 @@ test("a long message reaches the worker's prompt whole", async () => {
   // carried by exactly this call, so the only honest test of it is a live one.
   const session = `fm2-send-${process.pid}`;
   const out = join(mkdtempSync(join(tmpdir(), 'fm2-send-')), 'arrived.txt');
-  const tmux = (args) => execFileSync('tmux', args, { encoding: 'utf8' }).trim();
-  let pane;
-  try {
-    // Chained with the create, because ~/.tmux.conf sets destroy-unattached on
-    // and a detached session dies before the next command can address it - the
-    // same reason openPane chains it.
-    pane = tmux(['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', session, '-x', '200', '-y', '50',
+  const pane = tmux(['new-session', '-d', '-P', '-F', '#{pane_id}', '-s', session, '-x', '200', '-y', '50',
       // Two things make this stand in for Claude Code. -icanon, because Claude
       // Code reads its input in raw mode and a cooked tty would drop any single
       // line over ~1KB before sendToPane was ever involved - the test would be
@@ -1335,9 +1373,6 @@ test("a long message reaches the worker's prompt whole", async () => {
       // that has nothing to do with the message.
       'sh', '-c', `stty -icanon -echo min 1 time 0; printf '\\033[?2004h'; cat > ${out}`,
       ';', 'set-option', '-t', session, 'destroy-unattached', 'off']);
-  } catch {
-    return; // no tmux server here; a live test is the point, so skip rather than fake one
-  }
 
   try {
     // Long enough to overrun what a keystroke stream survives, and multi-line,
@@ -1389,7 +1424,7 @@ test("a long message reaches the worker's prompt whole", async () => {
 
 test('a worker is launched on Opus, not on whatever the CLI defaults to', async () => {
   freshHome();
-  const { launchCommand } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { launchCommand } = await import(join(ROOT, 'lib/launch.mjs'));
 
   const cmd = launchCommand({ id: 'wo-9', settingsFile: '/s.json' });
 
@@ -1415,7 +1450,7 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
 
 test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async (t) => {
   const home = freshHome();
-  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/launch.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
   const prompt = join(home, 'prompt.md');
   writeFileSync(prompt, 'continue the same task\n');

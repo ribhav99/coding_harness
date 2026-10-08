@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +48,51 @@ test('fm tell retains its actionable submission failure', () => {
     if (args[0] === 'send-keys') throw new Error('lost pane');
   } }), /typed into %7 but not submitted/);
 });
+
+for (const command of ['tell', 'handoff']) {
+  test(`fm ${command} uses the shared pane sender and reports a failed submission`, () => {
+    for (const failSubmit of [false, true]) {
+      const home = mkdtempSync(join(tmpdir(), 'fm-cli-pane-input-'));
+      const bin = join(home, 'bin');
+      const log = join(home, 'tmux.jsonl');
+      mkdirSync(bin);
+      mkdirSync(join(home, 'tasks'));
+      writeFileSync(join(home, 'tasks', 'worker.json'), JSON.stringify({ id: 'worker', pane: '%7' }));
+      writeFileSync(join(bin, 'tmux'), `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const input = args[0] === 'load-buffer' ? fs.readFileSync(0, 'utf8') : null;
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, input }) + '\\n');
+if (args[0] === 'list-panes') process.stdout.write('%7\\n');
+if (args[0] === 'send-keys' && ${failSubmit}) process.exit(1);
+`, { mode: 0o755 });
+      const line = 'FIRST\nUnicode: café 🐈; $(literal)\nLAST';
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL('../cli.mjs', import.meta.url)),
+        command, 'worker', ...(command === 'tell' ? [line] : [])], {
+        encoding: 'utf8',
+        env: { ...process.env, FM2_HOME: home, FM2_TASK: '', FM2_PANEL: '', FM2_AGENT: '',
+          FM2_CODEX_BACKEND: '', TMUX: '', TMUX_PANE: '', PATH: `${bin}:${process.env.PATH}` },
+      });
+      assert.equal(result.status, failSubmit ? 1 : 0, result.stderr);
+      const calls = readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
+      assert.deepEqual(calls.map(call => call.args[0]), ['list-panes', 'load-buffer', 'paste-buffer', 'send-keys']);
+      const buffer = calls[1].args[2];
+      assert.match(buffer, /^fm-send-\d+-[0-9a-f-]{36}$/, 'CLI used the obsolete process-only buffer');
+      assert.deepEqual(calls[2].args, ['paste-buffer', '-p', '-d', '-b', buffer, '-t', '%7']);
+      assert.deepEqual(calls[3].args, ['send-keys', '-t', '%7', 'Enter']);
+      if (command === 'tell') assert.equal(calls[1].input, line);
+      else assert.match(calls[1].input, /review your own work on this PR/);
+      if (failSubmit) {
+        assert.match(result.stderr, /typed into %7 but not submitted/);
+        assert.equal(result.stdout, '');
+      }
+      if (command === 'handoff') {
+        const task = JSON.parse(readFileSync(join(home, 'tasks', 'worker.json'), 'utf8'));
+        assert.equal(task.handoff_stage, failSubmit ? undefined : 'awaiting-self-review');
+      }
+    }
+  });
+}
 
 test('panel handoff protection runs before any pane input', async () => {
   const previous = process.env.FM2_HOME;
