@@ -9,26 +9,10 @@ import {
 } from './lib/provider-update-state.mjs';
 import { tmux } from './lib/tasks.mjs';
 import { reportProviderUpdate } from './lib/provider-update-report.mjs';
+import { sleepSync, waitForExit } from './lib/wait.mjs';
 
 const [provider, token, hookPidText] = process.argv.slice(2);
 let request = null;
-
-function wait(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function waitForHook(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return;
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    try { process.kill(pid, 0); }
-    catch (error) {
-      if (error.code === 'ESRCH') return;
-      throw error;
-    }
-    wait(50);
-  }
-  throw new Error(`stop hook ${pid} did not exit`);
-}
 
 function output(message, { error = false } = {}) {
   const line = `${new Date().toISOString()} ${message}\n`;
@@ -50,10 +34,10 @@ function closeSuccessfulWindow() {
 
 async function main() {
   keepFailureVisible();
-  waitForHook(Number(hookPidText));
+  waitForExit(Number(hookPidText));
   // Let the provider consume the successful Stop-hook response and flush its
   // final transcript event before the coordinator takes the snapshots.
-  wait(250);
+  sleepSync(250);
   request = claimProviderUpdate(provider, token);
   if (!request) return;
   output(`preparing ${provider} update; no managed session has been stopped yet`);

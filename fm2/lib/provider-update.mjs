@@ -35,10 +35,7 @@ import { providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 import { shellQuote } from './shell.mjs';
 import { writeJson } from './json-file.mjs';
-
-function wait(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
+import { sleepSync } from './wait.mjs';
 
 function lines(value) { return String(value || '').split('\n').filter(Boolean); }
 function supportsSelfUpdate(executable) {
@@ -230,7 +227,7 @@ function systemStart(entry, command, provider) {
         if (verifyProviderRestart(entry, { ...entry.pane, pid, dead: false }, provider)) return;
       }
     } catch { /* the next iteration gives the provider time to start */ }
-    wait(100);
+    sleepSync(100);
   }
   throw new Error(`${provider} did not restart in pane ${entry.pane.id}`);
 }

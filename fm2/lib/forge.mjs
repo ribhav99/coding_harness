@@ -9,6 +9,7 @@
 // a plain comment had landed, and only reading the PR caught it.
 
 import { execFileSync } from 'node:child_process';
+import { sleepSync } from './wait.mjs';
 
 // A forge that is briefly down is not an answer about the repository.
 //
@@ -23,11 +24,6 @@ import { execFileSync } from 'node:child_process';
 // never to do is hand a caller a value it cannot tell from a real answer.
 const TRANSIENT = /HTTP (429|50[0234])|timeout|TLS handshake|connection reset|unexpected EOF|no such host/i;
 
-function pause(ms) {
-  // Synchronous, because everything downstream of here is.
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function gh(args, { attempts = 4 } = {}) {
   for (let i = 0; ; i += 1) {
     try {
@@ -35,7 +31,7 @@ function gh(args, { attempts = 4 } = {}) {
     } catch (err) {
       const text = `${err.stderr || ''}\n${err.message || ''}`;
       if (i >= attempts - 1 || !TRANSIENT.test(text)) throw err;
-      pause(1000 * 2 ** i);
+      sleepSync(1000 * 2 ** i);
     }
   }
 }

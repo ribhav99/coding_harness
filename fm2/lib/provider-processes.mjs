@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { sleepSync } from './wait.mjs';
 
 export function processTable() {
   return execFileSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: 5000 })
@@ -151,7 +152,7 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
       for (let attempt = 0; attempt * 100 < waitMs; attempt += 1) {
         const alive = new Set(processTable().map((entry) => entry.pid));
         if (children.every((entry) => !alive.has(entry.pid))) return true;
-        execFileSync('sleep', ['0.1']);
+        sleepSync(100);
       }
       return false;
     };

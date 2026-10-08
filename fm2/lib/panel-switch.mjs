@@ -14,6 +14,7 @@ import { pending } from './notify.mjs';
 import { providerAt, sessionOwnership, stopProvider } from './provider-processes.mjs';
 import { providerAvailable } from './provider-command.mjs';
 import { readJson, writeJson } from './json-file.mjs';
+import { sleepSync } from './wait.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const safe = (value) => String(value).replace(/[^A-Za-z0-9._-]/g, '-');
@@ -23,8 +24,6 @@ function tmux(args) {
   return execFileSync('tmux', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function wait(ms) { execFileSync('sleep', [String(ms / 1000)]); }
-
 function stopPane(pane, entry) {
   return stopProvider(pane, { tmux, agent: entry.from, source: entry.source, explicit: entry.explicit,
     allowUnrecordedEmbedded: entry.targetLaunch === true && entry.from === 'codex', allowMissingProvider: entry.targetLaunch === true });
@@ -32,7 +31,7 @@ function stopPane(pane, entry) {
 
 function startPane(pane, cwd, command, agent) {
   tmux(['respawn-pane', '-k', '-t', pane, '-c', cwd, command]);
-  wait(700);
+  sleepSync(700);
   const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
   const currentCommand = tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}']);
   if (providerAt({ pid, currentCommand }) !== agent) throw new Error(`${agent} did not start in pane ${pane}`);

@@ -43,6 +43,7 @@ import {
   resumableSession,
 } from './sessions.mjs';
 import { shellQuote, tomlValue } from './shell.mjs';
+import { sleepSync } from './wait.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -402,12 +403,12 @@ function openPane(window, cwd, briefPath, id, settingsFile, resume = null, agent
 export function clearStartupPrompts(pane, { agent = 'claude', attempts = 20, waitMs = 1000 } = {}) {
   // Codex owns its trust and approval prompts; these dialogs are Claude-specific.
   if (normalizeAgent(agent) !== 'claude') {
-    execFileSync('sleep', ['0.2']);
+    sleepSync(200);
     return false;
   }
   let answered = false;
   for (let i = 0; i < attempts; i += 1) {
-    execFileSync('sleep', [String(waitMs / 1000)]);
+    sleepSync(waitMs);
     let screen = '';
     try { screen = tmux(['capture-pane', '-p', '-t', pane]); } catch { return answered; }
     if (/I trust this folder/i.test(screen)) {

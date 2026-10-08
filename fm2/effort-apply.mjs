@@ -15,24 +15,9 @@ import { providerAt, stopProvider } from './lib/provider-processes.mjs';
 import { resolveSession } from './lib/sessions.mjs';
 import { supervisorCommand } from './supervisor.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
+import { sleepSync, waitForExit } from './lib/wait.mjs';
 
 const [id, token, hookPidText] = process.argv.slice(2);
-
-function wait(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function waitForHook(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return;
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    try { process.kill(pid, 0); } catch (error) {
-      if (error.code === 'ESRCH') return;
-      throw error;
-    }
-    wait(50);
-  }
-  throw new Error(`stop hook ${pid} did not exit`);
-}
 
 function panePid(pane) {
   return Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
@@ -85,10 +70,10 @@ function reloadController(identity, request) {
 }
 
 async function main() {
-  waitForHook(Number(hookPidText));
+  waitForExit(Number(hookPidText));
   // The provider receives the hook result after the hook process exits. Give it
   // one brief flush window before snapshotting and stopping the exact session.
-  wait(200);
+  sleepSync(200);
   const request = claimEffort(id, token);
   if (!request) return;
   try {
