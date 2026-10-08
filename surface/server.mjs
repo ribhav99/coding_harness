@@ -20,7 +20,7 @@ import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { renderPage, findingId } from './lib/render.mjs';
+import { renderPage, findingId, ACCEPTED } from './lib/render.mjs';
 import { buildStamp } from './lib/build.mjs';
 import {
   lookup,
@@ -29,6 +29,7 @@ import {
   readReview,
   readReceipt,
   receiptPath,
+  isSubmissionId,
   atomicJson,
   paneIdentity,
 } from './lib/store.mjs';
@@ -103,17 +104,17 @@ async function readBody(req, limit = 2 * 1024 * 1024) {
 function validate(spec, payload) {
   const problems = [];
   if (!payload || typeof payload !== 'object') return ['the payload was not an object'];
-  if (!['approve', 'approve-with-comments', 'request-changes', 'needs-discussion'].includes(payload.verdict)) problems.push('no valid verdict was chosen');
+  if (!ACCEPTED.verdicts.includes(payload.verdict)) problems.push('no valid verdict was chosen');
   // An absent or unknown mode is comments. The dangerous option is never the
   // one you get by default, or by sending a malformed payload.
-  if (payload.mode && payload.mode !== 'comment' && payload.mode !== 'change') {
+  if (payload.mode && !ACCEPTED.modes.includes(payload.mode)) {
     problems.push(`unknown mode "${payload.mode}"`);
   }
 
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
   if (payload.findings != null && (typeof payload.findings !== 'object' || Array.isArray(payload.findings))) problems.push('findings must be an object');
   const decided = payload.findings && typeof payload.findings === 'object' && !Array.isArray(payload.findings) ? payload.findings : {};
-  const allowed = payload.mode === 'change' ? ['fix', 'inline', 'drop'] : ['inline', 'summary', 'drop'];
+  const allowed = payload.mode === 'change' ? ACCEPTED.decisions.change : ACCEPTED.decisions.comment;
   const ids = new Set();
   findings.forEach((finding, index) => {
     const id = findingId(finding, index);
@@ -130,7 +131,7 @@ function validate(spec, payload) {
     }
   });
   if (Object.keys(decided).some(id => !ids.has(id))) problems.push('decisions contain an unknown finding');
-  if (payload.nits != null && !['batched', 'all', 'skip'].includes(payload.nits)) problems.push('invalid nits decision');
+  if (payload.nits != null && !ACCEPTED.nits.includes(payload.nits)) problems.push('invalid nits decision');
   if (payload.message != null && (typeof payload.message !== 'string' || payload.message.length > 65536)) problems.push('invalid reviewer message');
   return problems;
 }
@@ -167,6 +168,11 @@ async function submit(entry, round, payload) {
     const path = receiptPath(entry, payload.submission_id);
     atomicJson(path, { hash, round, phase: 'reserved' });
     const submitted_at = new Date().toISOString();
+      // `_fields` travels with the decisions because the reviewer reads this file
+      // long after its brief, often across a compaction, and the two names are
+      // close enough to swap: a reviewer once read `mode: comment` as "post a
+      // COMMENTED review" and withheld an approval Ribhav had given in
+      // `verdict`. The file has to say which is which at the point it is read.
     const record = {
       _fields: {
         mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
@@ -269,14 +275,14 @@ async function handle(req, res) {
     const entry = lookup(id);
     if (!entry) return send(res, 404, 'text/plain', `no review registered as "${id}"`);
     if (!existsSync(entry.spec)) return send(res, 410, 'text/plain', closedMessage(id));
-    let spec;
+    let review;
     try {
-      spec = readReview(entry);
+      review = readReview(entry);
     } catch (err) {
       // A malformed spec is the review's bug, and saying so beats a blank page.
       return send(res, 500, 'text/plain', `the review spec for "${id}" is not valid JSON: ${err.message}`);
     }
-    return send(res, 200, 'text/html; charset=utf-8', renderPage(spec.spec, { id, round: spec.round, decided: spec.decided }));
+    return send(res, 200, 'text/html; charset=utf-8', renderPage(review.spec, { id, round: review.round, decided: review.decided }));
   }
 
   const apiMatch = path.match(/^\/api\/([^/]+)\/decisions$/);
@@ -298,24 +304,19 @@ async function handle(req, res) {
     // an ENOENT surfaced as "unreadable" reads as the second.
     if (!existsSync(entry.spec)) return json(res, 410, { error: closedMessage(id) });
 
-    let spec;
+    let review;
     try {
-      spec = readReview(entry);
+      review = readReview(entry);
     } catch (err) {
       return json(res, 500, { error: `the review spec is unreadable: ${err.message}` });
     }
 
-    if (payload?.round !== spec.round) return json(res, 409, { error: 'This review has changed. Reload the latest round before sending.' });
-    if (!/^[A-Za-z0-9_-]{8,100}$/.test(payload?.submission_id || '')) return json(res, 422, { error: 'A unique submission id is required.' });
-    const problems = validate(spec.spec, payload);
+    if (payload?.round !== review.round) return json(res, 409, { error: 'This review has changed. Reload the latest round before sending.' });
+    if (!isSubmissionId(payload?.submission_id || '')) return json(res, 422, { error: 'A unique submission id is required.' });
+    const problems = validate(review.spec, payload);
     if (problems.length) return json(res, 422, { error: problems.join('; '), problems });
 
-    // `_fields` travels with the decisions because the reviewer reads this file
-    // long after its brief, often across a compaction, and the two names are
-    // close enough to swap: a reviewer once read `mode: comment` as "post a
-    // COMMENTED review" and withheld an approval Ribhav had given in
-    // `verdict`. The file has to say which is which at the point it is read.
-    const response = await submit(entry, spec.round, payload);
+    const response = await submit(entry, review.round, payload);
     return json(res, response.code, response.body);
   }
 

@@ -73,6 +73,16 @@ const NIT_CHOICES = [
   ['skip', 'Skip entirely'],
 ];
 
+// The values each question on the page accepts, for the server to hold a
+// submission to exactly what the page offered.
+const values = (choices) => choices.map(([value]) => value);
+export const ACCEPTED = Object.freeze({
+  modes: values(MODES),
+  verdicts: values(VERDICTS),
+  decisions: { comment: values(DECISIONS), change: values(CHANGE_DECISIONS) },
+  nits: values(NIT_CHOICES),
+});
+
 export function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')

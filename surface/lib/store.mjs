@@ -21,8 +21,7 @@ import { findingId } from './render.mjs';
 export const REGISTRY = process.env.SURFACE_HOME || join(homedir(), '.surface');
 
 function registryPath() {
-  mkdirSync(REGISTRY, { recursive: true, mode: 0o700 });
-  return join(REGISTRY, 'reviews.json');
+  return join(registryDir(), 'reviews.json');
 }
 
 export function loadRegistry() {
@@ -313,8 +312,13 @@ export function readReview(entry) {
   return { spec: JSON.parse(raw), round, decided };
 }
 
+// The id a page generates for one send, so a retried send is recognised.
+export function isSubmissionId(value) {
+  return /^[A-Za-z0-9_-]{8,100}$/.test(value);
+}
+
 export function receiptPath(entry, submission) {
-  if (!/^[A-Za-z0-9_-]{8,100}$/.test(submission)) throw new Error('invalid submission id');
+  if (!isSubmissionId(submission)) throw new Error('invalid submission id');
   return join(dirname(entry.spec), `submission-${submission}.json`);
 }
 
