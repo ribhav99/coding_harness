@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from orchestrator import claude, loop_driver, verdict, wo_planner
+from orchestrator import attempts, claude, loop_driver, verdict, wo_planner
 from orchestrator.loops import coding, requirements
 
 
@@ -32,13 +32,12 @@ class VerdictTest(unittest.TestCase):
 
 class HelpersTest(unittest.TestCase):
     def test_frontmatter_and_summary_tail(self):
-        for strip in (loop_driver._strip_frontmatter, coding._strip_frontmatter):
-            self.assertEqual(strip("---\nname: x\n---\n\nBody\n"), "Body\n")
-            self.assertEqual(strip("---\nunterminated\n"), "---\nunterminated\n")
-            self.assertEqual(strip("Body"), "Body")
-        for tail in (loop_driver._summary_tail, coding._summary_tail):
-            self.assertEqual(tail("short"), "short")
-            self.assertEqual(tail("a" * 4001), "...\n" + "a" * 4000)
+        strip = attempts.strip_frontmatter
+        self.assertEqual(strip("---\nname: x\n---\n\nBody\n"), "Body\n")
+        self.assertEqual(strip("---\nunterminated\n"), "---\nunterminated\n")
+        self.assertEqual(strip("Body"), "Body")
+        self.assertEqual(attempts.summary_tail("short"), "short")
+        self.assertEqual(attempts.summary_tail("a" * 4001), "...\n" + "a" * 4000)
 
     def test_open_question_count(self):
         tmp = Path(tempfile.mkdtemp())

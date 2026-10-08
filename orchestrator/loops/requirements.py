@@ -5,10 +5,10 @@ artifact paths to commit, and how to build prompts for each role.
 """
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 from .. import git_ops, meta
+from ..loop_spec import LoopSpec
 
 
 GENERATOR_SKILL = "prd-to-frds"
@@ -26,21 +26,6 @@ COMMIT_PATHS = [
     "harness/state/",
 ]
 QUESTIONS_FILE = "requirements/_questions-pending.md"
-
-
-@dataclass
-class LoopSpec:
-    name: str
-    generator_skill: str
-    reviewers: tuple[str, ...]
-    commit_paths: list[str]
-    precondition: callable  # type: ignore[type-arg]
-    post_generator: callable  # type: ignore[type-arg]
-    questions_file: str
-    build_generator_prompt: callable  # type: ignore[type-arg]
-    build_reviewer_prompt: callable  # type: ignore[type-arg]
-    build_generator_resume_prompt: callable  # type: ignore[type-arg]
-    build_reviewer_resume_prompt: callable  # type: ignore[type-arg]
 
 
 def precondition(project_root: Path) -> None:

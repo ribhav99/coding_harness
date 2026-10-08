@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from .. import git_ops, meta
-from .requirements import LoopSpec
+from ..loop_spec import LoopSpec
 
 
 GENERATOR_SKILL = "blueprint-to-work-orders"
