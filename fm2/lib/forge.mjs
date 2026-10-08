@@ -44,6 +44,11 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
   }
 }
 
+// The PRs whose head is this branch, in one state.
+function branchPrs(repo, branch, state, ...extra) {
+  return JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', state, '--json', 'number', ...extra]));
+}
+
 // The PR a branch has open, if any.
 //
 // A ship task opens its own PR, so nothing in the harness ever learns the
@@ -58,7 +63,7 @@ export function pr(repo, number, fields = ['number', 'state', 'reviewDecision', 
 // say that on the strength of a question nobody got to ask.
 export function prForBranch(repo, branch) {
   if (!repo || !branch) return null;
-  const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'open', '--json', 'number']));
+  const rows = branchPrs(repo, branch, 'open');
   return rows.length ? rows[0].number : null;
 }
 
@@ -70,8 +75,7 @@ export function prForBranch(repo, branch) {
 export function branchIsMerged(repo, branch) {
   if (!repo || !branch) return false;
   try {
-    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number']));
-    return rows.length > 0;
+    return branchPrs(repo, branch, 'merged').length > 0;
   } catch {
     // No `gh`, no network, no answer - and an unanswered question is not a yes.
     return false;
@@ -89,7 +93,7 @@ export function branchIsMerged(repo, branch) {
 export function landedPrForBranch(repo, branch) {
   if (!repo || !branch) return null;
   try {
-    const rows = JSON.parse(gh(['pr', 'list', '--repo', repo, '--head', branch, '--state', 'merged', '--json', 'number', '--limit', '1']));
+    const rows = branchPrs(repo, branch, 'merged', '--limit', '1');
     return rows.length ? rows[0].number : null;
   } catch {
     // No `gh`, no network, no answer - and an unanswered question is not a yes.
@@ -114,14 +118,11 @@ export function prIsMerged(repo, number) {
 
 // What actually landed, as opposed to what a worker says it did.
 export function reviewState(repo, number) {
-  const data = pr(repo, number, ['state', 'reviewDecision', 'reviews']);
-  const mine = (data.reviews || []).filter((r) => r.state !== 'COMMENTED' || true);
+  const data = pr(repo, number, ['state', 'reviewDecision']);
   return {
     prState: data.state,
     decision: data.reviewDecision,
     approved: data.reviewDecision === 'APPROVED',
-    changesRequested: data.reviewDecision === 'CHANGES_REQUESTED',
-    lastReview: mine.length ? mine[mine.length - 1] : null,
   };
 }
 
