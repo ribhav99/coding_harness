@@ -346,12 +346,33 @@ export function closeTask(id, { force = false } = {}) {
   // treats a lone shell as a placeholder and replaces it, so the next task lands
   // in the same window rather than beside a stray pane.
   let window = null;
+  let livePane;
   try {
-    window = tmux(['display-message', '-p', '-t', task.pane, '#{window_id}']).trim();
-    const panes = tmux(['list-panes', '-t', window, '-F', '#{pane_id}']).split('\n').filter(Boolean);
-    if (panes.length === 1) tmux(['split-window', '-d', '-t', window, '-c', task.project]);
-  } catch { /* the pane is already gone, so there is no window to keep */ }
-  try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
+    livePane = tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n').includes(task.pane);
+  } catch (error) {
+    throw new Error(`refusing to close "${id}": could not verify its pane (${error.message})`);
+  }
+  try {
+    // A missing pane can produce a successful but empty display-message.
+    // An empty target then means the current window, which may be unrelated.
+    // Check membership both before the lookup and in the resolved window.
+    if (livePane) {
+      const target = tmux(['display-message', '-p', '-t', task.pane, '#{window_id}']);
+      if (/^@\d+$/.test(target)) {
+        const panes = tmux(['list-panes', '-t', target, '-F', '#{pane_id}']).split('\n').filter(Boolean);
+        if (panes.includes(task.pane)) {
+          window = target;
+          if (panes.length === 1) tmux(['split-window', '-d', '-t', window, '-c', task.project]);
+        }
+      }
+    }
+  } catch { /* retain a known-live task when its window cannot be inspected */ }
+  if (livePane && !window) {
+    throw new Error(`refusing to close "${id}": could not resolve its live pane's exact window`);
+  }
+  if (window) {
+    try { tmux(['kill-pane', '-t', task.pane]); } catch { /* pane already gone */ }
+  }
   // Killing a pane hands its space to whichever neighbour happens to adjoin it,
   // so the survivors keep a shape built for a window that no longer exists - one
   // pane spanning the full width under three, and worse as more come and go.
