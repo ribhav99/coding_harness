@@ -286,5 +286,17 @@ Each of these cost real time during the build and is now handled:
 ## Tests
 
 ```sh
-node --test fm2/test/fm2.test.mjs
+node --test fm2/test/*.test.mjs
 ```
+
+The installed Codex TUI submission regression is opt-in:
+
+```sh
+FM2_CODEX_TUI_TEST=1 node --test fm2/test/pane-input.test.mjs
+```
+
+It uses an isolated tmux socket and empty Codex home with `--no-daemon` and a
+localhost-only model endpoint. It pauses only that disposable TUI while a knock
+arrives, then checks Codex's submission history for both idle and busy turns.
+The normal suite also verifies the raw PTY paste protocol for both worker
+providers, queue deduplication, and transport failure handling.

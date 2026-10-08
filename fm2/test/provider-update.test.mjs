@@ -208,13 +208,13 @@ test('provider completion reports wake the original controller and submit the me
   await reportProviderUpdate({ provider: 'codex', panel: 'original-panel', manifest: '/exact/manifest.json' }, {
     result,
     deliver: (task, options) => knock(task, { ...options, pane: '%3',
-      send: async args => { sent.push(args); return true; }, wait: async () => {} }),
+      send: async (pane, line) => { sent.push({ pane, line }); } }),
   });
   assert.equal(pending('original-panel').length, 1);
   assert.match(pending('original-panel')[0].text, /2 exact conversation\(s\) reopened/u);
-  assert.match(sent[0].at(-1), /codex update complete/u);
-  assert.equal(sent[0][2], '%3');
-  assert.equal(sent[1].at(-1), 'Enter');
+  assert.match(sent[0].line, /codex update complete/u);
+  assert.equal(sent[0].pane, '%3');
+  assert.equal(sent.length, 1);
 });
 
 test('all managed sessions stop before one update and resume exact ids in their original panes', t => {
