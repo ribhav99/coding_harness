@@ -7,7 +7,7 @@ import {
   finishProviderUpdate,
   setProviderUpdatePhase,
 } from './lib/provider-update-state.mjs';
-import { tmux } from './lib/tasks.mjs';
+import { tmux } from './lib/tmux.mjs';
 import { reportProviderUpdate } from './lib/provider-update-report.mjs';
 import { sleepSync, waitForExit } from './lib/wait.mjs';
 

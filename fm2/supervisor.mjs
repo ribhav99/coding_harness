@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { home } from './lib/config.mjs';
 import { currentPanel } from './lib/presence.mjs';
 import { controllerId, normalizeAgent } from './lib/sessions.mjs';
-import { CODEX_STATUS_LINE } from './lib/tasks.mjs';
+import { CODEX_STATUS_LINE } from './lib/launch.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';

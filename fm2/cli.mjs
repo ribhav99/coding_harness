@@ -33,8 +33,12 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allTasks, loadTask, saveTask, capabilities, projectConfig, dir } from './lib/config.mjs';
-import { spawnTask, adoptTask, closeTask, sendToPane, paneAlive, unlandedWork, missingReport, switchTask,
-  launchCommand, writeWorkerSettings, tmux, preserveSession, ensureCodexTrust, clearStartupPrompts } from './lib/tasks.mjs';
+import { spawnTask, adoptTask, closeTask, unlandedWork, missingReport } from './lib/tasks.mjs';
+import { tmux, sendToPane, paneAlive } from './lib/tmux.mjs';
+import { launchCommand, writeWorkerSettings, ensureCodexTrust } from './lib/launch.mjs';
+import { clearStartupPrompts } from './lib/panes.mjs';
+import { preserveSession } from './lib/handoff.mjs';
+import { switchTask } from './lib/switch.mjs';
 import { drain, count } from './lib/notify.mjs';
 import { pr, reviewState, outcomeWord, repoOf, fetchPrHead, inlineCommentCount, prForBranch, landedPrForBranch } from './lib/forge.mjs';
 import { supervisorCommand } from './supervisor.mjs';

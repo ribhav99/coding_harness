@@ -12,15 +12,10 @@ import {
   sessionFromTranscript,
 } from './sessions.mjs';
 import { supervisorRecord } from './presence.mjs';
-import {
-  clearStartupPrompts,
-  launchCommand,
-  preserveSession,
-  refreshPreservedTranscript,
-  tmux,
-  worktreeState,
-  writeWorkerSettings,
-} from './tasks.mjs';
+import { tmux } from './tmux.mjs';
+import { launchCommand, writeWorkerSettings } from './launch.mjs';
+import { clearStartupPrompts } from './panes.mjs';
+import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import {
   descendants,

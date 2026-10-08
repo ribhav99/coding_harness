@@ -3,13 +3,10 @@
 import { resolve } from 'node:path';
 import { claimEffort, finishEffort, setEffort } from './lib/effort.mjs';
 import { loadTask } from './lib/config.mjs';
-import {
-  clearStartupPrompts,
-  preserveSession,
-  refreshPreservedTranscript,
-  switchTask,
-  tmux,
-} from './lib/tasks.mjs';
+import { tmux } from './lib/tmux.mjs';
+import { clearStartupPrompts } from './lib/panes.mjs';
+import { preserveSession, refreshPreservedTranscript } from './lib/handoff.mjs';
+import { switchTask } from './lib/switch.mjs';
 import { supervisorRecord } from './lib/presence.mjs';
 import { providerAt, stopProvider } from './lib/provider-processes.mjs';
 import { resolveSession } from './lib/sessions.mjs';

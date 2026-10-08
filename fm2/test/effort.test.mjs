@@ -14,7 +14,7 @@ import {
   requestEffort,
   schedulePendingEffort,
 } from '../lib/effort.mjs';
-import { launchCommand } from '../lib/tasks.mjs';
+import { launchCommand } from '../lib/launch.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import { installInstructions } from '../install-instructions.mjs';
 import { pending } from '../lib/notify.mjs';

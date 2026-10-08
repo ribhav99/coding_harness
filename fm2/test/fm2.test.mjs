@@ -483,7 +483,7 @@ test('a Codex launch trusts the repository root, once, and never a sibling', asy
   const worktree = join(dirname(project), 'thing-wo-trust');
   execFileSync('git', ['-C', project, 'worktree', 'add', '-q', '-b', 'wo-trust', worktree]);
   const config = join(home, 'codex-config.toml');
-  const { ensureCodexTrust } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { ensureCodexTrust } = await import(join(ROOT, 'lib/launch.mjs'));
 
   // Keyed on the repository ROOT, not the worktree it was asked about - that is
   // what Codex keys it on, so one entry covers every worktree beside it.
@@ -531,7 +531,7 @@ test('a session reloads onto the same agent, in its own pane, carrying its conve
   );
 
   const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
-  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/switch.mjs'));
   saveTask({
     id: 'wo-reload',
     project,
@@ -612,7 +612,7 @@ test('a task switches to Codex and back without changing its work or report rout
 
   const { saveTask, loadTask } = await import(join(ROOT, 'lib/config.mjs'));
   const { record, pending } = await import(join(ROOT, 'lib/notify.mjs'));
-  const { switchTask } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { switchTask } = await import(join(ROOT, 'lib/switch.mjs'));
   saveTask({
     id: 'wo-switch',
     project,
@@ -1320,7 +1320,7 @@ test('a worktree names the checkout it belongs to', async () => {
 
 test("a long message reaches the worker's prompt whole", async () => {
   freshHome();
-  const { sendToPane } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { sendToPane } = await import(join(ROOT, 'lib/tmux.mjs'));
 
   // A real pane, in a session of this test's own, running `cat` into a file so
   // what ARRIVED can be compared byte for byte against what was sent. Reading
@@ -1399,7 +1399,7 @@ test("a long message reaches the worker's prompt whole", async () => {
 
 test('a worker is launched on Opus, not on whatever the CLI defaults to', async () => {
   freshHome();
-  const { launchCommand } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { launchCommand } = await import(join(ROOT, 'lib/launch.mjs'));
 
   const cmd = launchCommand({ id: 'wo-9', settingsFile: '/s.json' });
 
@@ -1425,7 +1425,7 @@ test('a worker is launched on Opus, not on whatever the CLI defaults to', async 
 
 test('a Codex worker names its model, effort, permissions and status line and uses exact resume and hook contracts', async (t) => {
   const home = freshHome();
-  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/tasks.mjs'));
+  const { launchCommand, writeWorkerSettings } = await import(join(ROOT, 'lib/launch.mjs'));
   const settings = writeWorkerSettings('wo-codex', 'codex');
   const prompt = join(home, 'prompt.md');
   writeFileSync(prompt, 'continue the same task\n');

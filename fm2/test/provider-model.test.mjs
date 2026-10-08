@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { latestCodexModel, newestSol } from '../lib/provider-model.mjs';
-import { launchCommand } from '../lib/tasks.mjs';
+import { launchCommand } from '../lib/launch.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import { seedModelCatalog } from './model-fixture.mjs';
 
