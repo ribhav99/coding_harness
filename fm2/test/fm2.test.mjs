@@ -80,33 +80,23 @@ test('a stopping worker knocks on the supervisor, whatever it is doing', async (
   const { knock } = await import(join(ROOT, 'lib/knock.mjs'));
 
   const sent = [];
-  const events = [];
-  const send = async (args) => {
-    sent.push(args);
-    events.push(args.at(-1) === 'Enter' ? 'submit' : 'type');
-    return true;
-  };
-  const wait = async (milliseconds) => { events.push(`wait:${milliseconds}`); };
+  const send = async (pane, line) => { sent.push({ pane, line }); };
 
-  // Panel named explicitly, like the hook tests: run from inside a pane, a bare
-  // currentPanel() answers about the REAL panel, and supervisorPane() then
-  // refuses a recorded pane that does not live in it. That made this test depend
-  // on whether a pane called %3 happened to exist on the developer's machine.
-  recordSupervisor('%3', { panel: null });
-  const first = await knock('pr-9', { panel: null, send, wait });
+  // The recorded supervisor pane is the destination, regardless of the worker
+  // provider or stale provider metadata. Do not infer routing from either.
+  recordSupervisor('%3', { panel: null, agent: 'claude' });
+  process.env.FM2_AGENT = 'codex';
+  const first = await knock('pr-9', { panel: null, send });
   assert.equal(first.knocked, true);
-  assert.deepEqual(events, ['type', 'wait:250', 'submit'], 'Enter raced Codex\'s paste detector');
-  assert.equal(sent[0][2], '%3', 'the knock went to the wrong pane');
-  assert.match(sent[0][4], /pr-9/, 'the knock did not name the task that stopped');
-  // The fact and the option to ignore it, and nothing that tells the supervisor
-  // what the stop was worth.
-  assert.match(sent[0][4], /stopped/);
-  assert.match(sent[0][4], /or ignore/);
-  assert.doesNotMatch(sent[0][4], /fm read/, 'the knock went back to prescribing an action');
+  assert.equal(sent[0].pane, '%3', 'the knock went to the wrong pane');
+  assert.match(sent[0].line, /pr-9/, 'the knock did not name the task that stopped');
+  assert.match(sent[0].line, /stopped/);
+  assert.match(sent[0].line, /or ignore/);
+  assert.doesNotMatch(sent[0].line, /fm read/, 'the knock went back to prescribing an action');
 
   // No state says "already told them" - every stop is its own knock, because
   // every stop is its own report.
-  const second = await knock('pr-9', { panel: null, send, wait });
+  const second = await knock('pr-9', { panel: null, send });
   assert.equal(second.knocked, true, 'a second stop went unannounced');
 });
 
@@ -123,7 +113,7 @@ test('a knock with nowhere to go is not an error', async () => {
   // turn must never fail over the supervisor's bookkeeping.
   const { recordSupervisor } = await import(join(ROOT, 'lib/presence.mjs'));
   recordSupervisor('%404');
-  const dead = await knock('pr-1', { send: async () => false });
+  const dead = await knock('pr-1', { send: async () => { throw new Error('dead pane'); } });
   assert.equal(dead.knocked, false);
 });
 
@@ -334,7 +324,7 @@ function tmuxSpy(home) {
   const bin = join(home, 'bin');
   mkdirSync(bin, { recursive: true });
   const log = join(home, 'tmux.log');
-  writeFileSync(join(bin, 'tmux'), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${log}\nexit 0\n`);
+  writeFileSync(join(bin, 'tmux'), `#!/bin/sh\nif [ "$1" = load-buffer ]; then cat >> ${log}; printf '\\n' >> ${log}; fi\nprintf '%s\\n' "$*" >> ${log}\nexit 0\n`);
   execFileSync('chmod', ['+x', join(bin, 'tmux')]);
   return {
     PATH: `${bin}:${process.env.PATH}`,

@@ -15,11 +15,11 @@
 // a mid-turn report was not worth mentioning. Whether a stop deserves any
 // action is the supervisor's call; this only makes sure it is told.
 
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { dir } from './config.mjs';
 import { currentPanel, supervisorPane } from './presence.mjs';
+import { sendToPane } from './pane-input.mjs';
 
 // The fact, and nothing after it. An earlier version added "its report is
 // waiting, `fm read` takes it", which is both a standing instruction the
@@ -29,19 +29,6 @@ import { currentPanel, supervisorPane } from './presence.mjs';
 export const knockLine = (task) =>
   `${task} stopped. Look at the session to decide next steps, or ignore.`;
 
-function sendKeys(args) {
-  return new Promise((resolve) => {
-    execFile('tmux', args, (err) => resolve(!err));
-  });
-}
-
-// Codex detects a rapid stream of literal key events as a paste and keeps Enter
-// in "insert a newline" mode for 120ms after the burst. Sending Enter in the
-// next tmux process used to strand the whole knock in the composer. A quarter
-// second clears that window while remaining imperceptible for Claude panes.
-const SUBMIT_SETTLE_MS = 250;
-const settleComposer = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
 // Never throws and never blocks for long. A worker's turn must not be held up by
 // the supervisor's bookkeeping, so a missing pane, a dead session or no tmux at
 // all are all just "not delivered" - the report is already on disk either way,
@@ -50,21 +37,22 @@ const settleComposer = (milliseconds) => new Promise((resolve) => setTimeout(res
 export async function knock(task, {
   panel = currentPanel(),
   pane = supervisorPane(panel),
-  send = sendKeys,
-  wait = settleComposer,
+  send = sendToPane,
   line = knockLine(task),
 } = {}) {
   if (panel && existsSync(join(dir('panel-locks'), panel.replace(/[^A-Za-z0-9._-]/g, '-')))) {
     return { knocked: false, reason: 'panel handoff in progress; report remains queued' };
   }
   if (!pane) return { knocked: false, reason: 'no supervisor pane recorded' };
-  // -l sends the text literally, so a report id can never be read as a key name.
-  if (!(await send(['send-keys', '-t', pane, '-l', line]))) {
-    return { knocked: false, reason: 'the supervisor pane did not take the line' };
+  try {
+    await send(pane, line);
+  } catch (error) {
+    return { knocked: false, reason: error?.phase === 'submit'
+      ? 'the line was typed but never submitted'
+      : 'the supervisor pane did not take the line' };
   }
-  await wait(SUBMIT_SETTLE_MS);
-  if (!(await send(['send-keys', '-t', pane, 'Enter']))) {
-    return { knocked: false, reason: 'the line was typed but never submitted' };
-  }
+  // This is transport success, not an application acknowledgement. Bracketed
+  // paste makes the text and the single Enter distinct input events in both
+  // Codex and Claude; tmux cannot acknowledge a model turn on their behalf.
   return { knocked: true, pane, task };
 }
