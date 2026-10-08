@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadTask, dir, home as homeDir } from './config.mjs';
 import { currentPanel } from './presence.mjs';
-import { DEFAULT_EFFORT, effortFor, normalizeEffort } from './effort.mjs';
+import { effortFor, normalizeEffort } from './effort.mjs';
 import { providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 import { remoteReviews } from './remote.mjs';
@@ -59,6 +59,16 @@ export function writeWorkerSettings(id, agent = 'claude', panel = currentPanel()
   return file;
 }
 
+// Keep the native Codex footer aligned with the information in the user's
+// Claude status line. Codex omits a field when that datum is unavailable.
+export const CODEX_STATUS_LINE = [
+  'project-name',
+  'git-branch',
+  'model-with-reasoning',
+  'fast-mode',
+  'context-used',
+];
+
 // What every Codex session fm starts - worker or controller - is launched on,
 // said outright rather than inherited.
 //
@@ -78,16 +88,6 @@ export function writeWorkerSettings(id, agent = 'claude', panel = currentPanel()
 //
 // Passed as `-c` rather than as flags because `codex` and `codex resume` do not
 // take the same flags, and `-c` is accepted by both.
-export const CODEX_REASONING_EFFORT = DEFAULT_EFFORT;
-// Keep the native Codex footer aligned with the information in the user's
-// Claude status line. Codex omits a field when that datum is unavailable.
-export const CODEX_STATUS_LINE = [
-  'project-name',
-  'git-branch',
-  'model-with-reasoning',
-  'fast-mode',
-  'context-used',
-];
 export function codexSessionArgs(effort, hooks = {}) {
   return [
     '-c', `model=${JSON.stringify(latestCodexModel())}`,

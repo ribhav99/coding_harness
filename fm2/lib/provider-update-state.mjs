@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
@@ -74,10 +74,6 @@ export function requestProviderUpdate(provider, {
     rmSync(lock, { recursive: true, force: true });
     throw error;
   }
-}
-
-export function currentProviderUpdate() {
-  return readState().current ?? null;
 }
 
 export function providerUpdateInProgress(provider) {
@@ -155,9 +151,4 @@ export function finishProviderUpdate(provider, token, { error = null, recovery =
   writeState({ ...state, current: null, last });
   if (current.lock) rmSync(current.lock, { recursive: true, force: true });
   return last;
-}
-
-export function providerUpdateStatePath() {
-  const path = stateFile();
-  return existsSync(path) ? path : null;
 }

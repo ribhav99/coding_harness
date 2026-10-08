@@ -309,5 +309,3 @@ ${embedded ? `<script>${embedded.js}</script>` : '<script src="/static/surface.j
 </body>
 </html>`;
 }
-
-export const _internals = { findingId, DECISIONS, VERDICTS, NIT_CHOICES };

@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -125,9 +124,4 @@ export function finishEffort(id, token, { error = null } = {}) {
   }
   writeState(id, next);
   return true;
-}
-
-export function effortStatePath(id) {
-  const path = stateFile(id);
-  return existsSync(path) ? path : null;
 }
