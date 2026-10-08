@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
+import { readJson, writeJsonAtomic } from './json-file.mjs';
 
 export const DEFAULT_EFFORT = 'high';
 export const EFFORT_LEVELS = Object.freeze({
@@ -26,15 +27,11 @@ function safeId(id) {
 function stateFile(id) { return join(dir('efforts'), `${safeId(id)}.json`); }
 
 function readState(id) {
-  try { return JSON.parse(readFileSync(stateFile(id), 'utf8')); } catch { return { version: 1, current: {} }; }
+  return readJson(stateFile(id)) ?? { version: 1, current: {} };
 }
 
 function writeState(id, state) {
-  const path = stateFile(id);
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 });
-  renameSync(temporary, path);
-  return state;
+  return writeJsonAtomic(stateFile(id), state);
 }
 
 export function normalizeEffort(agent, effort) {

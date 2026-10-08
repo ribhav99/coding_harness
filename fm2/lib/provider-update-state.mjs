@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
+import { readJson, writeJson, writeJsonAtomic } from './json-file.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPLY = join(dirname(HERE), 'provider-update-apply.mjs');
@@ -15,16 +16,11 @@ function stateFile() { return join(dir('provider-updates'), 'state.json'); }
 function lockDir() { return join(dir('provider-updates'), 'active.lock'); }
 
 function readState() {
-  try { return JSON.parse(readFileSync(stateFile(), 'utf8')); }
-  catch { return { version: 1, current: null, last: null }; }
+  return readJson(stateFile()) ?? { version: 1, current: null, last: null };
 }
 
 function writeState(state) {
-  const path = stateFile();
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 });
-  renameSync(temporary, path);
-  return state;
+  return writeJsonAtomic(stateFile(), state);
 }
 
 function validController(id) {
@@ -71,7 +67,7 @@ export function requestProviderUpdate(provider, {
       lock,
       maintenance_pane: null,
     };
-    writeFileSync(current.manifest, JSON.stringify({ version: 1, ...current }, null, 2), { mode: 0o600 });
+    writeJson(current.manifest, { version: 1, ...current });
     writeState({ ...state, current });
     return current;
   } catch (error) {

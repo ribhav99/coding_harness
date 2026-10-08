@@ -1,9 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import {
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { allTasks, loadTask, saveTask } from './config.mjs';
 import {
@@ -38,13 +34,10 @@ import {
 import { providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
 import { shellQuote } from './shell.mjs';
+import { writeJson } from './json-file.mjs';
 
 function wait(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function writeJson(path, value) {
-  writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
 
 function lines(value) { return String(value || '').split('\n').filter(Boolean); }

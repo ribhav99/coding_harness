@@ -3,18 +3,11 @@
 // one. Hooks record exact ids for new sessions; transcript discovery exists
 // only to adopt older sessions, and refuses whenever metadata is ambiguous.
 
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { dir, loadTask, saveTask } from './config.mjs';
+import { readJson, writeJsonAtomic } from './json-file.mjs';
 
 const AGENTS = new Set(['claude', 'codex']);
 
@@ -44,10 +37,6 @@ function sessionRecordPath(task, agent) {
     throw new Error('invalid provider-session task identity');
   }
   return join(dir('sessions', task), `${normalizeAgent(agent)}.json`);
-}
-
-function readJson(path) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
 export function allRecordedSessions(agent = null) {
@@ -94,9 +83,7 @@ export function rememberSession({ task, agent, sessionId, transcriptPath = null,
     provider_pid: providerPid ?? same?.provider_pid ?? null,
     recorded_at: new Date().toISOString(),
   };
-  const temporary = `${recordPath}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(entry, null, 2), { mode: 0o600 });
-  renameSync(temporary, recordPath);
+  writeJsonAtomic(recordPath, entry);
 
   if (task.startsWith('controller:')) return entry;
   const known = loadTask(task);
