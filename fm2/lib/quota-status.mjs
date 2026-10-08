@@ -20,15 +20,12 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
+import { shellQuote } from './shell.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, 'quota-status.mjs');
 const MAX_TRANSCRIPT_TAIL = 16 * 1024 * 1024;
 const TRANSCRIPT_LOOKBACK_MS = 32 * 24 * 60 * 60 * 1000;
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
 
 function readJson(path) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }

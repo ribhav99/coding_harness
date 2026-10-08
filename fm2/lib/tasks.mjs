@@ -42,6 +42,7 @@ import {
   resolveSession,
   resumableSession,
 } from './sessions.mjs';
+import { shellQuote, tomlValue } from './shell.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FM2 = dirname(HERE);
@@ -132,10 +133,6 @@ function assertIsolated(project, worktree) {
 // settings, which it did not do for a fresh worktree - the session ran, stopped,
 // and reported nothing. Handing the file to the launch command removes the
 // discovery step entirely, and leaves the worktree clean of harness files.
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
-
 function hookCommand(id, agent, hook, panel = currentPanel() ?? '') {
   // Home and task are baked into the command, not inherited. An environment that
   // does not reach the hook is indistinguishable from a hook that never fired,
@@ -169,16 +166,6 @@ export function writeWorkerSettings(id, agent = 'claude', panel = currentPanel()
     JSON.stringify(workerHookConfig(id, provider, panel), null, 2),
   );
   return file;
-}
-
-function tomlValue(value) {
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return `[${value.map(tomlValue).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value).map(([key, item]) => `${key}=${tomlValue(item)}`).join(',')}}`;
-  }
-  throw new Error('unsupported hook configuration value');
 }
 
 // What a Codex worker is launched on, said outright rather than inherited.

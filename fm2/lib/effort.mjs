@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
+import { shellQuote } from './shell.mjs';
 
 export const DEFAULT_EFFORT = 'high';
 export const EFFORT_LEVELS = Object.freeze({
@@ -85,8 +86,6 @@ export function pendingEffort(id, agent = null) {
   if (!pending || (agent && pending.agent !== normalizeAgent(agent))) return null;
   return pending;
 }
-
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 
 export function schedulePendingEffort(id, agent, { hookPid = process.pid, run = execFileSync } = {}) {
   const provider = normalizeAgent(agent);

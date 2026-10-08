@@ -11,21 +11,9 @@ import { CODEX_STATUS_LINE } from './lib/tasks.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
+import { shellQuote, tomlValue } from './lib/shell.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
-
-function tomlValue(value) {
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(tomlValue).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value).map(([key, item]) => `${key}=${tomlValue(item)}`).join(',')}}`;
-  }
-  throw new Error('unsupported hook configuration value');
-}
 
 export function supervisorHookConfig(agent = 'claude') {
   normalizeAgent(agent);

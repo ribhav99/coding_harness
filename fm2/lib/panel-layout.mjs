@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { shellQuote } from './shell.mjs';
 
 const PLACEHOLDER = 'exec /bin/sleep 2147483647';
 
@@ -233,10 +234,6 @@ const ITERM_SCRIPT = `on run argv
     end if
   end tell
 end run`;
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
 
 function runAppleScript(script, args) {
   return execFileSync('/usr/bin/osascript', ['-', ...args], {

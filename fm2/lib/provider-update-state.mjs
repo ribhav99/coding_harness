@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
+import { shellQuote } from './shell.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPLY = join(dirname(HERE), 'provider-update-apply.mjs');
@@ -25,8 +26,6 @@ function writeState(state) {
   renameSync(temporary, path);
   return state;
 }
-
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
 
 function validController(id) {
   return typeof id === 'string' && /^controller:[A-Za-z0-9_.-]+$/.test(id);

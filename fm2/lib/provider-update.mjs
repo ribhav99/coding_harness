@@ -37,6 +37,7 @@ import {
 } from './provider-processes.mjs';
 import { providerExecutable } from './provider-command.mjs';
 import { CLAUDE_MODEL, latestCodexModel } from './provider-model.mjs';
+import { shellQuote } from './shell.mjs';
 
 function wait(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -47,8 +48,6 @@ function writeJson(path, value) {
 }
 
 function lines(value) { return String(value || '').split('\n').filter(Boolean); }
-function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\''")}'`; }
-
 function supportsSelfUpdate(executable) {
   try {
     const help = execFileSync(executable, ['--help'], {
