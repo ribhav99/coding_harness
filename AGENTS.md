@@ -72,3 +72,15 @@ for independent parts.
   every identified session on that provider across all panels, runs one update,
   and resumes exact session IDs in their original panes. Never substitute
   `cc -c`, `--last`, a recency guess, or a manual relaunch loop.
+
+## Release coordination
+
+- App releases use CLI/API tooling, never Chrome, another browser, or computer-use
+  UI. For TabTail, use the reviewed `scripts/release-ios.py` / Xcode CLI flow with
+  the existing Xcode account; use the App Store Connect API for TestFlight checks
+  and internal distribution when its credentials are configured.
+- Carry forward this rule to release workers. Missing CLI/API authentication is
+  a specific blocker to report, not a reason to request browser sign-in, extract
+  credentials, or create a new credential without authorization. A working CLI
+  upload need not wait for browser access. Keep upload acceptance, processing,
+  compliance, and tester availability distinct; never repeat an accepted upload.

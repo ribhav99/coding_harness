@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +11,7 @@ import {
   latestRateLimits,
   quotaStatusForPanel,
 } from '../lib/quota-status.mjs';
+import { privateTmux } from './private-tmux.mjs';
 
 const NOW = 1_700_000_000;
 
@@ -180,9 +182,9 @@ test('recent Codex sessions outside the panel keep account-wide usage fresh', (t
   );
 });
 
-test('Codex panels install the quota command and Claude panels restore inherited tmux status', () => {
+test('opted-in Codex panels install the quota command and Claude panels restore inherited tmux status', () => {
   const calls = [];
-  const local = new Map();
+  const local = new Map([['@fm-quota-status-enabled', '1']]);
   const global = new Map([
     ['status-right', '#[fg=colour42]CUSTOM %H:%M '],
     ['status-right-length', '52'],
@@ -223,8 +225,93 @@ test('Codex panels install the quota command and Claude panels restore inherited
   }), /fm-fixture/);
 });
 
+test('native footer default removes an existing tmux quota display and does not reinstall it', (t) => {
+  const fm2Home = mkdtempSync(join(tmpdir(), 'fm2-quota-native-'));
+  t.after(() => rmSync(fm2Home, { recursive: true, force: true }));
+  mkdirSync(join(fm2Home, 'tasks'));
+  writeFileSync(join(fm2Home, 'tasks', 'worker.json'), JSON.stringify({
+    id: 'worker', panel: 'fm-fixture', agent: 'codex',
+  }));
+  const local = new Map([
+    ['status-right', 'fm quota command'],
+    ['status-right-length', '160'],
+    ['@fm-quota-status-base', 'ORIGINAL '],
+    ['@fm-quota-status-base-length', '52'],
+    ['@fm-quota-status-base-local', '1'],
+    ['@fm-quota-status-length-local', '1'],
+    ['@fm-quota-status-active', '1'],
+  ]);
+  const run = (command, args) => {
+    if (args[0] === 'show-option') return local.get(args.at(-1)) || '';
+    if (args[0] === 'set-option') {
+      if (args.includes('-u')) local.delete(args.at(-1));
+      else local.set(args.at(-2), args.at(-1));
+    }
+    return '';
+  };
+  assert.equal(configurePanelQuotaStatus('fm-fixture', 'claude', { fm2Home, run }), true);
+  assert.equal(local.get('status-right'), 'ORIGINAL ');
+  assert.equal(local.get('status-right-length'), '52');
+  assert.equal(local.has('@fm-quota-status-active'), false);
+  assert.equal(configurePanelQuotaStatus('fm-fixture', 'codex', { fm2Home, run }), true);
+  assert.equal(local.get('status-right'), 'ORIGINAL ');
+  assert.equal(local.has('@fm-quota-status-active'), false);
+});
+
+test('real tmux fallback requires exact opt-in and restores inherited, local and empty bars', (t) => {
+  const { tmux } = privateTmux(t);
+  const fm2Home = mkdtempSync(join(tmpdir(), 'fm2-quota-options-'));
+  t.after(() => rmSync(fm2Home, { recursive: true, force: true }));
+  mkdirSync(join(fm2Home, 'tasks'));
+  writeFileSync(join(fm2Home, 'tasks', 'worker.json'), JSON.stringify({
+    id: 'worker', panel: 'fixture', agent: 'codex',
+  }));
+  const show = (option, local = false) => execFileSync('tmux', [
+    'show-option', ...(local ? ['-q'] : ['-A', '-qv']), '-t', 'fixture', option,
+  ], { encoding: 'utf8' }).replace(/\r?\n$/, '');
+  tmux(['set-option', '-g', 'status-right', 'GLOBAL %H:%M  ']);
+  tmux(['set-option', '-g', 'status-right-length', '52']);
+  for (const [base, length, disabled, agent] of [
+    [null, '52', null, 'codex'],
+    ['LOCAL %a  ', '73', '0', 'claude'],
+    ['', '0', 'true', 'codex'],
+  ]) {
+    for (const option of ['status-right', 'status-right-length', '@fm-quota-status-enabled']) {
+      tmux(['set-option', '-u', '-t', 'fixture', option]);
+    }
+    if (base !== null) {
+      tmux(['set-option', '-t', 'fixture', 'status-right', base]);
+      tmux(['set-option', '-t', 'fixture', 'status-right-length', length]);
+    }
+    const expected = base ?? 'GLOBAL %H:%M  ';
+    const original = show('status-right', true);
+    assert.equal(configurePanelQuotaStatus('fixture', 'codex', { fm2Home }), true);
+    assert.equal(show('status-right'), expected, 'default-off installed a quota command');
+    tmux(['set-option', '-t', 'fixture', '@fm-quota-status-enabled', '1']);
+    assert.equal(configurePanelQuotaStatus('fixture', 'codex', { fm2Home }), true);
+    const active = show('status-right');
+    assert.match(active, /quota-status\.mjs/);
+    assert.ok(active.endsWith(expected));
+    assert.equal(show('status-right-length'), '160');
+    assert.equal(configurePanelQuotaStatus('fixture', 'codex', { fm2Home }), true);
+    assert.equal(configurePanelQuotaStatus('fixture', 'claude', { fm2Home }), true);
+    assert.equal(show('status-right'), active, 'mixed-provider hook removed an opted-in bar');
+    tmux(disabled === null
+      ? ['set-option', '-u', '-t', 'fixture', '@fm-quota-status-enabled']
+      : ['set-option', '-t', 'fixture', '@fm-quota-status-enabled', disabled]);
+    assert.equal(configurePanelQuotaStatus('fixture', agent, { fm2Home }), true);
+    assert.equal(show('status-right'), expected);
+    assert.equal(show('status-right', true), original, 'local/inherited distinction changed');
+    assert.equal(show('status-right-length'), length);
+    assert.equal(show('@fm-quota-status-active'), '');
+    assert.equal(configurePanelQuotaStatus('fixture', 'codex', { fm2Home }), true);
+    assert.equal(show('status-right'), expected, 'a later hook reinstalled the disabled bar');
+  }
+});
+
 test('a panel-local tmux status is restored byte-for-byte', () => {
   const local = new Map([
+    ['@fm-quota-status-enabled', '1'],
     ['status-right', '#[fg=colour33]LOCAL %a %H:%M  '],
     ['status-right-length', '73'],
   ]);
@@ -253,6 +340,7 @@ test('a panel-local tmux status is restored byte-for-byte', () => {
 
 test('an intentionally empty panel-local status does not become the global status on restore', () => {
   const local = new Map([
+    ['@fm-quota-status-enabled', '1'],
     ['status-right', ''],
     ['status-right-length', '0'],
   ]);
@@ -294,6 +382,7 @@ test('Claude keeps the shared quota bar while a Codex worker remains in the pane
   }));
 
   const local = new Map([
+    ['@fm-quota-status-enabled', '1'],
     ['status-right', 'fm quota command'],
     ['status-right-length', '160'],
     ['@fm-quota-status-base', 'ORIGINAL '],
@@ -313,6 +402,7 @@ test('Claude keeps the shared quota bar while a Codex worker remains in the pane
 
 test('a marked legacy quota base is repaired instead of nested again', () => {
   const local = new Map([
+    ['@fm-quota-status-enabled', '1'],
     ['status-right', "#[fg=colour216]#('node' 'quota-status.mjs') CLOCK "],
     ['status-right-length', '96'],
     ['@fm-quota-status-base', "#[fg=colour216]#('node' 'quota-status.mjs') CLOCK "],

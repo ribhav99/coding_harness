@@ -1475,7 +1475,7 @@ test('a Codex worker names its model, effort, permissions and status line and us
   assert.match(fresh, /-c model_reasoning_effort="high"/);
   assert.match(fresh, /-c approval_policy="never"/);
   assert.match(fresh, /-c sandbox_mode="danger-full-access"/);
-  assert.match(fresh, /-c 'tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used"\]'/);
+  assert.match(fresh, /-c 'tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used","five-hour-limit","weekly-limit"\]'/);
   // Its own hooks: without this every pane stops on a prompt whose quiet wrong
   // answer is a worker that runs, stops, and never reports.
   assert.match(fresh, /--dangerously-bypass-hook-trust/);
@@ -1534,7 +1534,7 @@ test('the Codex controller launcher passes native hooks to the real CLI boundary
   assert.match(args, /model_reasoning_effort="high"/);
   assert.match(args, /approval_policy="never"/);
   assert.match(args, /sandbox_mode="danger-full-access"/);
-  assert.match(args, /tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used"\]/);
+  assert.match(args, /tui\.status_line=\["project-name","git-branch","model-with-reasoning","fast-mode","context-used","five-hour-limit","weekly-limit"\]/);
   assert.ok(args.includes('--dangerously-bypass-hook-trust'));
   assert.match(args, /hooks\.SessionStart=/);
   assert.match(args, /hooks\.UserPromptSubmit=/);

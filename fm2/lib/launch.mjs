@@ -68,6 +68,8 @@ export const CODEX_STATUS_LINE = [
   'model-with-reasoning',
   'fast-mode',
   'context-used',
+  'five-hour-limit',
+  'weekly-limit',
 ];
 
 // What every Codex session fm starts - worker or controller - is launched on,
