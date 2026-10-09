@@ -1,13 +1,14 @@
 """Bridge contract tests. Run with the released Relay venv/PYTHONPATH.
 
-Only disposable tmux/socket/store/provider fixtures are used. The provider emits
-synthetic authoritative registry fields; this is NOT a current CLI or APNs claim.
+Only disposable tmux/socket/store/provider fixtures are used, including an
+opt-in native Codex TUI against a localhost model. No APNs delivery is tested.
 """
 import importlib.util
 import http.server
 import threading
 import json
 import os
+import queue
 from pathlib import Path
 import shlex
 import shutil
@@ -103,11 +104,12 @@ class Contracts(unittest.TestCase):
             return {'data': [dict(hooks=hooks, errors=[], warnings=[])]}
         expected = shlex.split(hook['command'])
         self.assertTrue(bridge.sole_trusted_stop(inventory([hook]), expected))
+        self.assertTrue(bridge.sole_trusted_stop(inventory([hook, dict(enabled=True, eventName='postToolUse', **{'async': True})]), expected))
         for bad in ({}, {'data': []}, inventory([]), inventory([hook, hook]),
                     inventory([dict(hook, trustStatus='modified')]),
                     inventory([dict(hook, trustStatus='untrusted')]),
                     inventory([dict(hook, source='plugin')]),
-                    inventory([hook, dict(enabled=True, eventName='postToolUse', **{'async': True})]),
+                    inventory([dict(hook, **{'async': True})]),
                     {'data': [dict(hooks=[hook], errors=['missing plugin'], warnings=[])]}):
             self.assertFalse(bridge.sole_trusted_stop(bad, expected), bad)
 
@@ -194,62 +196,6 @@ class Contracts(unittest.TestCase):
                 if previous is None: os.environ.pop('CODEX_HOME', None)
                 else: os.environ['CODEX_HOME'] = previous
 
-
-    @unittest.skipUnless(os.environ.get('FM2_TABTAIL_NATIVE_TEST') == '1', 'set FM2_TABTAIL_NATIVE_TEST=1 for localhost-only native Stop capture')
-    def test_current_native_codex_stop_cannot_supply_required_registries(self):
-        class LocalModel(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *args): pass
-            def do_POST(self):
-                self.rfile.read(int(self.headers.get('Content-Length', '0')))
-                self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
-                item = dict(type='message', id='msg_fixture', role='assistant', status='completed',
-                            content=[dict(type='output_text', text='Fixture complete.', annotations=[])])
-                events = [dict(type='response.created', response=dict(id='resp_fixture')),
-                          dict(type='response.output_item.added', output_index=0, item=item),
-                          dict(type='response.output_item.done', output_index=0, item=item),
-                          dict(type='response.completed', response=dict(id='resp_fixture', status='completed', output=[item],
-                              usage=dict(input_tokens=1, output_tokens=1, total_tokens=2)))]
-                for event in events:
-                    self.wfile.write(('event: ' + event['type'] + '\ndata: ' + json.dumps(event) + '\n\n').encode())
-                self.wfile.flush()
-        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), LocalModel)
-        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        try:
-            with tempfile.TemporaryDirectory(prefix='fmtt-native-') as directory:
-                root = Path(directory); capture = root / 'capture.py'; payload = root / 'stop.json'
-                capture.write_text('import pathlib,sys\npathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())\nprint("{}")\n')
-                hook = shlex.join([sys.executable, str(capture), str(payload)])
-                config = root / 'config.toml'
-                config.write_text('model="gpt-6.1-sol"\nmodel_reasoning_effort="high"\nmodel_provider="fixture"\n'
-                                  'check_for_update_on_startup=false\n[model_providers.fixture]\nname="Local fixture"\n'
-                                  'base_url="http://127.0.0.1:' + str(server.server_port) + '/v1"\nwire_api="responses"\nrequires_openai_auth=false\n'
-                                  '[hooks]\nStop=[{hooks=[{type="command",command=' + json.dumps(hook) + '}]}]\n')
-                env = {key: value for key, value in os.environ.items() if not key.startswith(('FM2_', 'TABTAIL_')) and key not in ('OPENAI_API_KEY', 'CODEX_API_KEY')}
-                env['CODEX_HOME'] = directory
-                old = os.environ.get('CODEX_HOME'); os.environ['CODEX_HOME'] = directory
-                try:
-                    inventory, _ = bridge.inspect_codex(shutil.which('codex'), [], directory)
-                finally:
-                    if old is None: os.environ.pop('CODEX_HOME', None)
-                    else: os.environ['CODEX_HOME'] = old
-                metadata = inventory['data'][0]['hooks'][0]
-                with config.open('a') as stream:
-                    stream.write('[hooks.state.' + json.dumps(metadata['key']) + ']\ntrusted_hash=' + json.dumps(metadata['currentHash']) + '\n')
-                result = subprocess.run(['codex', 'exec', '--json', '--skip-git-repo-check', '-C', directory,
-                                         'Return the fixture completion. Do not use tools.'], env=env,
-                                         capture_output=True, text=True, timeout=25)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertTrue(payload.exists(), result.stdout + result.stderr)
-                value = json.loads(payload.read_text())
-                self.assertEqual(value['hook_event_name'], 'Stop')
-                self.assertTrue(value.get('session_id')); self.assertTrue(value.get('turn_id'))
-                self.assertNotIn('background_tasks', value)
-                self.assertNotIn('session_crons', value)
-                self.assertNotIn('goal', value)
-        finally:
-            server.shutdown(); server.server_close(); thread.join(timeout=2)
-
-
 class ReleasedRelay(unittest.TestCase):
     def setUp(self):
         try:
@@ -287,7 +233,7 @@ class ReleasedRelay(unittest.TestCase):
         self.assertTrue(self.control.exists(), self.tmux('capture-pane', '-p', '-t', self.pane))
         self.identity = call(self.control, dict(op='identity'))
         self.payload = dict(hook_event_name='Stop', session_id='root-session-111', turn_id='root-turn-11111',
-                            last_assistant_message='Fixture completion', background_tasks=[], session_crons=[], goal=None)
+                            last_assistant_message='Fixture completion', stop_hook_active=False)
 
     def tearDown(self):
         if hasattr(self, 'tmux_socket'):
@@ -350,8 +296,8 @@ class ReleasedRelay(unittest.TestCase):
         self.assertEqual(call(self.control, dict(op='identity')), self.identity, 'provider died/restarted after completion')
         self.assertEqual(self.tmux('display-message', '-p', '-t', self.pane, '#{pane_dead}'), '0')
 
-    def test_missing_registry_untrusted_stop_and_unknown_pane_suppress_real_reporter(self):
-        for env, mutate in (({}, lambda p: p.pop('background_tasks')),
+    def test_nested_untrusted_stop_and_unknown_pane_suppress_real_reporter(self):
+        for env, mutate in (({}, lambda p: p.update(agent_id='child')),
                             ({'FIXTURE_TRUST': 'untrusted'}, lambda p: None),
                             ({'TMUX': '/wrong/socket,999,0'}, lambda p: None)):
             payload = dict(self.payload); mutate(payload)
@@ -360,6 +306,260 @@ class ReleasedRelay(unittest.TestCase):
             self.notify()
             self.assertEqual(self.store()['codex_candidates'], [])
             self.assertEqual(self.store()['outbox'], [])
+
+
+@unittest.skipUnless(os.environ.get('FM2_TABTAIL_NATIVE_TEST') == '1',
+                     'set FM2_TABTAIL_NATIVE_TEST=1 for isolated native Codex TUI integration')
+class NativeCodex(unittest.TestCase):
+    # Reuse only fixture transport/cleanup; this provider is the installed CLI,
+    # not PROVIDER above. Each model response is explicitly released by the test.
+    tmux = ReleasedRelay.tmux
+    store = ReleasedRelay.store
+    subscribe = ReleasedRelay.subscribe
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+        self.temp = tempfile.TemporaryDirectory(prefix='fmtt-tui-')
+        self.root = Path(self.temp.name)
+        self.tmux_socket = str(self.root / 'tmux')
+        self.state = self.root / 'state'; self.state.mkdir(mode=0o700)
+        self.fmhome = self.root / 'fm'; (self.fmhome / 'tasks').mkdir(parents=True)
+        (self.fmhome / 'tasks/worker.json').write_text(json.dumps(dict(id='worker', agent='codex')))
+        self.codexhome = self.root / 'codex-home'; self.codexhome.mkdir()
+        self.responses = queue.Queue()
+        self.requests = []
+        fixture = self
+        class LocalModel(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
+                request = json.loads(body)
+                metadata = json.loads(request.get('client_metadata', {}).get('x-codex-turn-metadata', '{}'))
+                # Native Codex also asks our model to name the thread. Answer
+                # that auxiliary request without consuming a root-turn permit.
+                if metadata.get('thread_source') == 'thread_title':
+                    response = 'complete'
+                else:
+                    fixture.requests.append(metadata)
+                    response = fixture.responses.get(timeout=40)
+                if response == 'error':
+                    self.send_response(400); self.end_headers(); self.wfile.write(b'{"error":{"message":"fixture error"}}'); return
+                self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
+                item = dict(type='message', id='msg_fixture', role='assistant', status='completed',
+                            content=[dict(type='output_text', text='Fixture complete.', annotations=[])])
+                events = [dict(type='response.created', response=dict(id='resp_fixture')),
+                          dict(type='response.output_item.added', output_index=0, item=item),
+                          dict(type='response.output_item.done', output_index=0, item=item),
+                          dict(type='response.completed', response=dict(id='resp_fixture', status='completed', output=[item],
+                              usage=dict(input_tokens=1, output_tokens=1, total_tokens=2)))]
+                try:
+                    for event in events:
+                        self.wfile.write(('event: ' + event['type'] + '\ndata: ' + json.dumps(event) + '\n\n').encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError): pass
+        self.model = http.server.ThreadingHTTPServer(('127.0.0.1', 0), LocalModel)
+        self.model.daemon_threads = True
+        self.thread = threading.Thread(target=self.model.serve_forever, daemon=True); self.thread.start()
+        self.config = self.codexhome / 'config.toml'
+        # The model and effort are fixture-local; no account credentials or
+        # external model service are used and no installed config is changed.
+        self.config.write_text('model="gpt-6.1-sol"\nmodel_reasoning_effort="high"\nmodel_provider="fixture"\n'
+            'check_for_update_on_startup=false\n[model_providers.fixture]\nname="Local fixture"\n'
+            'base_url="http://127.0.0.1:' + str(self.model.server_port) + '/v1"\nwire_api="responses"\nrequires_openai_auth=false\n'
+            '[projects.' + json.dumps(str(self.root)) + ']\ntrust_level="trusted"\n')
+        controller = 'controller' in self._testMethodName
+        task = 'controller:fixture' if controller else 'worker'
+        self.task = task
+        self.stop_payloads = self.root / 'stops.jsonl'
+        self.callbacks = self.root / 'callbacks.jsonl'
+        legacy = self.root / 'legacy.py'
+        legacy.write_text('import json,os,sqlite3,sys,time\n'
+            'db=sqlite3.connect(sys.argv[1])\n'
+            'value={"parent":os.getppid(),"argv":sys.argv[3:],"candidates":[dict(zip([d[0] for d in c.description],row)) for c in [db.execute("SELECT * FROM codex_candidates")] for row in c],"at":time.monotonic()}\n'
+            'with open(sys.argv[2],"a") as stream: stream.write(json.dumps(value)+"\\n")\n')
+        original = [sys.executable, str(legacy), str(self.state / 'db'), str(self.callbacks), 'turn-ended', 'literal\nargument']
+        self.config.write_text('notify=' + json.dumps(original) + '\n' + self.config.read_text())
+        aggregate = ROOT / ('hooks/supervisor-stop.mjs' if controller else 'hooks/worker-stop.mjs')
+        latest = self.root / 'stop.json'
+        gate = 'cat > ' + shlex.quote(str(latest)) + '; cat ' + shlex.quote(str(latest)) + ' >> ' + shlex.quote(str(self.stop_payloads)) + '; printf "\\n" >> ' + shlex.quote(str(self.stop_payloads)) + '; ' + shlex.join(['node', str(aggregate)]) + ' < ' + shlex.quote(str(latest))
+        self.stop = shlex.join([sys.executable, str(BRIDGE), 'stop', '--', '/bin/sh', '-c', gate])
+        self.flags = ['-c', 'hooks.Stop=[{hooks=[{type="command",command=' + json.dumps(self.stop) + '}]}]']
+        self.env = {key: value for key, value in os.environ.items()
+                    if not key.startswith(('FM2_', 'TABTAIL_')) and key not in ('TMUX','TMUX_PANE','OPENAI_API_KEY','CODEX_API_KEY')}
+        self.env.update(RELAY_STATE_DIR=str(self.state), RELAY_TMUX_SOCKET=self.tmux_socket,
+                        FM2_HOME=str(self.fmhome), FM2_TASK=task, FM2_AGENT='codex', FM2_PANEL='',
+                        FM2_TABTAIL='1', FM_REMOTE='yes', CODEX_HOME=str(self.codexhome))
+        self.service = subprocess.Popen([sys.executable, '-u', '-c', SERVICE, str(self.state)],
+                                        env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(self.service.stdout.readline(), 'ready\n')
+        old = os.environ.get('CODEX_HOME'); os.environ['CODEX_HOME'] = str(self.codexhome)
+        try:
+            inventory, observed_notify = bridge.inspect_codex(shutil.which('codex'), self.flags, str(self.root))
+            metadata = inventory['data'][0]['hooks'][0]
+            self.assertEqual(observed_notify, original)
+            self.assertEqual(metadata['trustStatus'], 'untrusted')
+            with self.config.open('a') as stream:
+                stream.write('\n[hooks.state.' + json.dumps(metadata['key']) + ']\ntrusted_hash=' + json.dumps(metadata['currentHash']) + '\n')
+            trusted, _ = bridge.inspect_codex(shutil.which('codex'), self.flags, str(self.root))
+            self.assertTrue(bridge.sole_trusted_stop(trusted, shlex.split(self.stop)), trusted)
+        finally:
+            if old is None: os.environ.pop('CODEX_HOME', None)
+            else: os.environ['CODEX_HOME'] = old
+        self.original = original
+        launch = ['env', *[k + '=' + v for k, v in self.env.items()], sys.executable, str(BRIDGE), 'launch', '--',
+                  shutil.which('codex'), '--no-daemon', '--no-alt-screen', *self.flags]
+        self.pane = self.tmux('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'fixture', '-x', '160', '-y', '40',
+                              '-c', str(self.root), shlex.join(launch))
+        self.until(lambda: 'Ask Codex to do anything' in self.screen(), 'native TUI startup')
+        self.owner = self.tmux('display-message', '-p', '-t', self.pane, '#{pane_pid}')
+        rows = [line.split() for line in subprocess.check_output(['ps','-axo','pid=,ppid=,comm='],text=True).splitlines()]
+        self.native = next(int(pid) for pid, ppid, *command in rows
+                           if (pid == self.owner or ppid == self.owner) and Path(' '.join(command)).name == 'codex')
+        self.until(lambda: len(self.store()['runs']) == 1, 'run bootstrap')
+        self.assertTrue(self.store()['runs'][0]['managed'])
+
+    def cleanup(self):
+        evidence = os.environ.get('FM2_TABTAIL_EVIDENCE_DIR')
+        if evidence and hasattr(self, 'native'):
+            directory = Path(evidence); directory.mkdir(parents=True, exist_ok=True)
+            (directory / (self._testMethodName + '.json')).write_text(json.dumps(dict(
+                fixture='localhost-only native Codex; released Relay without APNs sender',
+                pane=self.pane, owner_pid=self.owner, native_pid=self.native,
+                stops=self.records(self.stop_payloads), callbacks=self.records(self.callbacks),
+                request_metadata=self.requests, store=self.store()), indent=2))
+        if hasattr(self, 'tmux_socket'): subprocess.run(['tmux','-S',self.tmux_socket,'kill-server'],capture_output=True)
+        if hasattr(self, 'service'): self.service.kill(); self.service.communicate(timeout=3)
+        if hasattr(self, 'model'): self.model.shutdown(); self.model.server_close(); self.thread.join(timeout=2)
+        if hasattr(self, 'temp'): self.temp.cleanup()
+
+    def screen(self): return self.tmux('capture-pane', '-p', '-t', self.pane)
+
+    def until(self, condition, reason, timeout=12):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if condition(): return
+            time.sleep(.03)
+        self.fail(reason + '\n' + self.screen() + '\n' + str(self.store()) + '\nREQUEST METADATA ' + str(self.requests) + '\nCALLBACKS ' + str(self.records(self.callbacks)))
+
+    def records(self, path):
+        if not path.exists(): return []
+        return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    def submit(self, response='complete'):
+        count = len(self.requests)
+        subprocess.run(['tmux','-S',self.tmux_socket,'load-buffer','-b','fixture','-'],
+                       input='Return the fixture completion. Do not use tools.',text=True,check=True)
+        self.tmux('paste-buffer','-p','-d','-b','fixture','-t',self.pane)
+        self.tmux('send-keys','-t',self.pane,'Enter')
+        self.until(lambda: len(self.requests) > count, 'model request')
+        self.responses.put(response)
+
+    def finished(self, before):
+        self.until(lambda: len(self.records(self.stop_payloads)) > before, 'native Stop')
+        stop = self.records(self.stop_payloads)[-1]
+        def matching():
+            return [callback for callback in self.records(self.callbacks)
+                    if (json.loads(callback['argv'][-1])['thread-id'], json.loads(callback['argv'][-1])['turn-id'])
+                    == (stop['session_id'], stop['turn_id'])]
+        self.until(matching, 'matching native root notify callback')
+        callback = matching()[0]
+        # Wait for the actual notify dispatcher to exit. The original callback
+        # runs first; observing its log alone can race the optional reporter.
+        def callback_exited():
+            try: os.kill(callback['parent'], 0); return False
+            except ProcessLookupError: return True
+        self.until(callback_exited, 'notify dispatcher exit')
+        return stop, callback
+
+    def alive(self):
+        self.assertEqual(self.tmux('display-message','-p','-t',self.pane,'#{pane_pid}'), self.owner)
+        self.assertEqual(self.tmux('display-message','-p','-t',self.pane,'#{pane_dead}'), '0')
+        os.kill(int(self.owner), 0)
+        os.kill(self.native, 0)
+
+    def test_native_worker_accepted_candidate_precedes_notify_and_provider_stays_alive(self):
+        self.submit(); first, callback = self.finished(0)
+        self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'accepted root notify establishes readiness')
+        self.assertNotIn('goal', first); self.assertNotIn('background_tasks', first); self.assertNotIn('session_crons', first)
+        self.assertEqual(first['hook_event_name'], 'Stop')
+        self.assertEqual(callback['argv'][:2], ['turn-ended','literal\nargument'])
+        native = json.loads(callback['argv'][2])
+        self.assertEqual((native['thread-id'],native['turn-id']), (first['session_id'],first['turn_id']))
+        self.assertEqual(native['type'], 'agent-turn-complete')
+        self.assertEqual(len(callback['candidates']), 1, 'native notify preceded accepted Stop candidate')
+        self.assertEqual(self.store()['outbox'], [])
+        self.subscribe('device-11111111')
+        before = len(self.records(self.stop_payloads))
+        self.submit(); self.finished(before)
+        self.until(lambda: len(self.store()['outbox']) == 1, 'one completion after subscription')
+        self.assertEqual(self.store()['codex_candidates'], [])
+        # Native auxiliary title callbacks are real, and keep the original
+        # chain, but have no root Stop and cannot produce an extra delivery.
+        self.until(lambda: any(json.loads(item['argv'][-1])['thread-id'] != first['session_id']
+                               for item in self.records(self.callbacks)), 'native auxiliary title callback')
+        self.assertEqual(len(self.store()['outbox']), 1)
+        self.alive()
+
+    def test_native_controller_block_continues_without_candidate_then_accepts(self):
+        self.submit(); self.finished(0)
+        self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'controller readiness')
+        self.subscribe('device-11111111')
+        reports = self.fmhome / 'notify'; reports.mkdir(exist_ok=True)
+        report = reports / '1-worker.json'
+        report.write_text(json.dumps(dict(task='worker', text='unread fixture report', panel='fixture')))
+        before = len(self.requests)
+        self.submit()
+        self.until(lambda: len(self.requests) >= before + 2, 'Stop block must start real continuation')
+        self.assertEqual(len(self.records(self.stop_payloads)), 2)
+        self.assertEqual(self.store()['codex_candidates'], [])
+        self.assertEqual(self.store()['outbox'], [])
+        self.assertFalse(self.records(self.stop_payloads)[-1]['stop_hook_active'])
+        report.unlink()
+        self.responses.put('complete')
+        stop, callback = self.finished(2)
+        self.assertTrue(stop['stop_hook_active'])
+        self.assertEqual(len(callback['candidates']), 1)
+        self.until(lambda: len(self.store()['outbox']) == 1, 'accepted continuation completion')
+        self.alive()
+
+    def exercise_suppression(self, quiet=False):
+        self.submit(); self.finished(0)
+        self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'readiness')
+        self.subscribe('device-11111111')
+        effort = self.fmhome / 'efforts' / (self.task.replace(':', '%3A') + '.json')
+        update = self.fmhome / 'provider-updates/state.json'
+        lock = self.fmhome / 'panel-locks/fixture'
+        taskfile = self.fmhome / 'tasks/worker.json'
+        cases = [(effort, dict(pending=dict(status='scheduled', agent='codex', effort='high', token='fixture'))),
+                 (update, dict(current=dict(provider='codex', status='stopping', stopping_task=self.task))),
+                 (update, None), (lock, {})]
+        if quiet: cases.insert(0, (taskfile, dict(id='worker',agent='codex',quiet=True)))
+        for path, state in cases:
+            with self.subTest(state=str(path.relative_to(self.fmhome)), value=state):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                original = path.read_text() if path.exists() else None
+                path.write_text(json.dumps(state))
+                before = len(self.records(self.stop_payloads))
+                self.submit(); _, callback = self.finished(before)
+                self.assertEqual(callback['candidates'], [])
+                self.assertEqual(self.store()['codex_candidates'], [])
+                self.assertEqual(self.store()['outbox'], [])
+                if original is None: path.unlink()
+                else: path.write_text(original)
+                self.alive()
+        before = len(self.records(self.stop_payloads))
+        self.submit('error')
+        self.until(lambda: 'fixture error' in self.screen(), 'native failed model response')
+        self.assertEqual(len(self.records(self.stop_payloads)), before)
+        self.assertEqual(self.store()['codex_candidates'], [])
+        self.assertEqual(self.store()['outbox'], [])
+        self.alive()
+
+    def test_native_worker_quiet_lifecycle_unknown_and_error_never_complete(self):
+        self.exercise_suppression(quiet=True)
+
+    def test_native_controller_lifecycle_unknown_and_error_never_complete(self):
+        self.exercise_suppression()
 
 
 if __name__ == '__main__':

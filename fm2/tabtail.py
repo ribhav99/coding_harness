@@ -82,11 +82,11 @@ def sole_trusted_stop(inventory, expected, require_trust=True):
     for hook in entry['hooks']:
         if hook.get('enabled') is not True:
             continue
-        # Async hooks can still have work in flight after Stop. Unsupported in
-        # this pilot, even when unrelated to Stop. Never disable them.
-        if hook.get('async') is True:
-            return False
+        # Only Stop gates decide this boundary. Unrelated async work does
+        # not change whether the current root turn has ended.
         if hook.get('eventName') == 'stop':
+            if hook.get('async') is True:
+                return False
             stops.append(hook)
     return len(stops) == 1 and all(
         hook.get('handlerType') == 'command' and shlex.split(hook.get('command', '')) == expected and
@@ -130,7 +130,7 @@ def launch(command):
             '--enable', '--disable') or arg.startswith(('--profile=', '--cd=', '--config=',
             '--enable=', '--disable=')) for arg in command[1:]):
         raise ValueError('TabTail requires local codex --no-daemon, exact resumes and normal hook trust')
-    print('firstmate: TabTail pilot requires provider background/goal evidence; missing evidence keeps alerts unavailable. Review exact hooks with /hooks.', file=sys.stderr)
+    print('firstmate: TabTail root-turn pilot enabled for this launch. Review exact hooks with /hooks.', file=sys.stderr)
     try:
         from relay_adapter import notification_agent, notification_claude_dispatcher, notification_hook  # noqa: F401
     except Exception:

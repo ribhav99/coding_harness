@@ -30,7 +30,7 @@ function fixture(t) {
     rmSync(home, { recursive: true, force: true });
   });
   const payload = { hook_event_name: 'Stop', session_id: 'session-11111111', turn_id: 'turn-11111111',
-    last_assistant_message: 'Built the fixture.', background_tasks: [], session_crons: [], goal: null };
+    last_assistant_message: 'Built the fixture.', stop_hook_active: false };
   const hook = (kind, input = payload, env = {}, initial = '') => {
     const outcome = join(home, 'outcome');
     writeFileSync(outcome, initial);
@@ -61,12 +61,13 @@ for (const kind of ['worker', 'supervisor']) {
       assert.equal(readdirSync(join(f.home, 'notify')).length, 1, 'existing report was lost');
     }
   });
+  test(`${kind}: unrelated background work and active goals do not redefine the root turn`, t => {
+    const f = fixture(t);
+    const result = f.hook(kind, { ...f.payload, goal: { status: 'active' },
+      background_tasks: [{ status: 'running' }], session_crons: [{ id: 'wake' }] });
+    assert.deepEqual(JSON.parse(result.outcome), { version: 1, outcome: 'completed' });
+  });
   const rejected = {
-    'missing background evidence': p => { delete p.background_tasks; },
-    'running background tool': p => { p.background_tasks = [{ status: 'running' }]; },
-    'scheduled wake': p => { p.session_crons = [{ id: 'wake' }]; },
-    'unknown goal registry': p => { delete p.goal; },
-    'active native goal': p => { p.goal = { status: 'active' }; },
     'permission wait': p => { p.permission_request = {}; },
     'attention': p => { p.attention = true; },
     'error': p => { p.error = 'fixture'; },

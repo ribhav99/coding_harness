@@ -66,14 +66,14 @@ export function completedStop(payload, { task, agent, panel, accepted = true } =
         payload?.hook_event_name !== 'Stop' || typeof payload.session_id !== 'string' || !payload.session_id ||
         !['codex', 'claude'].includes(agent) || process.env.TABTAIL_AGENT_PROVIDER !== agent ||
         !process.env.TABTAIL_AGENT_PID || !process.env.TABTAIL_RUN) return;
-    if (agent === 'codex' && (!Object.hasOwn(payload, 'goal') ||
-        (payload.goal !== null && payload.goal?.status !== 'complete') ||
-        process.env.TABTAIL_CODEX_EMBEDDED !== '1' ||
+    // Codex Stop identifies the current root turn. The released dispatcher
+    // pairs this accepted candidate with native agent-turn-complete; goals and
+    // unrelated background work are not part of that turn-end contract.
+    if (agent === 'codex' && (process.env.TABTAIL_CODEX_EMBEDDED !== '1' ||
         typeof payload.turn_id !== 'string' || !payload.turn_id)) return;
-    // Provider evidence only. Current CLIs may omit these fields; omission is
-    // unsupported, never a fabricated empty background registry.
-    if (!Array.isArray(payload.background_tasks) || payload.background_tasks.length ||
-        !Array.isArray(payload.session_crons) || payload.session_crons.length) return;
+    // Claude's released accepted-stop contract still requires real registries.
+    if (agent === 'claude' && (!Array.isArray(payload.background_tasks) || payload.background_tasks.length ||
+        !Array.isArray(payload.session_crons) || payload.session_crons.length)) return;
     if (['agent_id', 'agent_type', 'agent_transcript_path', 'error', 'error_details', 'interrupted',
       'cancelled', 'attention', 'permission_request'].some(key => Object.hasOwn(payload, key))) return;
     if (payload.decision === 'block' || payload.continue === false) return;
