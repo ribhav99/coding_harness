@@ -21,9 +21,12 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { renderPage, findingId, ACCEPTED } from './lib/render.mjs';
+import { embeddedHtml, assertPageSize } from './lib/page.mjs';
+import { isDesign, designQuestions, parseDesignFeedback } from './lib/design.mjs';
 import { buildStamp } from './lib/build.mjs';
 import {
   lookup,
+  withRegistryLock,
   writeDecisions,
   listReviews,
   readReview,
@@ -111,6 +114,8 @@ function validate(spec, payload) {
     problems.push(`unknown mode "${payload.mode}"`);
   }
 
+  const design = isDesign(spec);
+  if (design && payload.mode !== 'comment') problems.push('design feedback cannot authorize branch changes');
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
   if (payload.findings != null && (typeof payload.findings !== 'object' || Array.isArray(payload.findings))) problems.push('findings must be an object');
   const decided = payload.findings && typeof payload.findings === 'object' && !Array.isArray(payload.findings) ? payload.findings : {};
@@ -130,6 +135,18 @@ function validate(spec, payload) {
       problems.push(`finding ${id} is set to "${choice.decision}" with an empty comment`);
     }
   });
+  for (const question of designQuestions(spec)) {
+    ids.add(question.id);
+    const choice = Object.hasOwn(decided, question.id) ? decided[question.id] : null;
+    const feedback = parseDesignFeedback(choice?.comment);
+    if (choice?.decision !== 'summary' || typeof choice?.comment !== 'string' || choice.comment.length > 65536 || !feedback ||
+        (feedback.choice !== null && !question.options.some(o => o.id === feedback.choice))) {
+      problems.push(`design question ${question.id} needs a valid choice and feedback record`);
+    } else if (String(payload.verdict).startsWith('approve') && feedback.choice === null) {
+      problems.push(`choose a design for ${question.id} before approving`);
+    }
+  }
+  if (design && payload.nits != null) problems.push('design feedback cannot carry nits');
   if (Object.keys(decided).some(id => !ids.has(id))) problems.push('decisions contain an unknown finding');
   if (payload.nits != null && !ACCEPTED.nits.includes(payload.nits)) problems.push('invalid nits decision');
   if (payload.message != null && (typeof payload.message !== 'string' || payload.message.length > 65536)) problems.push('invalid reviewer message');
@@ -155,26 +172,44 @@ async function submit(entry, round, payload) {
       .map(([id, choice]) => [id, { decision: choice.decision, comment: choice.comment }])),
     nits: payload.nits ?? null, message: payload.message ?? '' };
   const hash = createHash('sha256').update(JSON.stringify({ round, ...content })).digest('hex');
-  const previous = readReceipt(entry, payload.submission_id);
-  if (previous && previous.hash !== hash) return { code: 409, body: { error: 'This submission id already belongs to different decisions.' } };
   const key = `${entry.id}/${payload.submission_id}`;
-  if (submitting.has(key)) return submitting.get(key);
-  if (previous && previous.phase !== 'reserved') return { code: 200, body: previous.result };
-  const current = readReview(entry);
-  if (current.round !== round) return { code: 409, body: { error: 'This review changed before it could be saved. Reload the latest round.' } };
-  if (current.decided && current.decided.submission_id !== payload.submission_id)
-    return { code: 409, body: { error: 'Decisions were already saved for this round. Reload to see them before continuing.' } };
-  const operation = (async () => {
+  const pending = submitting.get(key);
+  if (pending) return pending.hash === hash ? pending.promise :
+    { code: 409, body: { error: 'This submission id already belongs to different decisions.' } };
+  // Registration and decision commits share a cross-process lock. A POST may
+  // have waited for its body while the owner published different media, so both
+  // the generation and the pane binding must come from the current registry.
+  const prepared = withRegistryLock(() => {
+    entry = lookup(entry.id);
+    if (!entry) return { response: { code: 404, body: { error: 'This review is not registered.' } } };
+    if (!existsSync(entry.spec)) return { response: { code: 410, body: { error: closedMessage(entry.id) } } };
+    const current = readReview(entry);
+    if (current.round !== round) return { response: { code: 409, body: { error: 'This review changed before it could be saved. Reload the latest round.' } } };
+    const previous = readReceipt(entry, payload.submission_id);
+    if (previous && previous.hash !== hash) return { response: { code: 409, body: { error: 'This submission id already belongs to different decisions.' } } };
+    if (previous && previous.phase !== 'reserved') return { response: { code: 200, body: previous.result } };
+    if (current.decided && current.decided.submission_id !== payload.submission_id)
+      return { response: { code: 409, body: { error: 'Decisions were already saved for this round. Reload to see them before continuing.' } } };
+    if (current.images.length) {
+      try {
+        assertPageSize({ html: embeddedHtml(current.spec, { id: entry.id, images: current.images, round, decided: { ...content, submitted_at: new Date().toISOString() } }) }, 4096);
+      } catch (error) { return { response: { code: 413, body: { error: error.message } } }; }
+    }
     const path = receiptPath(entry, payload.submission_id);
     atomicJson(path, { hash, round, phase: 'reserved' });
     const submitted_at = new Date().toISOString();
-      // `_fields` travels with the decisions because the reviewer reads this file
-      // long after its brief, often across a compaction, and the two names are
-      // close enough to swap: a reviewer once read `mode: comment` as "post a
-      // COMMENTED review" and withheld an approval Ribhav had given in
-      // `verdict`. The file has to say which is which at the point it is read.
+    // `_fields` travels with the decisions because the reviewer reads this file
+    // long after its brief, often across a compaction, and the two names are
+    // close enough to swap: a reviewer once read `mode: comment` as "post a
+    // COMMENTED review" and withheld an approval Ribhav had given in
+    // `verdict`. The file has to say which is which at the point it is read.
     const record = {
-      _fields: {
+      ...(isDesign(current.spec) ? { review_type: 'design' } : {}),
+      _fields: isDesign(current.spec) ? {
+        mode: 'Always comment. Design feedback never authorizes code edits, GitHub reviews or merging.',
+        verdict: 'Design approval/change/discussion feedback only, not a PR verdict.',
+        findings: 'Design question IDs, not code findings. Each summary comment is JSON {choice: option ID or null, comment: exact user feedback}. Resolve option/media references against this round of the spec.',
+      } : {
         mode: 'comment = never touch the branch; change = apply approved fixes. Not a review action.',
         verdict: "Ribhav's call on the PR, and the review action to post.",
       },
@@ -183,9 +218,15 @@ async function submit(entry, round, payload) {
     const written = writeDecisions(entry, record);
     // Commit a durable receipt before notification. Retrying a send whose
     // acknowledgment was lost must never type into the worker a second time.
-    let result = { status: 'saved', submission_id: payload.submission_id, submitted_at,
+    const result = { status: 'saved', submission_id: payload.submission_id, submitted_at,
       woke: false, reason: 'Saved; reviewer notification was not confirmed.' };
     atomicJson(path, { hash, round, phase: 'saved', result });
+    return { path, written, result };
+  });
+  if (prepared.response) return prepared.response;
+  const { path, written } = prepared;
+  const operation = (async () => {
+    let result = prepared.result;
     const identity = paneIdentity(entry.pane, entry.pane_socket);
     const woke = entry.pane_identity && identity === entry.pane_identity
       ? await wakePane(entry.pane, `Ribhav has decided on this review. Read ${written} and act on it.`, { identity, socket: entry.pane_socket })
@@ -194,7 +235,7 @@ async function submit(entry, round, payload) {
     atomicJson(path, { hash, round, phase: 'done', result });
     return { code: 200, body: result };
   })();
-  submitting.set(key, operation);
+  submitting.set(key, { hash, promise: operation });
   try { return await operation; } finally { submitting.delete(key); }
 }
 
@@ -244,14 +285,15 @@ async function handle(req, res) {
     const entry = lookup(decodeURIComponent(bundleMatch[1]));
     if (!entry) return json(res, 404, { error: 'This review is not registered.' });
     if (!existsSync(entry.spec)) return json(res, 410, { error: closedMessage(entry.id) });
-    const review = readReview(entry);
-    const { spec, round, decided } = review;
-    const html = renderPage(spec, { id: entry.id, round, decided, embedded: {
-      css: readFileSync(join(STATIC, 'surface.css'), 'utf8'),
-      js: readFileSync(join(STATIC, 'surface.js'), 'utf8'),
-    } });
-    return json(res, 200, { ...summary(entry, review), html,
-      receipt: decided?.submission_id ? readReceipt(entry, decided.submission_id)?.result || null : null });
+    let review;
+    try { review = readReview(entry); }
+    catch (error) { return json(res, 422, { error: `This review's media or spec is unavailable: ${error.message}. Ask its owning worker to repair and reopen it.` }); }
+    const { spec, images, round, decided } = review;
+    const html = embeddedHtml(spec, { id: entry.id, round, decided, images });
+    const bundle = { ...summary(entry, review), html,
+      receipt: decided?.submission_id ? readReceipt(entry, decided.submission_id)?.result || null : null };
+    try { assertPageSize(bundle); } catch (error) { return json(res, 413, { error: error.message }); }
+    return json(res, 200, bundle);
   }
 
   if (path.startsWith('/static/')) {
@@ -282,7 +324,7 @@ async function handle(req, res) {
       // A malformed spec is the review's bug, and saying so beats a blank page.
       return send(res, 500, 'text/plain', `the review spec for "${id}" is not valid JSON: ${err.message}`);
     }
-    return send(res, 200, 'text/html; charset=utf-8', renderPage(review.spec, { id, round: review.round, decided: review.decided }));
+    return send(res, 200, 'text/html; charset=utf-8', renderPage(review.spec, { id, round: review.round, decided: review.decided, images: review.images }));
   }
 
   const apiMatch = path.match(/^\/api\/([^/]+)\/decisions$/);

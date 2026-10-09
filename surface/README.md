@@ -106,6 +106,14 @@ someone else's session, so three things guard it:
 - Moving a review to a new pane is legitimate, since reviews get respawned, but
   it is reported rather than done silently.
 
+## Images and standalone design feedback
+
+Attach private PNG/JPEG screenshots with the `media` schema, or collect actual
+design choices without a PR using `review_type: "design"`. See the
+[agent recipe, limits, runnable example and activation plan](DESIGN_REVIEWS.md).
+Images are immutable snapshots bundled in the existing phone response; local
+file links and external image URLs are not transported.
+
 ## The spec
 
 A review writes JSON; the page is generated from it. Reviews do not write HTML,

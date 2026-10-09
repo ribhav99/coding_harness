@@ -29,3 +29,7 @@ format. The following adapts invocation to Codex and the current fm task.
 - Write the outcome where the brief requires and finish with the result, PR URL,
   and outstanding decisions. Let the controller handle authorized announcements
   and task closure after verifying remote state.
+
+Product screenshot attachments use the [image review recipe](../../../surface/DESIGN_REVIEWS.md).
+Standalone design feedback uses its own schema and must not enter the code-fix
+or GitHub-review steps. Keep the owning-worker remote open/stop/read lifecycle.

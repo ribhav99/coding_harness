@@ -14,6 +14,8 @@
   const form = document.getElementById('decisions');
   if (!form) return;
 
+  const design = form.dataset.design === 'true';
+  let mediaReady = !document.querySelector('.review-image');
   const reviewId = form.dataset.review;
   const round = form.dataset.round;
   const native = form.dataset.embedded === 'true';
@@ -33,9 +35,9 @@
   }
 
   function updateButton() {
-    button.disabled = busy || !connected || sent;
-    button.textContent = busy ? 'Sending…' : !connected ? 'Reconnect to send' : sent ? 'Decisions saved' :
-      currentMode() === 'change' ? 'Send to reviewer (will change the branch)' : 'Send to reviewer';
+    button.disabled = busy || !connected || sent || !mediaReady;
+    button.textContent = !mediaReady ? 'Waiting for images…' : busy ? 'Sending…' : !connected ? 'Reconnect to send' : sent ? 'Decisions saved' :
+      design ? 'Send design feedback' : currentMode() === 'change' ? 'Send to reviewer (will change the branch)' : 'Send to reviewer';
   }
 
   function findingIds() {
@@ -81,6 +83,15 @@
         comment: (data.get(id + '-comment') || '').trim(),
       };
     }
+    if (design) {
+      for (const q of document.querySelectorAll('.design-question')) {
+        const id = q.dataset.question;
+        findings[id] = { decision: 'summary', comment: JSON.stringify({
+          choice: data.get(id + '-choice') || null,
+          comment: (data.get(id + '-feedback') || '').trim(),
+        }) };
+      }
+    }
     return {
       mode,
       verdict: data.get('verdict'),
@@ -97,6 +108,12 @@
     for (const [id, choice] of Object.entries(payload.findings)) {
       if (!choice.decision) {
         found.push({ text: 'Finding ' + id + ' has no decision.', anchor: 'card-' + id });
+        continue;
+      }
+      if (design) {
+        const feedback = JSON.parse(choice.comment);
+        if (payload.verdict.startsWith('approve') && !feedback.choice)
+          found.push({ text: 'Choose a design for ' + id + ' before approving.', anchor: 'question-' + id });
         continue;
       }
       // A finding being raised has to carry words. Dropping one does not.
@@ -175,6 +192,14 @@
         const textarea = form.elements.namedItem(id + '-comment');
         if (textarea && typeof decision.comment === 'string') textarea.value = decision.comment;
       }
+      if (design) for (const q of document.querySelectorAll('.design-question')) {
+        const id = q.dataset.question, record = value.findings && value.findings[id];
+        try {
+          const feedback = JSON.parse(record.comment);
+          choose(id + '-choice', feedback.choice || '');
+          if (typeof feedback.comment === 'string') form.elements.namedItem(id + '-feedback').value = feedback.comment;
+        } catch { /* ignore an invalid draft, never infer approval */ }
+      }
       if (typeof value.message === 'string') form.elements.namedItem('message').value = value.message;
       applyMode();
     } else if (message.type === 'result') {
@@ -194,7 +219,7 @@
 
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
-    if (busy || sent || !connected) return;
+    if (busy || sent || !connected || !mediaReady) return;
     const payload = collect();
     const found = problems(payload);
     if (found.length) {
@@ -240,6 +265,48 @@
       updateButton();
     }
   });
+  // A malformed raster is visible as an error and cannot be accidentally
+  // approved. This also catches formats a particular WebView cannot decode.
+  const images = Array.from(document.querySelectorAll('.review-image'));
+  function checkImages() {
+    mediaReady = images.every(img => img.complete && img.naturalWidth > 0);
+    for (const img of images) {
+      const failed = img.complete && !img.naturalWidth;
+      img.closest('figure').querySelector('.image-error').hidden = !failed;
+      img.closest('figure').querySelector('.enlarge').disabled = failed;
+    }
+    updateButton();
+  }
+  for (const img of images) {
+    img.addEventListener('load', checkImages);
+    img.addEventListener('error', checkImages);
+  }
+  checkImages();
+  for (const reference of document.querySelectorAll('.media-reference')) reference.addEventListener('click', () => {
+    document.getElementById('media-' + reference.dataset.ref)?.scrollIntoView({ block: 'start' });
+  });
+  const viewer = document.getElementById('image-viewer');
+  if (viewer) {
+    const full = document.getElementById('full-image');
+    const scroll = viewer.querySelector('.image-scroll');
+    let scale = 1;
+    function sizeImage() {
+      full.style.width = Math.round(scroll.clientWidth * scale) + 'px';
+      document.getElementById('image-scale').textContent = scale + '× fit';
+    }
+    for (const control of document.querySelectorAll('.enlarge')) control.addEventListener('click', () => {
+      const img = images.find(image => image.dataset.media === control.dataset.image);
+      if (!img || !img.naturalWidth) return;
+      full.src = img.src; full.alt = img.alt;
+      document.getElementById('image-title').textContent = img.closest('figure').querySelector('h3').textContent;
+      scale = 1;
+      viewer.showModal(); sizeImage(); scroll.scrollTo(0, 0);
+    });
+    document.getElementById('image-close').addEventListener('click', () => viewer.close());
+    document.getElementById('image-plus').addEventListener('click', () => { scale = Math.min(8, scale * 2); sizeImage(); });
+    document.getElementById('image-minus').addEventListener('click', () => { scale = Math.max(1, scale / 2); sizeImage(); });
+    window.addEventListener('resize', () => { if (viewer.open) sizeImage(); });
+  }
   if (sent) showSent('Your decisions have already been saved on the Mac.');
   post('ready', {});
 })();

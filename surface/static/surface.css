@@ -168,3 +168,23 @@ button#send:disabled { opacity: .5; cursor: default; }
 .mode { margin-top: 32px; }
 .mode-note { font-size: 13px; color: var(--ink-dim); margin-top: 10px; }
 .mode-note.warn { color: var(--bad); }
+
+/* Galleries stack on phones, with an independent scrollable enlargement. */
+.gallery { margin-top: 32px; }
+.media-card, .design-question { margin: 18px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.media-card figcaption { margin-bottom: 12px; }
+.review-image { display: block; width: 100%; height: auto; max-height: 65vh; object-fit: contain; background: var(--bg); }
+.gallery button, .viewer-controls button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--panel-2); font: inherit; cursor: pointer; }
+.enlarge { margin-top: 12px; }
+.image-error { color: var(--bad); }
+.design-question .choices { margin: 12px 0; }
+.design-question label:not(.choice) { display: block; margin-top: 12px; }
+.option-refs { margin: 8px 0; }
+.media-reference { color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-height: 44px; font: inherit; cursor: pointer; }
+.design-note { margin-top: 24px; color: var(--ink-dim); }
+#image-viewer { width: 96vw; max-width: 1200px; max-height: 94vh; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); }
+#image-viewer::backdrop { background: #000b; }
+.viewer-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#image-title { margin: 8px 0; overflow-wrap: anywhere; }
+.image-scroll { overflow: auto; max-height: 70vh; overscroll-behavior: contain; }
+#full-image { display: block; max-width: none; height: auto; }
