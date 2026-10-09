@@ -277,8 +277,13 @@ export function configurePanelQuotaStatus(panel, agent, {
       if (enabled && panelHasCodexSession(panel, fm2Home)) return true;
       const base = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base']);
       const baseLength = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-length']);
-      const baseWasLocal = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-local']) === '1';
-      const lengthWasLocal = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-length-local']) === '1';
+      // Older installs could save the quota command itself as the local base.
+      // As on opt-in repair, fall back to inherited options for that old state.
+      const legacyBase = base.includes('quota-status.mjs');
+      const baseWasLocal = !legacyBase
+        && read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-local']) === '1';
+      const lengthWasLocal = !legacyBase
+        && read(['show-option', '-qv', '-t', panel, '@fm-quota-status-length-local']) === '1';
       set(baseWasLocal ? ['-t', panel, 'status-right', base] : ['-u', '-t', panel, 'status-right']);
       set(lengthWasLocal
         ? ['-t', panel, 'status-right-length', baseLength]

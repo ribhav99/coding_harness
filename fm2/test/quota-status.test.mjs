@@ -309,6 +309,40 @@ test('real tmux fallback requires exact opt-in and restores inherited, local and
   }
 });
 
+test('default-off removes a marked legacy quota base and restores inherited tmux options', (t) => {
+  const { tmux } = privateTmux(t);
+  const show = (option, local = false) => execFileSync('tmux', [
+    'show-option', ...(local ? ['-q'] : ['-A', '-qv']), '-t', 'fixture', option,
+  ], { encoding: 'utf8' }).replace(/\r?\n$/, '');
+  tmux(['set-option', '-g', 'status-right', 'CLOCK  ']);
+  tmux(['set-option', '-g', 'status-right-length', '40']);
+  for (const agent of ['codex', 'claude']) {
+    for (const disabled of [null, '0', 'true']) {
+      tmux(['set-option', '-u', '-t', 'fixture', '@fm-quota-status-enabled']);
+      if (disabled !== null) tmux(['set-option', '-t', 'fixture', '@fm-quota-status-enabled', disabled]);
+      for (const [option, value] of Object.entries({
+        'status-right': "#('node' 'quota-status.mjs') CLOCK  ",
+        'status-right-length': '160',
+        '@fm-quota-status-base': "#('node' 'quota-status.mjs') CLOCK  ",
+        '@fm-quota-status-base-length': '96',
+        '@fm-quota-status-base-local': '1',
+        '@fm-quota-status-length-local': '1',
+        '@fm-quota-status-active': '1',
+      })) tmux(['set-option', '-t', 'fixture', option, value]);
+      assert.equal(configurePanelQuotaStatus('fixture', agent), true);
+      assert.equal(show('status-right'), 'CLOCK  ');
+      assert.equal(show('status-right-length'), '40');
+      for (const option of ['status-right', 'status-right-length', '@fm-quota-status-base',
+        '@fm-quota-status-base-length', '@fm-quota-status-base-local',
+        '@fm-quota-status-length-local', '@fm-quota-status-active']) {
+        assert.equal(show(option, true), '', `${option} remained after legacy cleanup`);
+      }
+      assert.equal(configurePanelQuotaStatus('fixture', 'codex'), true);
+      assert.equal(show('status-right'), 'CLOCK  ');
+    }
+  }
+});
+
 test('a panel-local tmux status is restored byte-for-byte', () => {
   const local = new Map([
     ['@fm-quota-status-enabled', '1'],
