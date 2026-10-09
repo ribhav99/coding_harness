@@ -271,7 +271,9 @@ export function configurePanelQuotaStatus(panel, agent, {
       set(['-t', panel, 'status-right-length', String(Math.max(160, Number(baseLength) || 0))]);
     } else {
       const active = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-active']) === '1';
-      if (!active) return true;
+      const unmarkedLegacy = !active
+        && read(['show-option', '-qv', '-t', panel, 'status-right']).includes('quota-status.mjs');
+      if (!active && !unmarkedLegacy) return true;
       // Preserve an explicitly enabled shared bar while Codex workers remain,
       // including when this hook belongs to a Claude controller.
       if (enabled && panelHasCodexSession(panel, fm2Home)) return true;
@@ -279,7 +281,7 @@ export function configurePanelQuotaStatus(panel, agent, {
       const baseLength = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-length']);
       // Older installs could save the quota command itself as the local base.
       // As on opt-in repair, fall back to inherited options for that old state.
-      const legacyBase = base.includes('quota-status.mjs');
+      const legacyBase = unmarkedLegacy || base.includes('quota-status.mjs');
       const baseWasLocal = !legacyBase
         && read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-local']) === '1';
       const lengthWasLocal = !legacyBase

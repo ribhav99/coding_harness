@@ -309,7 +309,7 @@ test('real tmux fallback requires exact opt-in and restores inherited, local and
   }
 });
 
-test('default-off removes a marked legacy quota base and restores inherited tmux options', (t) => {
+test('default-off removes marked and unmarked legacy quota bars and restores inherited tmux options', (t) => {
   const { tmux } = privateTmux(t);
   const show = (option, local = false) => execFileSync('tmux', [
     'show-option', ...(local ? ['-q'] : ['-A', '-qv']), '-t', 'fixture', option,
@@ -317,7 +317,10 @@ test('default-off removes a marked legacy quota base and restores inherited tmux
   tmux(['set-option', '-g', 'status-right', 'CLOCK  ']);
   tmux(['set-option', '-g', 'status-right-length', '40']);
   for (const agent of ['codex', 'claude']) {
-    for (const disabled of [null, '0', 'true']) {
+    for (const [disabled, marked] of [
+      [null, true], ['0', true], ['true', true],
+      [null, false], ['0', false], ['true', false],
+    ]) {
       tmux(['set-option', '-u', '-t', 'fixture', '@fm-quota-status-enabled']);
       if (disabled !== null) tmux(['set-option', '-t', 'fixture', '@fm-quota-status-enabled', disabled]);
       for (const [option, value] of Object.entries({
@@ -328,7 +331,10 @@ test('default-off removes a marked legacy quota base and restores inherited tmux
         '@fm-quota-status-base-local': '1',
         '@fm-quota-status-length-local': '1',
         '@fm-quota-status-active': '1',
-      })) tmux(['set-option', '-t', 'fixture', option, value]);
+      })) {
+        if (!marked && option.startsWith('@')) continue;
+        tmux(['set-option', '-t', 'fixture', option, value]);
+      }
       assert.equal(configurePanelQuotaStatus('fixture', agent), true);
       assert.equal(show('status-right'), 'CLOCK  ');
       assert.equal(show('status-right-length'), '40');
