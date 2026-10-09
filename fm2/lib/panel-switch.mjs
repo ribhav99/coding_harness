@@ -33,9 +33,9 @@ function stopPane(pane, entry) {
     launchPid: entry.targetLaunch === true ? entry.targetLaunchPid ?? null : null });
 }
 
-function startPane(pane, cwd, command, agent, { onLaunch = () => {} } = {}) {
+function startPane(pane, cwd, command, agent, { onLaunch = () => {}, id = process.env.FM2_TASK } = {}) {
   tmux(['respawn-pane', '-k', '-t', pane, '-c', cwd, command]);
-  if (tabtailEnabled(agent)) {
+  if (tabtailEnabled(agent, id)) {
     const launchPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
     onLaunch(launchPid);
     assertProviderStarted(pane, pane, agent, { waitMs: 6000, launchPid });
@@ -184,7 +184,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     for (const entry of [...manifest.entries.filter((entry) => !entry.controller), control]) {
       started.push(entry);
       runtime.start(paneMap[entry.pane], entry.task.worktree, entry.command, manifest.agent,
-        { onLaunch: (pid) => { entry.targetLaunchPid = pid; } });
+        { id: entry.task.id, onLaunch: (pid) => { entry.targetLaunchPid = pid; } });
     }
     runtime.tmux(['set-option', '-t', manifest.from, '@fm-successor', manifest.to]);
     runtime.tmux(['set-option', '-t', manifest.to, '@fm-agent', manifest.agent]);
@@ -212,7 +212,7 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     recordSupervisor(control.pane, { panel: manifest.from, task: control.task.id, agent: control.from, cwd: control.task.worktree });
     for (const entry of stopped) {
       if (recovery.some((problem) => problem.startsWith(`target ${entry.task.id}:`))) continue;
-      try { runtime.start(entry.pane, entry.task.worktree, commandFor(entry, entry.from, manifest.from, null, entry.source.id), entry.from); }
+      try { runtime.start(entry.pane, entry.task.worktree, commandFor(entry, entry.from, manifest.from, null, entry.source.id), entry.from, { id: entry.task.id }); }
       catch (failure) { recovery.push(`source ${entry.task.id}: ${failure.message}`); }
     }
     if (paneMap && !recovery.length) { try { runtime.tmux(['kill-session', '-t', manifest.to]); } catch {} }

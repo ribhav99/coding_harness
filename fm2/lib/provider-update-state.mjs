@@ -7,6 +7,7 @@ import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
 import { writeJson, writeJsonAtomic } from './json-file.mjs';
+import { tabtailCleanPrefix } from './tabtail.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPLY = join(dirname(HERE), 'provider-update-apply.mjs');
@@ -101,7 +102,7 @@ export function schedulePendingProviderUpdate(requestedBy, requesterAgent, {
   if (!current || current.status !== 'requested' || current.requested_by !== requestedBy
       || current.requester_agent !== normalizeAgent(requesterAgent)) return null;
   const command =
-    `FM2_HOME=${shellQuote(home())} ${shellQuote(process.execPath)} ${shellQuote(APPLY)} ` +
+    `${tabtailCleanPrefix()} -u FM2_TASK FM2_HOME=${shellQuote(home())} ${shellQuote(process.execPath)} ${shellQuote(APPLY)} ` +
     `${shellQuote(current.provider)} ${shellQuote(current.token)} ${shellQuote(hookPid)}`;
   const scheduled = { ...current, status: 'scheduled', scheduled_at: new Date().toISOString() };
   writeState({ ...state, current: scheduled });

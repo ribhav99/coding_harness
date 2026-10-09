@@ -6,7 +6,7 @@
 // machine with Slack and a home machine without it, against projects that track
 // work three different ways.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -57,6 +57,10 @@ export function removeTask(id) {
   const f = taskFile(id);
   if (existsSync(f)) {
     writeFileSync(join(dir('closed'), `${id}.json`), readFileSync(f));
+    // A non-directory parent means no preference exists. Other cleanup
+    // failures retain the active record so closing can be retried safely.
+    try { rmSync(join(home(), 'tabtail-launches', `${encodeURIComponent(id)}.json`), { force: true }); }
+    catch (error) { if (error.code !== 'ENOTDIR') throw error; }
     execFileSync('rm', ['-f', f]);
     return true;
   }

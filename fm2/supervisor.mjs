@@ -12,14 +12,14 @@ import { CLAUDE_MODEL } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
 import { shellQuote } from './lib/shell.mjs';
-import { tabtailEnabled, tabtailStop, tabtailPython, tabtailEnv } from './lib/tabtail.mjs';
+import { tabtailEnabled, tabtailStop, tabtailPython, tabtailEnv, tabtailCleanPrefix, tabtailCleanEnv } from './lib/tabtail.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export function supervisorHookConfig(agent = 'claude') {
+export function supervisorHookConfig(agent = 'claude', id = process.env.FM2_TASK) {
   normalizeAgent(agent);
   const start = { hooks: [{ type: 'command', command: `node ${shellQuote(join(HERE, 'hooks/supervisor-start.mjs'))}` }] };
-  const stop = { hooks: [{ type: 'command', command: tabtailStop(`node ${shellQuote(join(HERE, 'hooks/supervisor-stop.mjs'))}`, agent) }] };
+  const stop = { hooks: [{ type: 'command', command: tabtailStop(`node ${shellQuote(join(HERE, 'hooks/supervisor-stop.mjs'))}`, agent, id) }] };
   return { hooks: { SessionStart: [start],
     UserPromptSubmit: [start], Stop: [stop] } };
 }
@@ -46,23 +46,23 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
   if (!/^controller:[A-Za-z0-9_.-]+$/.test(identity)) throw new Error('invalid controller identity');
   if (resume !== null && (typeof resume !== 'string' || !resume.trim())) throw new Error('resume needs an exact provider session id');
   const reasoning = effort === null ? effortFor(identity, provider) : normalizeEffort(provider, effort);
-  const config = supervisorHookConfig(provider);
+  const config = supervisorHookConfig(provider, identity);
   const args = provider === 'claude'
     ? ['--dangerously-skip-permissions', '--effort', reasoning, '--model', CLAUDE_MODEL,
         ...(hasOnlyLegacyControllerHooks(cwd) ? ['--setting-sources', 'user,local'] : []),
         '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
         ...(resume ? ['resume'] : []),
-        ...(tabtailEnabled() ? ['--no-daemon'] : []), '--no-alt-screen',
+        ...(tabtailEnabled('codex', identity) ? ['--no-daemon'] : []), '--no-alt-screen',
         // Named, not inherited - see codexSessionArgs in lib/launch.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
-        ...codexSessionArgs(reasoning, config.hooks),
+        ...codexSessionArgs(reasoning, config.hooks, identity),
         ...(resume ? [resume] : []),
       ];
   return {
-    command: tabtailEnabled(provider) ? tabtailPython() : providerExecutable(provider),
-    args: tabtailEnabled(provider) ? [join(HERE, 'tabtail.py'), 'launch', '--', providerExecutable(provider), ...args] : args,
-    env: { ...tabtailEnv(provider), FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
+    command: tabtailEnabled(provider, identity) ? tabtailPython(identity) : providerExecutable(provider),
+    args: tabtailEnabled(provider, identity) ? [join(HERE, 'tabtail.py'), 'launch', '--', providerExecutable(provider), ...args] : args,
+    env: { ...tabtailEnv(identity), FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
       ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
   };
 }
@@ -71,7 +71,7 @@ export function supervisorCommand({ briefPath = null, ...options } = {}) {
   const launch = invocation(options);
   const env = Object.entries(launch.env).map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ');
   const args = launch.args.map(shellQuote).join(' ');
-  return `${env} ${shellQuote(launch.command)} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
+  return `${tabtailCleanPrefix()} ${env} ${shellQuote(launch.command)} ${args}${briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : ''}`;
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -88,7 +88,7 @@ export function main(argv = process.argv.slice(2)) {
     process.stderr.write('firstmate: review new or changed lifecycle hooks with /hooks in Codex; untrusted hooks are skipped until approved.\n');
   }
   const result = spawnSync(launch.command, launch.args, {
-    stdio: 'inherit', env: { ...process.env, ...launch.env },
+    stdio: 'inherit', env: { ...tabtailCleanEnv(process.env), ...launch.env },
   });
   if (result.error) throw new Error(`could not start ${launch.command}: ${result.error.message}`);
   return result.status ?? 1;

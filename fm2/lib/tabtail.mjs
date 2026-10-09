@@ -2,31 +2,44 @@
 import { fstatSync, readFileSync, writeSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { home, loadTask } from './config.mjs';
 import { shellQuote } from './shell.mjs';
+import { tabtailChoice, rememberTabtailChoice } from './tabtail-config.mjs';
 
 const BRIDGE = join(dirname(dirname(fileURLToPath(import.meta.url))), 'tabtail.py');
-export const tabtailEnabled = (agent = 'codex') => agent === 'codex' && process.env.FM2_TABTAIL === '1';
-export const tabtailPython = () => join(process.env.FM2_TABTAIL_RELAY || join(homedir(), '.local/share/relay'), 'venv/bin/python');
-export function tabtailStop(command, agent = 'codex') {
-  return tabtailEnabled(agent) ? `${shellQuote(tabtailPython())} ${shellQuote(BRIDGE)} stop -- /bin/sh -c ${shellQuote(command)}` : command;
+// A launch carries only durable selection. Ownership belongs to its new root.
+export const TABTAIL_LAUNCH_STATE = Object.freeze([
+  'TABTAIL_AGENT_PID', 'TABTAIL_AGENT_PROVIDER', 'TABTAIL_CODEX_EMBEDDED',
+  'TABTAIL_RUN', 'TABTAIL_SHELL_PID', 'TABTAIL_STOP_OUTCOME_FD',
+  'FM2_TABTAIL_FINAL', 'FM2_TABTAIL_CODEX', 'FM2_TABTAIL_INITIAL_SOLE_STOP', 'FM2_TABTAIL_BOOTSTRAPPED',
+]);
+export const tabtailEnabled = (agent = 'codex', id = process.env.FM2_TASK) =>
+  agent === 'codex' && tabtailChoice(id).enabled;
+export const tabtailPython = (id = process.env.FM2_TASK) => join(tabtailChoice(id).relay, 'venv/bin/python');
+export function tabtailStop(command, agent = 'codex', id = process.env.FM2_TASK) {
+  return tabtailEnabled(agent, id) ? `${shellQuote(tabtailPython(id))} ${shellQuote(BRIDGE)} stop -- /bin/sh -c ${shellQuote(command)}` : command;
 }
-export function tabtailLaunch(command, agent = 'codex') {
-  return tabtailEnabled(agent) ? `${shellQuote(tabtailPython())} ${shellQuote(BRIDGE)} launch -- ${command}` : command;
+export function tabtailLaunch(command, agent = 'codex', id = process.env.FM2_TASK) {
+  return tabtailEnabled(agent, id) ? `${shellQuote(tabtailPython(id))} ${shellQuote(BRIDGE)} launch -- ${command}` : command;
 }
-export function tabtailEnv(agent = 'codex') {
-  return tabtailEnabled(agent) ? { FM2_TABTAIL: '1',
-    ...(process.env.FM2_TABTAIL_RELAY ? { FM2_TABTAIL_RELAY: process.env.FM2_TABTAIL_RELAY } : {}),
-  } : {};
+export function tabtailEnv(id = process.env.FM2_TASK) {
+  const choice = rememberTabtailChoice(id);
+  // An ordinary launch carries no opt-in; a temporary machine disable must
+  // not turn into an inherited explicit per-identity opt-out.
+  return choice.enabled ? { FM2_TABTAIL: '1', FM2_TABTAIL_RELAY: choice.relay } : {};
+}
+const launchEnvironment = [...TABTAIL_LAUNCH_STATE, 'FM2_TABTAIL', 'FM2_TABTAIL_RELAY'];
+export const tabtailCleanPrefix = () => `env ${launchEnvironment.map(key => `-u ${key}`).join(' ')}`;
+export function tabtailCleanEnv(env) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !launchEnvironment.includes(key)));
 }
 
 // Only the released dispatcher provides the private *regular file* descriptor.
 // Reject pipes/ttys/stdin/out/err: an optional synchronous write must never wait
 // for a reader or corrupt terminal input. One write, no retry, no fd ownership.
 export function stopOutcome(outcome) {
-  if (!tabtailEnabled() || !['completed', 'handoff'].includes(outcome)) return;
+  if (process.env.FM2_TABTAIL !== '1' || !['completed', 'handoff'].includes(outcome)) return;
   const raw = process.env.TABTAIL_STOP_OUTCOME_FD || '';
   if (!/^[0-9]+$/.test(raw)) return;
   const fd = Number(raw);
