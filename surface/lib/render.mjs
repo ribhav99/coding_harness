@@ -1,3 +1,5 @@
+import { isDesign, designQuestions, parseDesignFeedback } from './design.mjs';
+
 // Render a review spec into the page Ribhav decides on.
 //
 // This module is the reason the surface exists. Every review used to hand-write
@@ -250,7 +252,37 @@ function renderEvidence(spec) {
   return `<section class="evidence"><h2>Evidence</h2>${blocks.join('\n')}</section>`;
 }
 
-export function renderPage(spec, { id, decided = null, round = '', embedded = null } = {}) {
+function renderMedia(images) {
+  if (!images.length) return '';
+  return `<section class="gallery"><h2>Design images</h2><p>Compare the labeled images below. Tap Enlarge for a full-resolution view; use the zoom controls and scroll to inspect details.</p>
+${images.map(m => `<figure id="media-${escapeHtml(m.id)}" class="media-card">
+  <figcaption><h3>${escapeHtml(m.id)} · ${escapeHtml(m.title)}</h3><p>${escapeHtml(m.caption || m.alt)}</p></figcaption>
+  <img class="review-image" src="${m.src}" width="${m.width}" height="${m.height}" alt="${escapeHtml(m.alt)}" data-media="${escapeHtml(m.id)}">
+  <p class="image-error" hidden role="alert">Image ${escapeHtml(m.id)} could not be decoded. Ask the owning agent to replace it and reopen this review. Feedback cannot be sent until all images load.</p>
+  <button type="button" class="enlarge" data-image="${escapeHtml(m.id)}">Enlarge ${escapeHtml(m.id)}</button>
+</figure>`).join('')}
+</section>
+<dialog id="image-viewer" aria-label="Enlarged design image">
+  <div class="viewer-controls"><button type="button" id="image-close">Close image</button><button type="button" id="image-minus" aria-label="Zoom out">−</button><button type="button" id="image-plus" aria-label="Zoom in">+</button><span id="image-scale" aria-live="polite"></span></div>
+  <p id="image-title"></p><div class="image-scroll"><img id="full-image" alt=""></div>
+</dialog>`;
+}
+
+function renderDesignQuestions(spec, decided) {
+  return `<section><h2>Design choices</h2>${designQuestions(spec).map(q => {
+    const feedback = parseDesignFeedback(decided?.findings?.[q.id]?.comment) || { choice: null, comment: '' };
+    return `<article class="design-question" id="question-${escapeHtml(q.id)}" data-question="${escapeHtml(q.id)}">
+      <h3>${escapeHtml(q.title)}</h3><div class="choices">
+      ${radioGroup(`${q.id}-choice`, [[ '', 'Undecided' ], ...q.options.map(o => [o.id, o.label])], feedback.choice || '')}
+      </div>${q.options.map(o => `<p class="option-refs">${escapeHtml(o.label)}: ${o.media.map(id => `<button type="button" class="media-reference" data-ref="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(' · ')}</p>`).join('')}
+      <label for="${escapeHtml(q.id)}-feedback">Feedback for this choice</label>
+      <textarea id="${escapeHtml(q.id)}-feedback" name="${escapeHtml(q.id)}-feedback" rows="3">${escapeHtml(feedback.comment)}</textarea>
+    </article>`;
+  }).join('')}</section>`;
+}
+
+export function renderPage(spec, { id, decided = null, round = '', embedded = null, images = [] } = {}) {
+  const design = isDesign(spec);
   const findings = Array.isArray(spec.findings) ? spec.findings : [];
   const ownPr = defaultModeFor(spec) === 'change';
   const cards = findings.map((f, i) => {
@@ -259,6 +291,7 @@ export function renderPage(spec, { id, decided = null, round = '', embedded = nu
   }).join('\n');
   const rec = spec.recommendation ?? {};
 
+  const designVerdicts = [['approve', 'Approve selected design'], ['approve-with-comments', 'Approve selected design with feedback'], ['request-changes', 'Request design changes'], ['needs-discussion', 'Discuss before choosing']];
   const banner = decided
     ? `<div class="sent-banner">Saved ${escapeHtml(decided.submitted_at ?? '')}. Your decisions are on the Mac.</div>`
     : '';
@@ -268,7 +301,7 @@ export function renderPage(spec, { id, decided = null, round = '', embedded = nu
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; style-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; connect-src ${embedded ? "'none'" : "'self'"}; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; style-src ${embedded ? "'unsafe-inline'" : "'self' 'unsafe-inline'"}; connect-src ${embedded ? "'none'" : "'self'"}; img-src data:; base-uri 'none'; form-action 'none'">
 <title>${escapeHtml(spec.title ?? 'Review')}</title>
 ${embedded ? `<style>${embedded.css}</style>` : '<link rel="stylesheet" href="/static/surface.css">'}
 </head>
@@ -281,36 +314,37 @@ ${embedded ? `<style>${embedded.css}</style>` : '<link rel="stylesheet" href="/s
   </header>
   ${banner}
   ${renderProductChanges(spec.product_changes)}
-  <form id="decisions" data-review="${escapeHtml(id)}" data-round="${escapeHtml(round)}" data-embedded="${!!embedded}" data-sent="${!!decided}" novalidate>
-    <section class="mode">
+  ${renderMedia(images)}
+  <form id="decisions" data-review="${escapeHtml(id)}" data-round="${escapeHtml(round)}" data-embedded="${!!embedded}" data-sent="${!!decided}" data-design="${design}" novalidate>
+    ${design ? '<p class="design-note">Design feedback goes only to the owning agent. It does not authorize code edits, posting a GitHub review, or merging.</p><input type="hidden" name="mode" value="comment">' : `<section class="mode">
       <h2>What may this review do to the branch?</h2>
       <div class="choices">
 ${radioGroup('mode', MODES, decided?.mode || defaultModeFor(spec))}
       </div>
       <p class="mode-note" id="modeNote">Nothing will be committed or pushed. Findings become comments you approve.</p>
-    </section>
+    </section>`}
 
     <section class="verdict">
       <h2>Verdict</h2>
       ${rec.why ? `<p class="rec-why">${escapeHtml(rec.why)}</p>` : ''}
       <div class="choices">
-${radioGroup('verdict', VERDICTS, decided?.verdict || rec.value || 'request-changes')}
+${radioGroup('verdict', design ? designVerdicts : VERDICTS, decided?.verdict || (design ? 'needs-discussion' : rec.value || 'request-changes'))}
       </div>
     </section>
 
-    <section class="findings">
+    ${design ? renderDesignQuestions(spec, decided) : `<section class="findings">
       <h2>${findings.length} finding${findings.length === 1 ? '' : 's'}</h2>
       ${cards}
-    </section>
+    </section>`}
 
     ${renderNits(spec.nits, decided?.nits || 'batched')}
     ${renderEvidence(spec)}
 
     <section class="send">
-      <label for="message">Anything else for the reviewer</label>
+      <label for="message">${design ? 'Anything else for the designer' : 'Anything else for the reviewer'}</label>
       <textarea id="message" name="message" rows="3" placeholder="Optional">${escapeHtml(decided?.message || '')}</textarea>
       <div id="errors" class="errors" hidden></div>
-      <button type="submit" id="send">Send to reviewer</button>
+      <button type="submit" id="send">${design ? 'Send design feedback' : 'Send to reviewer'}</button>
       <div id="sent" class="sent" hidden></div>
     </section>
   </form>

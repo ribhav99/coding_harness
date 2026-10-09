@@ -109,6 +109,15 @@ first, which covers every worktree beside it. `codex/README.md` has the detail.
 Saved transcripts provide recorded context, not hidden state or native chat
 conversion. Do not claim an unwritten interrupted response was transferred.
 
+## Images and design feedback
+
+For private product screenshot/mockup review in TabTail, read the active
+harness's [image review recipe](../../../surface/DESIGN_REVIEWS.md). It covers
+standalone design questions, images in code reviews, durable relative paths,
+remote-only open/stop/read, and the existing phone's size limits. Use it only
+after the reviewed runtime is active. Open from the owning worker's pane; design
+feedback never by itself authorizes code edits, GitHub posting or merging.
+
 ## Review and completion
 
 Keep judge depth intact. A finished implementation can review itself, then a

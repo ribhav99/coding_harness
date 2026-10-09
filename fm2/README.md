@@ -167,7 +167,8 @@ before stopping a source.
 TabTail displays interactive full-review pages over its existing SSH connection.
 Enable remote delivery per project with `fm remote yes --project /path/to/project`;
 `fm remote no --project /path/to/project` restores Mac-browser launches. In
-TabTail, choose the Mac, then **Reviews**. See [phone review setup](../surface/README.md#reviews-on-an-iphone).
+TabTail, choose the Mac, then **Reviews**. See [phone review setup](../surface/README.md#reviews-on-an-iphone) and the
+[private screenshots/design-feedback agent recipe](../surface/DESIGN_REVIEWS.md).
 
 For the complete new-Mac and iPhone/iPad procedure, including the repeatable
 setup command, see [Remote mobile access](../docs/remote-mobile-access.md).

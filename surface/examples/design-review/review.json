@@ -1,0 +1,21 @@
+{
+  "id": "workout-design",
+  "review_type": "design",
+  "title": "Workout home — choose a direction",
+  "summary": "Compare today’s workout home with two proposed directions. These are illustrative product mockups, not shipped screens. Choose a direction and leave feedback; no implementation or public posting is authorized by this form.",
+  "media": [
+    { "id": "before", "path": "images/before.jpg", "title": "Before — workout list", "alt": "Workout home with a plain list of sessions and weekly totals", "caption": "Baseline for comparison. Full 1170 × 2532 raster." },
+    { "id": "calm", "path": "images/calm.jpg", "title": "A — focused next workout", "alt": "Dark workout home with a green next-session card and weekly progress chart", "caption": "One clear next action, recent progress below. Compare with before." },
+    { "id": "bold", "path": "images/bold.jpg", "title": "B — progress first", "alt": "Dark workout home with a purple weekly progress hero and session cards", "caption": "Progress leads; next workout remains one tap away. Compare with A and before." }
+  ],
+  "design_questions": [
+    {
+      "id": "home_direction",
+      "title": "Which direction should the workout home explore?",
+      "options": [
+        { "id": "focused", "label": "A — focused next workout", "media": ["before", "calm"] },
+        { "id": "progress", "label": "B — progress first", "media": ["before", "bold"] }
+      ]
+    }
+  ]
+}

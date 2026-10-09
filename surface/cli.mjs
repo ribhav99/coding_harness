@@ -21,8 +21,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  register, lookup, idFor, readDecisions, decisionsPath, listReviews, claimSupervisorPane,
-  archiveStaleDecisions,
+  register, lookup, idFor, decisionsPath, listReviews, claimSupervisorPane,
+  archiveStaleDecisions, readReview,
 } from './lib/store.mjs';
 import { buildStamp } from './lib/build.mjs';
 import { projectForSurface, remoteReviews } from '../fm2/lib/remote.mjs';
@@ -169,7 +169,7 @@ if (command === 'open') {
 
 if (command === 'read') {
   const entry = entryFor(rest[0] ?? die('usage: surface read <spec.json>'));
-  const decisions = readDecisions(entry);
+  const decisions = readReview(entry).decided;
   if (!decisions) die('Ribhav has not sent decisions for this review yet', 1);
   process.stdout.write(`${JSON.stringify(decisions, null, 2)}\n`);
   process.exit(0);

@@ -17,6 +17,9 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { findingId } from './render.mjs';
+import { snapshotMedia, bundledMedia, validateMedia } from './media.mjs';
+import { embeddedHtml, assertPageSize } from './page.mjs';
+import { validateDesign } from './design.mjs';
 
 export const REGISTRY = process.env.SURFACE_HOME || join(homedir(), '.surface');
 
@@ -183,7 +186,7 @@ export function idFor(specPath, spec) {
 // `extra_summary_points` and only surfaced because the reviewer mentioned them.
 const RENDERED = new Set([
   'id', 'title', 'pr', 'own_pr', 'summary', 'product_changes', 'recommendation',
-  'findings', 'nits', 'tests', 'judges', 'scope',
+  'findings', 'nits', 'tests', 'judges', 'scope', 'media', 'review_type', 'design_questions',
 ]);
 
 function sameSocket(a, b) { return !a || !b || a === b; }
@@ -212,6 +215,7 @@ export function register(specPath, options = {}) {
 function registerLocked(specPath, { pane = null, project = null, remote = false } = {}) {
   const abs = resolve(specPath);
   if (!existsSync(abs)) throw new Error(`no spec at ${abs}`);
+  if (statSync(abs).size > 1024 * 1024) throw new Error('review spec exceeds 1 MiB');
   const spec = JSON.parse(readFileSync(abs, 'utf8'));
   if (spec.findings != null && !Array.isArray(spec.findings)) throw new Error('spec findings must be an array');
   const findingIds = new Set();
@@ -234,6 +238,8 @@ function registerLocked(specPath, { pane = null, project = null, remote = false 
     );
   }
 
+  validateMedia(spec);
+  validateDesign(spec);
   const reg = loadRegistry();
   // Keep existing bookmarked URLs; new paths get a namespace even when two
   // repositories both declare their review as pr-1.
@@ -270,9 +276,11 @@ function registerLocked(specPath, { pane = null, project = null, remote = false 
     }
   }
 
+  const media = snapshotMedia(abs, spec);
   const entry = {
     id,
     spec: abs,
+    ...(media ? { media } : {}),
     // Captured at registration from the session that owns the review, so the
     // server never has to guess which session a page belongs to.
     pane: pane ?? previous?.pane ?? null,
@@ -282,6 +290,10 @@ function registerLocked(specPath, { pane = null, project = null, remote = false 
     remote,
     registered_at: new Date().toISOString(),
   };
+  if (media) {
+    const { images } = bundledMedia(entry, spec);
+    assertPageSize({ html: embeddedHtml(spec, { id, images, round: '0'.repeat(64) }) }, 4096);
+  }
   reg[id] = entry;
   saveRegistry(reg);
 
@@ -305,11 +317,14 @@ export function readReview(entry) {
   const after = statSync(entry.spec);
   if (before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.size !== after.size)
     throw new Error('review changed while being read; reload it');
-  const round = createHash('sha256').update(raw).update(String(after.mtimeMs)).digest('hex');
+  const spec = JSON.parse(raw);
+  validateDesign(spec);
+  const { images, identity } = bundledMedia(entry, spec);
+  const round = createHash('sha256').update(raw).update(String(after.mtimeMs)).update(identity).digest('hex');
   let decided = readDecisions(entry);
   if (decided && ((decided.round && decided.round !== round) ||
       statSync(decisionsPath(entry)).mtimeMs < after.mtimeMs)) decided = null;
-  return { spec: JSON.parse(raw), round, decided };
+  return { spec, images, round, decided };
 }
 
 // The id a page generates for one send, so a retried send is recognised.
@@ -356,7 +371,7 @@ export function archiveStaleDecisions(entry) {
   const p = decisionsPath(entry);
   if (!existsSync(p) || !existsSync(entry.spec)) return null;
   const decidedAt = statSync(p).mtimeMs;
-  if (decidedAt >= statSync(entry.spec).mtimeMs) return null;
+  if (decidedAt >= statSync(entry.spec).mtimeMs && readReview(entry).decided) return null;
   const stamp = new Date(decidedAt).toISOString().replace(/[:.]/g, '-');
   const dest = join(dirname(entry.spec), `decisions-${stamp}.json`);
   renameSync(p, dest);

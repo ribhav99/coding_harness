@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
@@ -70,6 +70,8 @@ test('phone reviews preserve local delivery, route across projects, reject stale
   const projectA = join(root, 'project-a'), projectB = join(root, 'project-b');
   for (const project of [projectA, projectB]) mkdirSync(project);
   const pathA = join(projectA, 'review.json'), pathB = join(projectB, 'review.json');
+  for (const project of [projectA, projectB]) cpSync(join(ROOT, 'surface/examples/design-review/images/before.jpg'), join(project, 'illustration.jpg'));
+  spec.media = [{ id: 'illustration', path: 'illustration.jpg', title: 'Product illustration', alt: 'Full resolution workout screenshot' }];
   writeFileSync(pathA, JSON.stringify(spec)); writeFileSync(pathB, JSON.stringify(spec));
   const open = (path, project, extra = {}) => execFileSync(process.execPath, [join(ROOT, 'surface/cli.mjs'), 'open', path],
     { env: { ...env, FM_PROJECT: project, ...extra }, encoding: 'utf8' });

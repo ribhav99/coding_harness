@@ -223,6 +223,23 @@ user is confirming a judgment rather than composing from scratch. `anchor` is th
 
 The rules below govern what goes in those fields.
 
+#### Product screenshots and standalone design reviews
+
+Product screenshots, mockups and generated design images are explicitly allowed.
+Use the active harness's [private image review recipe](../../surface/DESIGN_REVIEWS.md)
+to attach `media` to a normal code review; keep its findings, modes and verdicts
+unchanged. Refer to stable image IDs in prose. Snapshot selected images in a
+private durable artifact directory, open remotely from the owning worker, then
+stop and read feedback on wake. Do not send paths/URLs as if they transported
+images, and do not dump code or source screenshots into the page.
+
+For design feedback without a PR, use that recipe's `review_type: "design"`
+schema and design questions, not fabricated defects. It is a separate feedback
+workflow: its saved `findings` entries encode choice/comment records for phone
+compatibility and must **never** enter this skill's GitHub posting or code-fix
+steps. Design approval alone authorizes neither implementation nor posting nor
+merging. Only use these fields once the reviewed image-capable runtime is active.
+
 #### The one rule that governs this page: no code
 
 **The surface contains no code.** No diff hunks, no source excerpts, no patches, no function signatures, no stack traces. Not collapsed, not in an appendix, not "for reference."
