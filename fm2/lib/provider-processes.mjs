@@ -37,10 +37,10 @@ export function sharedCodexServer(entry, argsForPid = (pid) => execFileSync('ps'
   return /^app-server (?:--listen \S+ --managed-daemon(?: |$)|daemon pid-update-loop(?: |$))/u.test(suffix);
 }
 
-export function paneProcesses(pane, table, { protectSharedServers = false, isSharedServer = sharedCodexServer } = {}) {
+export function paneProcesses(pane, table, { protectSharedServers = false, isSharedServer = sharedCodexServer, includeRoot = false } = {}) {
   const entries = descendants(pane.pid, table);
   const root = table.find((entry) => entry.pid === Number(pane.pid));
-  if (root && processProvider(root.command)) entries.unshift(root);
+  if (root && (includeRoot || processProvider(root.command))) entries.unshift(root);
   if (!protectSharedServers) return entries;
   const protectedPids = new Set();
   for (const entry of entries) {
@@ -85,9 +85,17 @@ export function sessionOwnership(pane, source, { explicit = false, table = proce
   return source.backend === 'embedded' && (recorded || exited) ? 'embedded' : 'daemon';
 }
 
-export function stopProvider(pane, { tmux, agent, source, explicit = false, allowUnrecordedEmbedded = false, allowMissingProvider = false } = {}) {
+export function stopProvider(pane, { tmux, agent, source, explicit = false, allowUnrecordedEmbedded = false, allowMissingProvider = false, launchPid = null } = {}) {
   let table = processTable();
   const rootBeforeStop = table.find((entry) => entry.pid === Number(pane.pid));
+  // A replacement we just spawned is owned before it has a provider or hook
+  // record. Require its captured pane PID, never infer this from a Python name
+  // or prompt. Freeze that root too so setup cannot exec after failed cleanup.
+  const ownedLaunch = launchPid !== null;
+  if (ownedLaunch && (!allowUnrecordedEmbedded || agent !== 'codex' || !Number.isSafeInteger(launchPid)
+      || launchPid <= 0 || launchPid !== Number(pane.pid) || !rootBeforeStop)) {
+    throw new Error(`pane ${pane.id} is not the owned Codex launch`);
+  }
   if (allowMissingProvider && descendants(pane.pid, table).length === 0
       && (!rootBeforeStop || /(^|\/)-?(?:sh|bash|zsh|fish)$/.test(rootBeforeStop.command))
       && !table.some((entry) => entry.pid === source?.provider_pid && processProvider(entry.command))) {
@@ -109,9 +117,10 @@ export function stopProvider(pane, { tmux, agent, source, explicit = false, allo
   if (!allowUnrecordedEmbedded) sessionOwnership(pane, source, { explicit, table });
   // A pane may have spawned the daemon. Stop that server only after the RPC
   // proves every loaded conversation belongs to this exact thread's subtree.
-  const processOptions = { protectSharedServers: agent === 'codex' && backend !== 'embedded' && !ownedDaemon };
+  const processOptions = { protectSharedServers: agent === 'codex' && backend !== 'embedded' && !ownedDaemon,
+    includeRoot: ownedLaunch };
   let children = paneProcesses(pane, table, processOptions);
-  if (!children.some((entry) => processProvider(entry.command) === agent)) {
+  if (!ownedLaunch && !children.some((entry) => processProvider(entry.command) === agent)) {
     throw new Error(`pane ${pane.id} has no identifiable ${agent} process`);
   }
   tmux(['set-window-option', '-t', pane.id, 'remain-on-exit', 'on']);

@@ -125,9 +125,19 @@ test('target launch failure restores original provider panes and shell processes
   const f = fixture(t);
   const handoff = preparePanelSwitch({ panel: f.panel, agent: 'codex', targetSession: 'fm-failed', runtime: f.runtime });
   const normalStart = f.runtime.start;
-  f.runtime.start = (...args) => { if (args[3] === 'codex') throw new Error('target unavailable'); return normalStart(...args); };
+  const normalStop = f.runtime.stop;
+  let stoppedOwnedTarget = false;
+  f.runtime.start = (...args) => {
+    if (args[3] === 'codex') { args[4].onLaunch(12345); throw new Error('target unavailable'); }
+    return normalStart(...args);
+  };
+  f.runtime.stop = (pane, entry) => {
+    if (entry.targetLaunch) { assert.equal(entry.targetLaunchPid, 12345); stoppedOwnedTarget = true; }
+    return normalStop(pane, entry);
+  };
   assert.throws(() => executePanelSwitch(handoff, { runtime: f.runtime, open: false }), /target unavailable.*Full recovery record/);
   assert.equal(loadTask('worker').agent, 'claude'); assert.equal(loadTask('worker').pane, f.shipPane);
+  assert.equal(stoppedOwnedTarget, true);
   assert.equal(f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{session_name}']), f.panel);
   assert.equal(pending(f.panel).length, 1);
   assert.ok(handoff.entries.every((entry) => existsSync(entry.preserved.snapshot)));

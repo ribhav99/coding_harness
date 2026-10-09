@@ -13,6 +13,7 @@
 // story: a report landing while the supervisor sits between turns is delivered
 // by the worker's own hook instead. See lib/knock.mjs.
 
+import { completedStop, stopOutcome } from '../lib/tabtail.mjs';
 import { pending } from '../lib/notify.mjs';
 import { currentPanel, recordSupervisor } from '../lib/presence.mjs';
 import { controllerId } from '../lib/sessions.mjs';
@@ -28,31 +29,33 @@ const raw = await readHookInput();
 // Where the supervisor lives, so a stopping worker knows where to knock. Written
 // on every stop rather than once, because a supervisor can be restarted into a
 // new pane and a stale id knocks on somebody else's door.
+let payload = null;
+let accepted = true;
 let panel = null;
 let task = null;
 let agent = process.env.FM2_AGENT || 'claude';
 try {
-  const payload = JSON.parse(raw || '{}');
+  payload = JSON.parse(raw || '{}');
   panel = currentPanel();
   task = process.env.FM2_TASK || (panel ? controllerId(panel) : null);
   if (task && !task.startsWith('controller:')) finishHook();
   recordSupervisor(process.env.TMUX_PANE, { panel, task, agent, sessionId: payload.session_id, cwd: payload.cwd });
   rememberHookSession(payload, { task, agent, panel });
-} catch { /* never hold up a turn for bookkeeping */ }
+} catch { accepted = false; /* never hold up a turn for bookkeeping */ }
 
 try {
-  if (task && schedulePendingProviderUpdate(task, agent)) finishHook();
-} catch { /* retain normal stop behavior if scheduling failed */ }
+  if (task && schedulePendingProviderUpdate(task, agent)) { stopOutcome('handoff'); finishHook(); }
+} catch { accepted = false; /* retain normal stop behavior if scheduling failed */ }
 
 // The coordinator deliberately stops every session on the provider. Those
 // lifecycle stops are neither completed work nor unread reports.
 try {
-  if (providerUpdateOwnsStop(agent, task)) finishHook();
-} catch { /* retain normal stop behavior if state cannot be read */ }
+  if (providerUpdateOwnsStop(agent, task)) { stopOutcome('handoff'); finishHook(); }
+} catch { accepted = false; /* retain normal stop behavior if state cannot be read */ }
 
 try {
-  if (task && schedulePendingEffort(task, agent)) finishHook();
-} catch { /* retain normal stop behavior if scheduling failed */ }
+  if (task && schedulePendingEffort(task, agent)) { stopOutcome('handoff'); finishHook(); }
+} catch { accepted = false; /* retain normal stop behavior if scheduling failed */ }
 
 let items = [];
 try {
@@ -63,7 +66,10 @@ try {
   finishHook();
 }
 
-if (items.length === 0) finishHook();
+if (items.length === 0) {
+  completedStop(payload, { task, agent, panel, accepted });
+  finishHook();
+}
 
 const lines = items.map((item) => {
   const first = String(item.text || '').split('\n').find((l) => l.trim()) || '(no text)';

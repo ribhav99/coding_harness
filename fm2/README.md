@@ -228,6 +228,14 @@ provider.
 The hook fields and output shapes follow the current official
 [Codex hooks contract](https://learn.chatgpt.com/docs/hooks).
 
+## TabTail completion pilot
+
+Future local Codex launches can opt into the [completion bridge](../docs/firstmate-tabtail-notifications.md)
+with `FM2_TABTAIL=1`. An accepted root Stop and matching native notify can report
+the current turn ending while Codex remains alive. The pilot preserves normal
+hook trust and existing callbacks; defaults are unchanged. See the linked pilot
+commands, unsupported modes and native fixture evidence before adoption.
+
 ## The knock
 
 The supervisor's Stop hook is a block, not a bell. It fires when the supervisor

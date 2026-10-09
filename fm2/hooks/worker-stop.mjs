@@ -14,6 +14,7 @@ import { loadTask, saveTask } from '../lib/config.mjs';
 import { currentPanel } from '../lib/presence.mjs';
 import { finishHook, readHookInput, rememberHookSession } from '../lib/hook-io.mjs';
 import { schedulePendingEffort } from '../lib/effort.mjs';
+import { completedStop, stopOutcome } from '../lib/tabtail.mjs';
 import { providerUpdateOwnsStop } from '../lib/provider-update-state.mjs';
 
 // Claude Code puts the worker's final message straight in the Stop payload as
@@ -24,12 +25,13 @@ const raw = await readHookInput();
 
 try {
   const payload = JSON.parse(raw || '{}');
+  let accepted = true;
   const task = process.env.FM2_TASK || 'unknown';
   const agent = process.env.FM2_AGENT || 'claude';
   const panel = currentPanel();
   try {
     rememberHookSession(payload, { task, agent, panel });
-  } catch { /* session bookkeeping must not suppress the report */ }
+  } catch { accepted = false; /* session bookkeeping must not suppress the report */ }
   // Where this task is now, not where it was spawned. A session that is
   // restarted by hand - to pick up a Claude Code update, say - comes back in a
   // different pane, and the task record still names the old one. Reporting
@@ -41,20 +43,20 @@ try {
   const here = process.env.TMUX_PANE;
   const known = loadTask(task);
   if (here && known && known.pane !== here && (known.agent || 'claude') === (process.env.FM2_AGENT || 'claude')) {
-    try { saveTask({ ...known, pane: here }); } catch { /* bookkeeping never blocks a turn */ }
+    try { saveTask({ ...known, pane: here }); } catch { accepted = false; /* bookkeeping never blocks a turn */ }
   }
   // A fleet-wide provider update stops this process on purpose. Keep its exact
   // identity bookkeeping above, but do not turn that lifecycle stop into a
   // completion report or a knock on the controller.
   try {
-    if (providerUpdateOwnsStop(agent, task)) finishHook();
-  } catch { /* report normally if update state cannot be read */ }
+    if (providerUpdateOwnsStop(agent, task)) { stopOutcome('handoff'); finishHook(); }
+  } catch { accepted = false; /* report normally if update state cannot be read */ }
   // An effort change is a lifecycle transition, not a completed task. Queue the
   // replacement outside this provider's process tree, let this hook return, and
   // suppress the ordinary report/notification for this intermediate stop.
   try {
-    if (schedulePendingEffort(task, agent)) finishHook();
-  } catch { /* report normally if the replacement could not be scheduled */ }
+    if (schedulePendingEffort(task, agent)) { stopOutcome('handoff'); finishHook(); }
+  } catch { accepted = false; /* report normally if the replacement could not be scheduled */ }
   // A task Ribhav is running himself. He is already in that pane reading the
   // replies as they land, so a report about it is not news - it is the same
   // words a second time, arriving as an interruption. Silence is the whole
@@ -84,6 +86,7 @@ try {
   // message is the content; with no content there is no report, and `fm status`
   // is where a quiet session is found.
   if (text && !alreadyWaiting) await knock(task, { panel });
+  if (text) completedStop(payload, { task, agent, panel, accepted });
 } catch {
   // Deliberately silent. There is nothing a worker can do about this, and
   // failing here would make a reporting bug look like a work bug.

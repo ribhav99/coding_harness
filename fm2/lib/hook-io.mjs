@@ -26,6 +26,8 @@ export function rememberHookSession(payload, { task, agent, panel, source = null
     source,
     backend: process.env.FM2_CODEX_BACKEND || null,
     providerPid: providerProcess(agent),
+    tabtailRun: process.env.FM2_TABTAIL === '1' && process.env.TABTAIL_AGENT_PROVIDER === agent
+      ? process.env.TABTAIL_RUN || null : null,
   });
 }
 

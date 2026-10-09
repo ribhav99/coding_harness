@@ -14,6 +14,7 @@ import { remoteReviews } from './remote.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote, tomlValue } from './shell.mjs';
 import { worktreePaths } from './git.mjs';
+import { tabtailEnabled, tabtailStop, tabtailLaunch, tabtailEnv } from './tabtail.mjs';
 
 const FM2 = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -40,7 +41,7 @@ export function workerHookConfig(id, agent = 'claude', panel = currentPanel() ??
     ? `node ${shellQuote(join(FM2, 'hooks', script))}`
     : hookCommand(id, provider, join(FM2, 'hooks', script), panel);
   const start = command('worker-session.mjs');
-  const stop = command('worker-stop.mjs');
+  const stop = tabtailStop(command('worker-stop.mjs'), provider);
   return {
     hooks: {
       SessionStart: [{ hooks: [{ type: 'command', command: start }] }],
@@ -103,7 +104,7 @@ export function codexSessionArgs(effort, hooks = {}) {
     // asked at once after a reload. These hooks are written from this checkout
     // moments before the launch, so the source is already vetted - which is
     // the stated condition for this flag.
-    '--dangerously-bypass-hook-trust',
+    ...(tabtailEnabled() ? [] : ['--dangerously-bypass-hook-trust']),
     ...Object.entries(hooks).flatMap(([event, groups]) => ['-c', `hooks.${event}=${tomlValue(groups)}`]),
   ];
 }
@@ -161,6 +162,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const env =
     `FM2_TASK=${shellQuote(id)} FM2_HOME=${shellQuote(homeDir())} FM2_AGENT=${shellQuote(provider)} FM2_PANEL=${shellQuote(panel)} FM2_EFFORT=${shellQuote(reasoning)}` +
     (provider === 'codex' ? " FM2_CODEX_BACKEND='embedded'" : '') +
+    Object.entries(tabtailEnv(provider)).map(([key, value]) => ` ${key}=${shellQuote(value)}`).join('') +
     (project ? ` FM_PROJECT=${shellQuote(resolve(project))} FM_REMOTE=${shellQuote(remoteReviews(project) ? 'yes' : 'no')}` : '');
   // The family is explicit and the version follows its latest release:
   // Claude's opus alias and Codex's latest stable Sol catalog entry. Effort
@@ -176,7 +178,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   const prompt = briefPath ? ` "$(cat ${shellQuote(briefPath)})"` : '';
   if (provider === 'claude') {
     return (
-      `${env} ${executable} --dangerously-skip-permissions --effort ${reasoning} --model ${CLAUDE_MODEL} ` +
+      `${env} ${tabtailLaunch(executable, provider)} --dangerously-skip-permissions --effort ${reasoning} --model ${CLAUDE_MODEL} ` +
       `--settings ${shellQuote(settingsFile)}` +
       (resume ? ` --resume ${shellQuote(resume)}` : '') +
       prompt
@@ -184,7 +186,7 @@ export function launchCommand({ agent = 'claude', id, settingsFile, briefPath = 
   }
 
   const { hooks } = JSON.parse(readFileSync(settingsFile, 'utf8'));
-  const flags = ['--no-alt-screen', ...codexSessionArgs(reasoning, hooks ?? {})].map(launchWord).join(' ');
-  if (resume) return `${env} ${executable} resume ${flags} ${shellQuote(resume)}${prompt}`;
-  return `${env} ${executable} ${flags}${prompt}`;
+  const flags = [...(tabtailEnabled() ? ['--no-daemon'] : []), '--no-alt-screen', ...codexSessionArgs(reasoning, hooks ?? {})].map(launchWord).join(' ');
+  if (resume) return `${env} ${tabtailLaunch(executable, provider)} resume ${flags} ${shellQuote(resume)}${prompt}`;
+  return `${env} ${tabtailLaunch(executable, provider)} ${flags}${prompt}`;
 }

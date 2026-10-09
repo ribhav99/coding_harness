@@ -85,3 +85,16 @@ test('failed-target cleanup refuses a bare shell with a surviving tool and leave
     assert.ok(!state.includes('T'), 'refused cleanup must not leave a process suspended');
   }
 });
+
+test('owned launch cleanup refuses a mismatched pane PID or a non-Codex grant before signaling', async (t) => {
+  const f = fixture(t, () => ['exec /bin/sleep 10000']);
+  await waitFor(() => processTable().some((entry) => entry.pid === f.pane.pid));
+  const options = { tmux: f.tmux, agent: 'codex', explicit: true, allowUnrecordedEmbedded: true,
+    launchPid: f.pane.pid };
+  for (const invalid of [{ launchPid: f.pane.pid + 1 }, { agent: 'claude' }, { allowUnrecordedEmbedded: false }]) {
+    assert.throws(() => stopProvider(f.pane, { ...options, ...invalid }), /not the owned Codex launch/);
+    process.kill(f.pane.pid, 0);
+    const state = execFileSync('ps', ['-p', String(f.pane.pid), '-o', 'state='], { encoding: 'utf8' }).trim();
+    assert.ok(!state.includes('T'), 'refused cleanup must not suspend the pane');
+  }
+});

@@ -6,7 +6,7 @@ import { loadTask, allTasks } from './config.mjs';
 import { currentPanel } from './presence.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { sleepSync } from './wait.mjs';
-import { providerAt } from './provider-processes.mjs';
+import { providerAt, processTable } from './provider-processes.mjs';
 import { tmux, paneAlive, panePid } from './tmux.mjs';
 import { ensureCodexTrust, launchCommand } from './launch.mjs';
 
@@ -158,8 +158,20 @@ export function assertStarted(pane, id) {
 // Started means the pane is still there and the provider it was asked to run
 // is what is running in it. A replacement that came up as the wrong provider,
 // or as a bare shell, is not one that started.
-export function assertProviderStarted(pane, id, agent, { verb = 'start' } = {}) {
-  const pid = panePid(pane);
-  if (tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0' && providerAt({ pid }) === agent) return;
+export function assertProviderStarted(pane, id, agent, { verb = 'start', waitMs = 0, launchPid = null } = {}) {
+  const deadline = Date.now() + waitMs;
+  do {
+    const pid = panePid(pane);
+    if (launchPid !== null && pid !== launchPid) throw new Error(`"${id}" launch no longer owns pane ${pane}`);
+    if (tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) !== '0') break;
+    const table = processTable();
+    const root = table.find(entry => entry.pid === pid);
+    // The opt-in Python launcher execs the supported native/Node Codex in the
+    // same PID. Its temporary inventory app-server is not a started provider.
+    const settingUp = launchPid !== null && /(^|\/)python(?:\d+(?:\.\d+)*)?$/i.test(root?.command ?? '');
+    if (!settingUp && providerAt({ pid }, table) === agent) return;
+    if (Date.now() >= deadline) break;
+    sleepSync(Math.min(100, deadline - Date.now()));
+  } while (Date.now() <= deadline);
   throw new Error(`"${id}" did not ${verb} its ${agent} provider`);
 }
