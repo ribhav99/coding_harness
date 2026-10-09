@@ -23,6 +23,7 @@ import {
 } from './sessions.mjs';
 import { tmux, panePid } from './tmux.mjs';
 import { ensureCodexTrust, launchCommand, writeWorkerSettings } from './launch.mjs';
+import { beginTabtailHandoff } from './tabtail.mjs';
 import { assertProviderStarted, clearStartupPrompts, openPane } from './panes.mjs';
 import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
 
@@ -102,6 +103,7 @@ export function switchTask(id, {
 
   if (to === 'codex') { try { ensureCodexTrust(task.worktree); } catch { /* best effort; Codex will ask */ } }
 
+  const endTabtailHandoff = beginTabtailHandoff(id, source);
   let pane = task.pane;
   let sourceStopped = false, targetAttempted = false;
   try {
@@ -171,6 +173,8 @@ export function switchTask(id, {
       `could not switch "${id}" to ${to}: ${error.message}. ` +
         `The source transcript is preserved at ${preserved.snapshot}`,
     );
+  } finally {
+    endTabtailHandoff();
   }
 
   const after = worktreeState(task.worktree);

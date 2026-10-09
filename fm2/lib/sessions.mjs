@@ -64,7 +64,7 @@ export function recordedSession(task, agent) {
   return String(sidecar.recorded_at || '') > String(known.recorded_at || '') ? sidecar : known;
 }
 
-export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null, panel = null, pane = null, source = null, backend = null, providerPid = null }) {
+export function rememberSession({ task, agent, sessionId, transcriptPath = null, cwd = null, panel = null, pane = null, source = null, backend = null, providerPid = null, tabtailRun = undefined }) {
   if (!task || typeof sessionId !== 'string' || !sessionId.trim()) return null;
   const provider = normalizeAgent(agent);
   const recordPath = sessionRecordPath(task, provider);
@@ -81,6 +81,7 @@ export function rememberSession({ task, agent, sessionId, transcriptPath = null,
     source: source ?? same?.source ?? null,
     backend: backend ?? same?.backend ?? null,
     provider_pid: providerPid ?? same?.provider_pid ?? null,
+    ...(tabtailRun || same?.tabtail_run ? { tabtail_run: tabtailRun === undefined ? same?.tabtail_run : tabtailRun } : {}),
     recorded_at: new Date().toISOString(),
   };
   writeJsonAtomic(recordPath, entry);

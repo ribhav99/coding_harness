@@ -12,13 +12,14 @@ import { CLAUDE_MODEL } from './lib/provider-model.mjs';
 import { effortFor, normalizeEffort } from './lib/effort.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
 import { shellQuote } from './lib/shell.mjs';
+import { tabtailEnabled, tabtailStop, tabtailPython, tabtailEnv } from './lib/tabtail.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function supervisorHookConfig(agent = 'claude') {
   normalizeAgent(agent);
   const start = { hooks: [{ type: 'command', command: `node ${shellQuote(join(HERE, 'hooks/supervisor-start.mjs'))}` }] };
-  const stop = { hooks: [{ type: 'command', command: `node ${shellQuote(join(HERE, 'hooks/supervisor-stop.mjs'))}` }] };
+  const stop = { hooks: [{ type: 'command', command: tabtailStop(`node ${shellQuote(join(HERE, 'hooks/supervisor-stop.mjs'))}`, agent) }] };
   return { hooks: { SessionStart: [start],
     UserPromptSubmit: [start], Stop: [stop] } };
 }
@@ -52,16 +53,16 @@ function invocation({ agent = 'claude', id, panel = currentPanel(), resume = nul
         '--settings', JSON.stringify(config), ...(resume ? ['--resume', resume] : [])]
     : [
         ...(resume ? ['resume'] : []),
-        '--no-alt-screen',
+        ...(tabtailEnabled() ? ['--no-daemon'] : []), '--no-alt-screen',
         // Named, not inherited - see codexSessionArgs in lib/launch.mjs for why
         // the desktop app's own settings are the wrong ones for a harness pane.
         ...codexSessionArgs(reasoning, config.hooks),
         ...(resume ? [resume] : []),
       ];
   return {
-    command: providerExecutable(provider),
-    args,
-    env: { FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
+    command: tabtailEnabled(provider) ? tabtailPython() : providerExecutable(provider),
+    args: tabtailEnabled(provider) ? [join(HERE, 'tabtail.py'), 'launch', '--', providerExecutable(provider), ...args] : args,
+    env: { ...tabtailEnv(provider), FM2_HOME: home(), FM2_AGENT: provider, FM2_TASK: identity, FM2_PANEL: target, FM2_EFFORT: reasoning,
       ...(provider === 'codex' ? { FM2_CODEX_BACKEND: 'embedded' } : {}) },
   };
 }
