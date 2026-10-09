@@ -55,7 +55,7 @@ export function atomicJson(path, value) {
 
 // Concurrent reviewers register from separate CLI processes. Keep their
 // read/modify/write transactions from losing one another's pages.
-function withRegistryLock(fn) {
+export function withRegistryLock(fn) {
   const lock = join(dirname(registryPath()), 'registry.lock');
   const until = Date.now() + 5000;
   let fd;
@@ -311,6 +311,10 @@ export function lookup(id) {
 // Read on every request rather than caching: a review that rewrites its spec
 // after a round of decisions should be visible on reload with no restart.
 export function readReview(entry) {
+  // Media-only reopen changes the registry even when spec bytes/mtime stay put.
+  // Never let a cached caller entry keep an old attachment generation alive.
+  const registered = entry.id ? lookup(entry.id) : null;
+  if (registered && registered.spec === entry.spec) entry = registered;
   const before = statSync(entry.spec);
   if (before.size > 1024 * 1024) throw new Error('review spec exceeds 1 MiB');
   const raw = readFileSync(entry.spec, 'utf8');
@@ -368,6 +372,10 @@ export function writeDecisions(entry, payload) {
 // page opened as already sent. They move aside rather than being deleted: they
 // are the record of what was decided last time.
 export function archiveStaleDecisions(entry) {
+  return withRegistryLock(() => archiveDecisionsLocked(entry));
+}
+
+function archiveDecisionsLocked(entry) {
   const p = decisionsPath(entry);
   if (!existsSync(p) || !existsSync(entry.spec)) return null;
   const decidedAt = statSync(p).mtimeMs;

@@ -12,7 +12,7 @@ const ROOT = resolve(import.meta.dirname, '../..');
 const OUTPUT = process.env.SURFACE_EVIDENCE || mkdtempSync(join(tmpdir(), 'surface-visual-evidence-'));
 mkdirSync(OUTPUT, { recursive: true, mode: 0o700 });
 assert.ok(process.env.SURFACE_PLAYWRIGHT_MODULE, 'set SURFACE_PLAYWRIGHT_MODULE to an installed playwright/index.mjs');
-assert.ok(process.env.SURFACE_ADAPTER_FIXTURE, 'set SURFACE_ADAPTER_FIXTURE to the released adapter call.py fixture');
+assert.ok(process.env.SURFACE_MOBILE_REPO, 'set SURFACE_MOBILE_REPO to a read-only mobile_build repository containing the released commit');
 const { webkit } = await import(pathToFileURL(process.env.SURFACE_PLAYWRIGHT_MODULE));
 const home = mkdtempSync(join(tmpdir(), 'surface-webkit-'));
 const artifacts = join(home, 'review');
@@ -39,11 +39,23 @@ try {
   }
   const open = () => execFileSync(process.execPath, [join(ROOT, 'surface/cli.mjs'), 'open', specPath], { env, encoding: 'utf8' });
   assert.match(open(), /Available in TabTail/);
+  const adapterRoot = join(home, 'released-adapter');
+  mkdirSync(join(adapterRoot, 'relay_adapter'), { recursive: true });
+  writeFileSync(join(adapterRoot, 'relay_adapter/__init__.py'), '');
+  const releasedCommit = 'c3f41d3b4b3e282031386e227f8f31d69ffbfb20';
+  for (const module of ['common.py', 'reviews.py']) writeFileSync(join(adapterRoot, 'relay_adapter', module),
+    execFileSync('git', ['-C', process.env.SURFACE_MOBILE_REPO, 'show', `${releasedCommit}:adapter/relay_adapter/${module}`]));
   const adapter = (op, message = {}) => {
     const result = execFileSync(process.env.SURFACE_PYTHON || '/opt/homebrew/bin/python3',
-      [process.env.SURFACE_ADAPTER_FIXTURE, String(port), op, JSON.stringify(message)], { encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
+      [join(ROOT, 'surface/test/adapter_fixture.py'), adapterRoot, String(port), op, JSON.stringify(message)], { encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
     return JSON.parse(result);
   };
+  function refused(op, message, code) {
+    try { adapter(op, message); } catch (error) {
+      assert.equal(JSON.parse(error.stdout).code, code); return;
+    }
+    assert.fail(`${op} did not refuse with ${code}`);
+  }
   const inbox = adapter('reviews.list');
   const review = adapter('reviews.open', { review: inbox.reviews[0].id });
   const responseBytes = Buffer.byteLength(JSON.stringify(review));
@@ -119,21 +131,31 @@ try {
     canvas.getContext('2d').drawImage(img,0,0);return canvas.toDataURL('image/png').split(',')[1];
   });
   writeFileSync(join(artifacts,'images/baseline.png'),Buffer.from(pngData,'base64'));
-  const pngSpecPath = join(artifacts,'png-review.json');
-  writeFileSync(pngSpecPath, JSON.stringify({ id:'png-proof', title:'PNG product illustration', media:[{id:'png',path:'images/baseline.png',title:'Baseline PNG',alt:'Workout home PNG screenshot'}] }));
+  const pngDir = join(home, 'png-review'); mkdirSync(pngDir);
+  cpSync(join(artifacts, 'images/baseline.png'), join(pngDir, 'baseline.png'));
+  const pngSpecPath = join(pngDir,'review.json');
+  writeFileSync(pngSpecPath, JSON.stringify({ id:'png-proof', title:'PNG product illustration', media:[{id:'png',path:'baseline.png',title:'Baseline PNG',alt:'Workout home PNG screenshot'}] }));
   // Separate no-pane fixture registration avoids stealing the design owner.
   execFileSync(process.execPath,[join(ROOT,'surface/cli.mjs'),'open',pngSpecPath],{env:{...env,SURFACE_PANE:'',TMUX_PANE:''},encoding:'utf8'});
   const pngReview = adapter('reviews.open',{review:'png-proof'});
   const pngPage = await nativePage(pngReview.html);
   assert.deepEqual(await pngPage.locator('.review-image').evaluate(img=>[img.naturalWidth,img.naturalHeight]),[1170,2532]);
   await pngPage.close();
+  const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await desktop.goto(`http://127.0.0.1:${port}/r/png-proof`);
+  await desktop.waitForFunction(() => document.querySelector('.review-image')?.naturalWidth === 1170);
+  assert.equal(await desktop.isChecked('input[name="mode"][value="comment"]'), true);
+  await desktop.check('input[name="mode"][value="change"]');
+  assert.match(await desktop.locator('#send').textContent(), /will change the branch/);
+  await desktop.screenshot({ path: join(OUTPUT, 'desktop-code-image.png'), fullPage: true });
+  await desktop.close();
   // A replaced source leaves the old round untouched until explicitly reopened.
   cpSync(join(artifacts, 'images/bold.jpg'), join(artifacts, 'images/calm.jpg'));
   assert.equal(adapter('reviews.open', { review: review.id }).round, review.round);
   open();
   const next = adapter('reviews.open', { review: review.id });
   assert.notEqual(next.round, review.round); assert.equal(next.status, 'waiting');
-  assert.throws(() => adapter('reviews.submit', message), /Command failed/);
+  refused('reviews.submit', message, 'review_stale');
   // A structurally plausible but undecodable JPEG gets an explicit in-page error.
   const corrupt = Buffer.alloc(32); corrupt.set([255,216,255,192,0,8,8,0,10,0,10,1]); corrupt.set([255,217],30);
   writeFileSync(join(artifacts,'images/corrupt.jpg'),corrupt);
@@ -144,8 +166,8 @@ try {
   assert.equal(await bad.locator('#send').isDisabled(),true);
   await bad.screenshot({path:join(OUTPUT,'phone-corrupt-error.png'),fullPage:true});
   rmSync(specPath);
-  assert.throws(() => adapter('reviews.open',{review:review.id}), /Command failed/);
-  writeFileSync(join(OUTPUT,'visual-results.json'),JSON.stringify({ responseBytes, dimensions, networkRequests:requests, zoom:'4× fit with horizontal and vertical scrolling', draft:'restored exact choice/comment', retry:'one original-worker wake', stale:'refused through released adapter', closed:'refused through released adapter', corrupt:'explicit error and send blocked', proof:'Playwright WebKit 26.0 at 390×844 CSS pixels, DPR 3; not a physically observed phone' },null,2));
+  refused('reviews.open',{review:review.id}, 'review_closed');
+  writeFileSync(join(OUTPUT,'visual-results.json'),JSON.stringify({ releasedCommit, responseBytes, dimensions, pngDimensions: [1170,2532], desktop: 'PNG decoded with original code-review mode controls', networkRequests:requests, zoom:'4× fit with horizontal and vertical scrolling', draft:'restored exact choice/comment', retry:'one original-worker wake', stale:'refused through released adapter', closed:'refused through released adapter', corrupt:'explicit error and send blocked', proof:'Playwright WebKit 26.0 at 390×844 CSS pixels, DPR 3; not a physically observed phone' },null,2));
   console.log(`PASS: released adapter + iPhone-sized WebKit; ${responseBytes} response bytes. Evidence: ${OUTPUT}`);
 } finally {
   await browser?.close();

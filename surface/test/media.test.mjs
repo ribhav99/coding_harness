@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, writeFileSync, readFileSync, rmSync, symlinkSync, mkdirSync, statSync, utimesSync } from 'node:fs';
+import { mkdtempSync, cpSync, writeFileSync, readFileSync, rmSync, symlinkSync, mkdirSync, statSync, utimesSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:net';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { validate } from '../server.mjs';
@@ -52,6 +56,7 @@ test('source replacement/deletion cannot change a reviewed round; explicit reatt
   assert.equal(store.readReview(entry).images[1].src, first.images[1].src);
   const reopened = store.register(path);
   const next = store.readReview(reopened);
+  assert.equal(store.readReview(entry).round, next.round, 'cached entry kept an old generation alive');
   assert.notEqual(next.round, first.round);
   assert.equal(next.decided, null);
   assert.ok(store.archiveStaleDecisions(reopened));
@@ -145,4 +150,42 @@ test('phone budget is checked before replacing a registration, and incomplete/an
   writeFileSync(join(root,'images/animated.png'),png.subarray(0,40));
   assert.throws(() => store.register(path), /truncated PNG/);
   assert.equal(first.images.length, 3);
+});
+
+
+test('a delayed submission cannot decide images reattached while its body is arriving', async t => {
+  const { root, path, store } = await fixture(t);
+  const entry = store.register(path), before = store.readReview(entry);
+  const listener = createServer().listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const port = listener.address().port;
+  await new Promise(done => listener.close(done));
+  const server = spawn(process.execPath, [resolve(import.meta.dirname, '../server.mjs')], {
+    env: { ...process.env, SURFACE_HOME: join(root,'registry'), SURFACE_PORT:String(port) }, stdio:'ignore',
+  });
+  t.after(() => server.kill());
+  const wait = ms => new Promise(done => setTimeout(done, ms));
+  for (let i=0;i<60;i++) {
+    try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch {}
+    await wait(25);
+  }
+  const body = JSON.stringify({ round:before.round, submission_id:'delayed-design-0001', mode:'comment', verdict:'approve',
+    findings:{home_direction:{decision:'summary',comment:JSON.stringify({choice:'focused',comment:'Old image'})}}, nits:null, message:'' });
+  const req = request({host:'127.0.0.1',port,path:`/api/${entry.id}/decisions`,method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(body)}});
+  t.after(() => req.destroy());
+  const response = new Promise((done,reject) => {
+    req.on('response',res => { let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>done({status:res.statusCode,body:JSON.parse(raw)})); });
+    req.on('error',reject);
+  });
+  req.write(body.slice(0,40));
+  await wait(100);
+  cpSync(join(root,'images/bold.jpg'),join(root,'images/calm.jpg'));
+  const replacement = store.register(path);
+  assert.notEqual(store.readReview(replacement).round,before.round);
+  req.end(body.slice(40));
+  const result = await response;
+  assert.equal(result.status,409);
+  assert.match(result.body.error,/changed/);
+  assert.equal(existsSync(join(root,'decisions.json')),false);
+  assert.equal(existsSync(join(root,'submission-delayed-design-0001.json')),false);
 });

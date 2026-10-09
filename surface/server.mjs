@@ -26,6 +26,7 @@ import { isDesign, designQuestions, parseDesignFeedback } from './lib/design.mjs
 import { buildStamp } from './lib/build.mjs';
 import {
   lookup,
+  withRegistryLock,
   writeDecisions,
   listReviews,
   readReview,
@@ -171,29 +172,37 @@ async function submit(entry, round, payload) {
       .map(([id, choice]) => [id, { decision: choice.decision, comment: choice.comment }])),
     nits: payload.nits ?? null, message: payload.message ?? '' };
   const hash = createHash('sha256').update(JSON.stringify({ round, ...content })).digest('hex');
-  const previous = readReceipt(entry, payload.submission_id);
-  if (previous && previous.hash !== hash) return { code: 409, body: { error: 'This submission id already belongs to different decisions.' } };
   const key = `${entry.id}/${payload.submission_id}`;
-  if (submitting.has(key)) return submitting.get(key);
-  if (previous && previous.phase !== 'reserved') return { code: 200, body: previous.result };
-  const current = readReview(entry);
-  if (current.round !== round) return { code: 409, body: { error: 'This review changed before it could be saved. Reload the latest round.' } };
-  if (current.decided && current.decided.submission_id !== payload.submission_id)
-    return { code: 409, body: { error: 'Decisions were already saved for this round. Reload to see them before continuing.' } };
-  if (current.images.length) {
-    try {
-      assertPageSize({ html: embeddedHtml(current.spec, { id: entry.id, images: current.images, round, decided: { ...content, submitted_at: new Date().toISOString() } }) }, 4096);
-    } catch (error) { return { code: 413, body: { error: error.message } }; }
-  }
-  const operation = (async () => {
+  const pending = submitting.get(key);
+  if (pending) return pending.hash === hash ? pending.promise :
+    { code: 409, body: { error: 'This submission id already belongs to different decisions.' } };
+  // Registration and decision commits share a cross-process lock. A POST may
+  // have waited for its body while the owner published different media, so both
+  // the generation and the pane binding must come from the current registry.
+  const prepared = withRegistryLock(() => {
+    entry = lookup(entry.id);
+    if (!entry) return { response: { code: 404, body: { error: 'This review is not registered.' } } };
+    if (!existsSync(entry.spec)) return { response: { code: 410, body: { error: closedMessage(entry.id) } } };
+    const current = readReview(entry);
+    if (current.round !== round) return { response: { code: 409, body: { error: 'This review changed before it could be saved. Reload the latest round.' } } };
+    const previous = readReceipt(entry, payload.submission_id);
+    if (previous && previous.hash !== hash) return { response: { code: 409, body: { error: 'This submission id already belongs to different decisions.' } } };
+    if (previous && previous.phase !== 'reserved') return { response: { code: 200, body: previous.result } };
+    if (current.decided && current.decided.submission_id !== payload.submission_id)
+      return { response: { code: 409, body: { error: 'Decisions were already saved for this round. Reload to see them before continuing.' } } };
+    if (current.images.length) {
+      try {
+        assertPageSize({ html: embeddedHtml(current.spec, { id: entry.id, images: current.images, round, decided: { ...content, submitted_at: new Date().toISOString() } }) }, 4096);
+      } catch (error) { return { response: { code: 413, body: { error: error.message } } }; }
+    }
     const path = receiptPath(entry, payload.submission_id);
     atomicJson(path, { hash, round, phase: 'reserved' });
     const submitted_at = new Date().toISOString();
-      // `_fields` travels with the decisions because the reviewer reads this file
-      // long after its brief, often across a compaction, and the two names are
-      // close enough to swap: a reviewer once read `mode: comment` as "post a
-      // COMMENTED review" and withheld an approval Ribhav had given in
-      // `verdict`. The file has to say which is which at the point it is read.
+    // `_fields` travels with the decisions because the reviewer reads this file
+    // long after its brief, often across a compaction, and the two names are
+    // close enough to swap: a reviewer once read `mode: comment` as "post a
+    // COMMENTED review" and withheld an approval Ribhav had given in
+    // `verdict`. The file has to say which is which at the point it is read.
     const record = {
       ...(isDesign(current.spec) ? { review_type: 'design' } : {}),
       _fields: isDesign(current.spec) ? {
@@ -209,9 +218,15 @@ async function submit(entry, round, payload) {
     const written = writeDecisions(entry, record);
     // Commit a durable receipt before notification. Retrying a send whose
     // acknowledgment was lost must never type into the worker a second time.
-    let result = { status: 'saved', submission_id: payload.submission_id, submitted_at,
+    const result = { status: 'saved', submission_id: payload.submission_id, submitted_at,
       woke: false, reason: 'Saved; reviewer notification was not confirmed.' };
     atomicJson(path, { hash, round, phase: 'saved', result });
+    return { path, written, result };
+  });
+  if (prepared.response) return prepared.response;
+  const { path, written } = prepared;
+  const operation = (async () => {
+    let result = prepared.result;
     const identity = paneIdentity(entry.pane, entry.pane_socket);
     const woke = entry.pane_identity && identity === entry.pane_identity
       ? await wakePane(entry.pane, `Ribhav has decided on this review. Read ${written} and act on it.`, { identity, socket: entry.pane_socket })
@@ -220,7 +235,7 @@ async function submit(entry, round, payload) {
     atomicJson(path, { hash, round, phase: 'done', result });
     return { code: 200, body: result };
   })();
-  submitting.set(key, operation);
+  submitting.set(key, { hash, promise: operation });
   try { return await operation; } finally { submitting.delete(key); }
 }
 

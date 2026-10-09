@@ -96,7 +96,10 @@ test('phone reviews preserve local delivery, route across projects, reject stale
   });
   assert.equal((await post({ ...payload, mode: 'comment' })).status, 422, 'comment mode allowed a fix');
   assert.equal((await post(payload, { origin: 'https://evil.example' })).status, 403);
-  const receipts = await Promise.all([post(payload), post(payload)]);
+  const firstSend = post(payload);
+  await wait(50);
+  assert.equal((await post({ ...payload, message: 'conflicting in-flight send' })).status, 409);
+  const receipts = await Promise.all([firstSend, post(payload)]);
   for (const response of receipts) {
     assert.equal(response.status, 200);
     const receipt = await response.json();

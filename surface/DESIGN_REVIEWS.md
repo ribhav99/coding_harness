@@ -13,6 +13,7 @@ file server, adapter install or phone release is involved.
 Run from the **owning worker**, never the controller or another worker's pane.
 Keep the spec and selected exports in a meaningful, private artifact directory
 outside disposable worktrees, for example `~/.fm2/briefs/<task>/design/`.
+Use a separate directory for each review: decisions and receipts live beside its spec.
 
 1. Export actual product screenshots, mockups or generated designs as static PNG
    or JPEG. Copy only the intended images into `images/` under that directory.
@@ -22,8 +23,9 @@ outside disposable worktrees, for example `~/.fm2/briefs/<task>/design/`.
    `review_type: "design"`, with real design questions and alternatives. Do not
    invent code defects or create a PR just to collect design feedback.
 3. Enable remote delivery for this invocation without changing project settings:
-   `FM_REMOTE=yes surface open /absolute/artifact/directory/review.json`.
-   A saved project `remote` setting takes precedence; if it is explicitly false,
+   `FM_REMOTE=yes surface open /absolute/artifact/directory/review.json --no-open`.
+   `--no-open` guarantees the Mac browser stays closed. A saved project `remote`
+   setting takes precedence over the environment flag; if it is explicitly false,
    the controller can set `fm remote yes --project /absolute/project` after this
    feature is active. See [delivery precedence](README.md#reviews-on-an-iphone).
 4. Tell the user the design is available in that Mac's Reviews, then **stop the
@@ -121,7 +123,9 @@ round, preserved across sheet close/background/reconnect, lost on force quit.
 The page does not approve anything when an image loads. All attached images must
 decode before the Send button enables. A corrupt/unsupported raster shows an
 explicit image error; the owning worker replaces it and opens a new round.
-Decisions save before notification. Retries reuse durable receipts and cannot
+Decision commits and media registration share a lock, so a delayed submission
+cannot answer a generation superseded while its body was arriving. Decisions save
+before notification. Retries reuse durable receipts and cannot
 wake twice. Dead/reused/synchronized/controller panes retain the existing wake
 protections. Stale and closed reviews refuse submissions.
 
@@ -174,7 +178,7 @@ cp "$HARNESS/surface/examples/design-review/review.json" "$artifact/review.json"
 cp "$HARNESS/surface/examples/design-review/images/before.jpg" "$artifact/images/before.jpg"
 cp "$HARNESS/surface/examples/design-review/images/calm.jpg" "$artifact/images/calm.jpg"
 cp "$HARNESS/surface/examples/design-review/images/bold.jpg" "$artifact/images/bold.jpg"
-FM_REMOTE=yes surface open "$artifact/review.json"
+FM_REMOTE=yes surface open "$artifact/review.json" --no-open
 # STOP. On the owning worker's decision wake:
 surface read "$artifact/review.json"
 ```
@@ -191,7 +195,7 @@ Controller instruction for fitness design agents, **only after activation**:
 > Read the active harness's `surface/DESIGN_REVIEWS.md`. Package your selected
 > screenshots/mockups in `~/.fm2/briefs/<your-task>/design/images/`, write a
 > standalone `review_type: "design"` spec with titled images and real design
-> choices, and run `FM_REMOTE=yes surface open <absolute-review.json>` from your
+> choices, and run `FM_REMOTE=yes surface open <absolute-review.json> --no-open` from your
 > own worker pane. Keep delivery remote, then stop. Read `surface read <spec>` on
 > wake; treat the result as design feedback, with no code or GitHub action unless
 > separately authorized. Preserve the exports and `.surface-media` for that round.
@@ -200,13 +204,20 @@ Controller instruction for fitness design agents, **only after activation**:
 
 Run `node --test surface/test/*.test.mjs`. The opt-in WebKit check is
 `node surface/test/media.webkit.mjs`; supply `SURFACE_PLAYWRIGHT_MODULE` (absolute
-path to `playwright/index.mjs`), `SURFACE_ADAPTER_FIXTURE` (an isolated `call.py`
-wrapper around the released adapter), `SURFACE_EVIDENCE` (durable output folder)
-and, if needed, `PLAYWRIGHT_BROWSERS_PATH` / `SURFACE_PYTHON`. The wrapper accepts
-port, operation and JSON message, prints `asyncio.run(Reviews(port).call(op,
-message))` as JSON, and exits nonzero on a relay error. Export only `common.py`
-and `reviews.py` from mobile_build commit
-`c3f41d3b4b3e282031386e227f8f31d69ffbfb20` into its private fixture package.
+path to `playwright/index.mjs`), `SURFACE_EVIDENCE` (durable output folder)
+and, if needed, `PLAYWRIGHT_BROWSERS_PATH` / `SURFACE_PYTHON`. Set
+`SURFACE_MOBILE_REPO` to the read-only mobile_build repository. The test exports
+only `common.py` and `reviews.py` from pinned released commit
+`c3f41d3b4b3e282031386e227f8f31d69ffbfb20` into its private fixture package,
+then uses the checked-in `surface/test/adapter_fixture.py` wrapper. It never
+installs or restarts the adapter. For example, with an isolated Playwright install:
+
+```sh
+SURFACE_PLAYWRIGHT_MODULE=/absolute/test-deps/node_modules/playwright/index.mjs \
+SURFACE_MOBILE_REPO=/absolute/path/to/mobile_build \
+SURFACE_EVIDENCE="$HOME/.fm2/briefs/my-design-task/evidence" \
+node surface/test/media.webkit.mjs
+```
 
 The check uses a private temporary surface home, ephemeral loopback port and
 private tmux socket/pane. It exercises actual registration → bundled page →
