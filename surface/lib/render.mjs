@@ -102,10 +102,10 @@ export function findingId(finding, index) {
   return raw.replace(/[^A-Za-z0-9_-]/g, '-') || `f${index + 1}`;
 }
 
-function radioGroup(name, options, selected) {
+function radioGroup(name, options, selected, controlPrefix = null) {
   return options
-    .map(([value, label]) => {
-      const id = `${name}-${value}`;
+    .map(([value, label], index) => {
+      const id = controlPrefix === null ? `${name}-${value}` : `${controlPrefix}-${index}`;
       const checked = value === selected ? ' checked' : '';
       return `<label class="choice" for="${escapeHtml(id)}">
   <input type="radio" id="${escapeHtml(id)}" name="${escapeHtml(name)}" value="${escapeHtml(value)}"${checked}>
@@ -269,11 +269,11 @@ ${images.map(m => `<figure id="media-${escapeHtml(m.id)}" class="media-card">
 }
 
 function renderDesignQuestions(spec, decided) {
-  return `<section><h2>Design choices</h2>${designQuestions(spec).map(q => {
+  return `<section><h2>Design choices</h2>${designQuestions(spec).map((q, index) => {
     const feedback = parseDesignFeedback(decided?.findings?.[q.id]?.comment) || { choice: null, comment: '' };
     return `<article class="design-question" id="question-${escapeHtml(q.id)}" data-question="${escapeHtml(q.id)}">
       <h3>${escapeHtml(q.title)}</h3><div class="choices">
-      ${radioGroup(`${q.id}-choice`, [[ '', 'Undecided' ], ...q.options.map(o => [o.id, o.label])], feedback.choice || '')}
+      ${radioGroup(`${q.id}-choice`, [[ '', 'Undecided' ], ...q.options.map(o => [o.id, o.label])], feedback.choice || '', `design-choice-${index}`)}
       </div>${q.options.map(o => `<p class="option-refs">${escapeHtml(o.label)}: ${o.media.map(id => `<button type="button" class="media-reference" data-ref="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(' · ')}</p>`).join('')}
       <label for="${escapeHtml(q.id)}-feedback">Feedback for this choice</label>
       <textarea id="${escapeHtml(q.id)}-feedback" name="${escapeHtml(q.id)}-feedback" rows="3">${escapeHtml(feedback.comment)}</textarea>

@@ -277,6 +277,15 @@ function registerLocked(specPath, { pane = null, project = null, remote = false 
   }
 
   const media = snapshotMedia(abs, spec);
+  if (media) {
+    // Unchanged reopens retain their round, but A→B→A is a new publication:
+    // earlier A decisions may already be archived while its receipt survives.
+    const unchanged = previous?.media?.descriptors === media.descriptors &&
+      JSON.stringify(previous.media.assets) === JSON.stringify(media.assets);
+    if (unchanged) {
+      if (previous.media.generation) media.generation = previous.media.generation;
+    } else media.generation = randomUUID();
+  }
   const entry = {
     id,
     spec: abs,

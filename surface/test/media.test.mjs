@@ -189,3 +189,43 @@ test('a delayed submission cannot decide images reattached while its body is arr
   assert.equal(existsSync(join(root,'decisions.json')),false);
   assert.equal(existsSync(join(root,'submission-delayed-design-0001.json')),false);
 });
+
+test('reverting attachments creates a fresh round without replaying an archived receipt', async t => {
+  const { root, path, store } = await fixture(t);
+  const first = store.register(path), a = store.readReview(first);
+  assert.equal(store.readReview(store.register(path)).round, a.round, 'unchanged reopen invalidated the round');
+  const listener = createServer().listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const port = listener.address().port;
+  await new Promise(done => listener.close(done));
+  const server = spawn(process.execPath, [resolve(import.meta.dirname, '../server.mjs')], {
+    env: { ...process.env, SURFACE_HOME: join(root, 'registry'), SURFACE_PORT: String(port) }, stdio: 'ignore',
+  });
+  t.after(() => server.kill());
+  for (let i = 0; i < 60; i++) {
+    try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch {}
+    await new Promise(done => setTimeout(done, 25));
+  }
+  const original = readFileSync(join(root, 'images/calm.jpg'));
+  const payload = { mode: 'comment', verdict: 'approve', nits: null, message: '',
+    findings: { home_direction: { decision: 'summary', comment: JSON.stringify({ choice: 'focused', comment: 'My choice' }) } } };
+  const post = (round, submission_id) => fetch(`http://127.0.0.1:${port}/api/${first.id}/decisions`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...payload, round, submission_id }),
+  });
+  const receipt = await (await post(a.round, 'original-A-send')).json();
+  assert.equal(receipt.status, 'saved');
+  assert.deepEqual(await (await post(a.round, 'original-A-send')).json(), receipt);
+  cpSync(join(root, 'images/bold.jpg'), join(root, 'images/calm.jpg'));
+  const b = store.register(path), roundB = store.readReview(b).round;
+  assert.notEqual(roundB, a.round);
+  assert.ok(store.archiveStaleDecisions(b));
+  writeFileSync(join(root, 'images/calm.jpg'), original);
+  const reverted = store.register(path), a2 = store.readReview(reverted);
+  assert.notEqual(a2.round, a.round);
+  assert.notEqual(a2.round, roundB);
+  assert.equal(store.readReview(store.register(path)).round, a2.round);
+  assert.equal((await post(a.round, 'original-A-send')).status, 409);
+  assert.equal(existsSync(join(root, 'decisions.json')), false);
+  assert.equal((await post(a2.round, 'fresh-A-send')).status, 200);
+  assert.equal(store.readReview(reverted).decided.round, a2.round);
+});

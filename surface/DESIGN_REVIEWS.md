@@ -2,8 +2,10 @@
 
 This workflow requires the image-capable harness runtime from this change to be
 reviewed and activated. Source files or new instructions alone do not update a
-running server. It uses the existing released TabTail review WebView and Mac
-adapter protocol 1; neither needs an update for reviews within the limits below.
+running server. It uses the TestFlight 1.1 (7) review contract (archive source
+`c80d2080882c00744b8dca38877a9bc02aa40a68`) and Mac adapter protocol 1.
+The installed Mac adapter is 1.3.0; its review transport matches build 7. Neither
+needs an update for image reviews within the limits below.
 Choose **TabTail → selected Mac → Reviews**. The Mac must be reachable over the
 existing authenticated SSH connection. No image host, extra login, public URL,
 file server, adapter install or phone release is involved.
@@ -160,7 +162,9 @@ directory, registry and decisions until the review record is no longer needed.
 Do not overwrite/delete `.surface-media` files. A missing or altered snapshot
 fails explicitly. Updating attachment descriptors requires `surface open` again.
 Reopening after an exported source changes snapshots the new bytes, changes the
-round even if the JSON/mtime did not change, and archives stale decisions. Old
+round even if the JSON/mtime did not change, and archives stale decisions.
+An unchanged reopen retains its round; reverting A → B → A publishes a fresh
+round rather than reviving A’s archived decisions or receipts. Old
 pages and phone drafts cannot answer the new round. `surface read` likewise
 returns only current-round decisions. Keep the normal new-round practice of
 rewriting the spec first, including when only prose or questions change.
@@ -207,10 +211,13 @@ Run `node --test surface/test/*.test.mjs`. The opt-in WebKit check is
 path to `playwright/index.mjs`), `SURFACE_EVIDENCE` (durable output folder)
 and, if needed, `PLAYWRIGHT_BROWSERS_PATH` / `SURFACE_PYTHON`. Set
 `SURFACE_MOBILE_REPO` to the read-only mobile_build repository. The test exports
-only `common.py` and `reviews.py` from pinned released commit
-`c3f41d3b4b3e282031386e227f8f31d69ffbfb20` into its private fixture package,
+only `common.py` and `reviews.py` from actual TestFlight build-7 source
+`c80d2080882c00744b8dca38877a9bc02aa40a68` into its private fixture package,
 then uses the checked-in `surface/test/adapter_fixture.py` wrapper. It never
-installs or restarts the adapter. For example, with an isolated Playwright install:
+installs or restarts the adapter. To separately exercise an installed Mac adapter,
+set `SURFACE_INSTALLED_ADAPTER` to its read-only `relay_adapter` directory; the
+probe copies those same two modules instead. Record that adapter’s version
+separately. For example, with an isolated Playwright install:
 
 ```sh
 SURFACE_PLAYWRIGHT_MODULE=/absolute/test-deps/node_modules/playwright/index.mjs \
@@ -224,8 +231,9 @@ private tmux socket/pane. It exercises actual registration → bundled page →
 unchanged restricted adapter → WebKit decode, with no file/network access from
 the embedded page. It saves gallery, enlarged-image, feedback and corrupt-image
 screenshots, the embedded response, and a machine-readable result. It checks
-exact draft restoration, choice/comment submission, one wake on retry, stale and
-closed rejection, and CSP request blocking. It is browser emulation at
+exact draft restoration, choice/comment submission, multiple-question label
+selection, one wake on retry, stale/reverted/closed rejection, and CSP request
+blocking. It is browser emulation at
 390 × 844 CSS pixels / DPR 3, **not a physically observed phone test**. The viewer
 uses the native HTML dialog supported by [WebKit since Safari 15.4](https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/).
 

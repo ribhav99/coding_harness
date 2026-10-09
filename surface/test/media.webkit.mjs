@@ -12,7 +12,7 @@ const ROOT = resolve(import.meta.dirname, '../..');
 const OUTPUT = process.env.SURFACE_EVIDENCE || mkdtempSync(join(tmpdir(), 'surface-visual-evidence-'));
 mkdirSync(OUTPUT, { recursive: true, mode: 0o700 });
 assert.ok(process.env.SURFACE_PLAYWRIGHT_MODULE, 'set SURFACE_PLAYWRIGHT_MODULE to an installed playwright/index.mjs');
-assert.ok(process.env.SURFACE_MOBILE_REPO, 'set SURFACE_MOBILE_REPO to a read-only mobile_build repository containing the released commit');
+assert.ok(process.env.SURFACE_MOBILE_REPO, 'set SURFACE_MOBILE_REPO to a read-only mobile_build repository containing the TestFlight build-7 source');
 const { webkit } = await import(pathToFileURL(process.env.SURFACE_PLAYWRIGHT_MODULE));
 const home = mkdtempSync(join(tmpdir(), 'surface-webkit-'));
 const artifacts = join(home, 'review');
@@ -39,12 +39,15 @@ try {
   }
   const open = () => execFileSync(process.execPath, [join(ROOT, 'surface/cli.mjs'), 'open', specPath], { env, encoding: 'utf8' });
   assert.match(open(), /Available in TabTail/);
-  const adapterRoot = join(home, 'released-adapter');
+  const adapterRoot = join(home, 'fixture-adapter');
   mkdirSync(join(adapterRoot, 'relay_adapter'), { recursive: true });
   writeFileSync(join(adapterRoot, 'relay_adapter/__init__.py'), '');
-  const releasedCommit = 'c3f41d3b4b3e282031386e227f8f31d69ffbfb20';
+  const phoneCommit = 'c80d2080882c00744b8dca38877a9bc02aa40a68';
+  // Optional installed adapter is copied read-only, never installed/restarted.
+  const installedAdapter = process.env.SURFACE_INSTALLED_ADAPTER;
   for (const module of ['common.py', 'reviews.py']) writeFileSync(join(adapterRoot, 'relay_adapter', module),
-    execFileSync('git', ['-C', process.env.SURFACE_MOBILE_REPO, 'show', `${releasedCommit}:adapter/relay_adapter/${module}`]));
+    installedAdapter ? readFileSync(join(installedAdapter, module)) :
+      execFileSync('git', ['-C', process.env.SURFACE_MOBILE_REPO, 'show', `${phoneCommit}:adapter/relay_adapter/${module}`]));
   const adapter = (op, message = {}) => {
     const result = execFileSync(process.env.SURFACE_PYTHON || '/opt/homebrew/bin/python3',
       [join(ROOT, 'surface/test/adapter_fixture.py'), adapterRoot, String(port), op, JSON.stringify(message)], { encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
@@ -149,12 +152,50 @@ try {
   assert.match(await desktop.locator('#send').textContent(), /will change the branch/);
   await desktop.screenshot({ path: join(OUTPUT, 'desktop-code-image.png'), fullPage: true });
   await desktop.close();
+  // Option labels must select their own question even when stable IDs overlap.
+  const multipleDir = join(home, 'multiple-review');
+  cpSync(join(ROOT, 'surface/examples/design-review'), multipleDir, { recursive: true });
+  const multiplePath = join(multipleDir, 'review.json');
+  const multipleSpec = JSON.parse(readFileSync(multiplePath));
+  multipleSpec.id = 'multiple-design';
+  multipleSpec.design_questions = [
+    { id: 'home', title: 'First question', options: [
+      { id: 'choice-focused', label: 'First focused', media: ['calm'] }, { id: 'other', label: 'First other', media: ['bold'] },
+    ] },
+    { id: 'home-choice', title: 'Second question', options: [
+      { id: 'focused', label: 'Second focused', media: ['calm'] }, { id: 'other', label: 'Second other', media: ['bold'] },
+    ] },
+  ];
+  writeFileSync(multiplePath, JSON.stringify(multipleSpec));
+  execFileSync(process.execPath, [join(ROOT, 'surface/cli.mjs'), 'open', multiplePath], { env: { ...env, SURFACE_PANE: '', TMUX_PANE: '' } });
+  const multipleReview = adapter('reviews.open', { review: multipleSpec.id });
+  const multiplePage = await nativePage(multipleReview.html);
+  await multiplePage.evaluate(() => window.surfaceNativeReceive({ type: 'connection', connected: true }));
+  // Click label text, not input.check(): the browser's label association was the bug.
+  await multiplePage.getByText('First other', { exact: true }).click();
+  await multiplePage.getByText('Second other', { exact: true }).click();
+  await multiplePage.getByText('Second focused', { exact: true }).click();
+  assert.equal(await multiplePage.isChecked('input[name="home-choice"][value="other"]'), true);
+  assert.equal(await multiplePage.isChecked('input[name="home-choice-choice"][value="focused"]'), true);
+  await multiplePage.check('input[name="verdict"][value="approve"]');
+  await multiplePage.click('#send');
+  const multiplePayload = await multiplePage.evaluate(() => window.messages.find(m => m.type === 'submit').payload);
+  assert.equal(JSON.parse(multiplePayload.findings.home.comment).choice, 'other');
+  assert.equal(JSON.parse(multiplePayload.findings['home-choice'].comment).choice, 'focused');
+  adapter('reviews.submit', { review: multipleReview.id, round: multipleReview.round, submission_id: 'multiple-label-0001', decisions: multiplePayload });
+  await multiplePage.screenshot({ path: join(OUTPUT, 'phone-multiple-questions.png'), fullPage: true });
+  await multiplePage.close();
   // A replaced source leaves the old round untouched until explicitly reopened.
   cpSync(join(artifacts, 'images/bold.jpg'), join(artifacts, 'images/calm.jpg'));
   assert.equal(adapter('reviews.open', { review: review.id }).round, review.round);
   open();
   const next = adapter('reviews.open', { review: review.id });
   assert.notEqual(next.round, review.round); assert.equal(next.status, 'waiting');
+  refused('reviews.submit', message, 'review_stale');
+  cpSync(join(ROOT, 'surface/examples/design-review/images/calm.jpg'), join(artifacts, 'images/calm.jpg'));
+  open();
+  const reverted = adapter('reviews.open', { review: review.id });
+  assert.notEqual(reverted.round, review.round);
   refused('reviews.submit', message, 'review_stale');
   // A structurally plausible but undecodable JPEG gets an explicit in-page error.
   const corrupt = Buffer.alloc(32); corrupt.set([255,216,255,192,0,8,8,0,10,0,10,1]); corrupt.set([255,217],30);
@@ -167,8 +208,8 @@ try {
   await bad.screenshot({path:join(OUTPUT,'phone-corrupt-error.png'),fullPage:true});
   rmSync(specPath);
   refused('reviews.open',{review:review.id}, 'review_closed');
-  writeFileSync(join(OUTPUT,'visual-results.json'),JSON.stringify({ releasedCommit, responseBytes, dimensions, pngDimensions: [1170,2532], desktop: 'PNG decoded with original code-review mode controls', networkRequests:requests, zoom:'4× fit with horizontal and vertical scrolling', draft:'restored exact choice/comment', retry:'one original-worker wake', stale:'refused through released adapter', closed:'refused through released adapter', corrupt:'explicit error and send blocked', proof:'Playwright WebKit 26.0 at 390×844 CSS pixels, DPR 3; not a physically observed phone' },null,2));
-  console.log(`PASS: released adapter + iPhone-sized WebKit; ${responseBytes} response bytes. Evidence: ${OUTPUT}`);
+  writeFileSync(join(OUTPUT,'visual-results.json'),JSON.stringify({ phoneCommit, adapterSource: installedAdapter || 'TestFlight build-7 adapter source', responseBytes, dimensions, pngDimensions: [1170,2532], desktop: 'PNG decoded with original code-review mode controls', networkRequests:requests, zoom:'4× fit with horizontal and vertical scrolling', draft:'restored exact choice/comment', retry:'one original-worker wake', stale:'old and reverted media rounds refused', closed:'refused through fixture adapter', corrupt:'explicit error and send blocked', multipleQuestions: 'label clicks saved exactly their own choices', proof:'iPhone-sized Playwright WebKit at 390×844 CSS pixels, DPR 3; not a physically observed phone' },null,2));
+  console.log(`PASS: build-7 contract / ${installedAdapter ? 'copied installed' : 'build-7 source'} adapter + iPhone-sized WebKit; ${responseBytes} response bytes. Evidence: ${OUTPUT}`);
 } finally {
   await browser?.close();
   server.kill();

@@ -1,7 +1,7 @@
-"""Invoke an exported released adapter in the visual test's private fixture.
+"""Invoke a copied build-7 or installed adapter in the visual test's private fixture.
 
 No adapter is installed or restarted. The JS test exports only the two required
-modules from the pinned mobile_build commit into a disposable private package.
+modules from the actual build-7 commit or installed adapter into a disposable private package.
 """
 import asyncio
 import importlib
