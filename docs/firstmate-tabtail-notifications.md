@@ -100,6 +100,14 @@ Released Relay retains event hashing, deduplication, pane/run validation and
 subscription ordering; mismatched, early, nested and auxiliary callbacks cannot
 complete another root turn.
 
+An opted-in task switch/reload waits up to six seconds for the actual provider,
+covering bounded inventory, bootstrap and agent-claim setup. The temporary
+inventory server does not count as provider readiness. The switch captures the
+replacement's exact pane PID; failed-start cleanup freezes and stops that owned
+launch root and its children before restoring the exact source conversation.
+A changed pane PID is refused. Ordinary untracked cleanup and shared-daemon
+ownership checks are unchanged.
+
 ## Evidence and unsupported routes
 
 Native Codex 0.160.1 TUI fixtures run in private tmux servers and empty Codex
@@ -111,6 +119,11 @@ root candidate exists and TabTail emits nothing. Controller Stop exit 2 starts a
 real continuation without a candidate; the accepted continuation produces one
 completion. Native quiet, worker/controller lifecycle handoff, unknown-state and
 failed-response cases stay silent. No terminal-output heuristic produces alerts.
+
+Native reload fixtures also exercise successful 400 ms service replies, an
+unavailable optional service, and a replacement that exceeds the startup budget.
+The failed replacement and its child must exit before exact-source recovery;
+the replacement cannot start later and failed handoff bookkeeping stays absent.
 
 Claude Code 2.1.295's documented Stop lacks the real `background_tasks` and
 `session_crons` arrays required by released Relay's Claude accepted-stop parser.
@@ -142,10 +155,11 @@ Baseline: harness `e2be6f4aa21c854c0304e291dcdfbc35f587e640`; read-only Relay/mo
 source `2f22329e8c54203492e4827b23eaffd6ca72d6c8`, Mac adapter 1.4.0, phone 1.1(8).
 Tools: Codex 0.160.1, Claude Code 2.1.295 (version inspection only), Node v20.19.5,
 Relay Python 3.13.7, tmux 3.7b. No current user session was adopted or restarted.
-**Physical iPhone push testing was not run**: APNs setup/service activation is
-pending, and the fixture has no push sender. Local outbox evidence is not proof
-of end-to-end iPhone delivery. Cold six-judge/meta/current-head review is still
-required before merge; this task does not deploy the harness.
+**Physical iPhone push testing was not run by this PR**: the fixture has no push
+sender. Local outbox evidence is not proof of end-to-end iPhone delivery; owner
+setup and a physical delivery check remain separate adoption requirements.
+Merge requires six-judge/meta/current-head review; this task does not deploy the
+harness.
 
 Removal is reversible: omit `FM2_TABTAIL=1` on the next deliberate launch or
 exact-ID resume. Leave existing conversations running. There are no global

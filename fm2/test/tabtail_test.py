@@ -13,11 +13,13 @@ from pathlib import Path
 import shlex
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import closing
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / 'tabtail.py'
@@ -42,6 +44,8 @@ async def main():
    elif value['op']=='register': result=store.register(value)
    elif value['op']=='subscribe': result=store.subscribe(value)
    else: result=await service.request(value)
+   delay=Path(sys.argv[1])/'response-delay'
+   if delay.exists(): await asyncio.sleep(float(delay.read_text()))
    response={'ok':True,'data':result}
   except Exception as e: response={'ok':False,'error':str(e)}
   writer.write(encode_frame(response));await writer.drain();writer.close()
@@ -320,7 +324,7 @@ class NativeCodex(unittest.TestCase):
     def setUp(self):
         self.addCleanup(self.cleanup)
         self.temp = tempfile.TemporaryDirectory(prefix='fmtt-tui-')
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.tmux_socket = str(self.root / 'tmux')
         self.state = self.root / 'state'; self.state.mkdir(mode=0o700)
         self.fmhome = self.root / 'fm'; (self.fmhome / 'tasks').mkdir(parents=True)
@@ -385,7 +389,8 @@ class NativeCodex(unittest.TestCase):
         self.stop = shlex.join([sys.executable, str(BRIDGE), 'stop', '--', '/bin/sh', '-c', gate])
         self.flags = ['-c', 'hooks.Stop=[{hooks=[{type="command",command=' + json.dumps(self.stop) + '}]}]']
         self.env = {key: value for key, value in os.environ.items()
-                    if not key.startswith(('FM2_', 'TABTAIL_')) and key not in ('TMUX','TMUX_PANE','OPENAI_API_KEY','CODEX_API_KEY')}
+                    if key in ('PATH', 'HOME', 'TMPDIR', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE',
+                               'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE')}
         self.env.update(RELAY_STATE_DIR=str(self.state), RELAY_TMUX_SOCKET=self.tmux_socket,
                         FM2_HOME=str(self.fmhome), FM2_TASK=task, FM2_AGENT='codex', FM2_PANEL='',
                         FM2_TABTAIL='1', FM_REMOTE='yes', CODEX_HOME=str(self.codexhome))
@@ -410,6 +415,10 @@ class NativeCodex(unittest.TestCase):
                   shutil.which('codex'), '--no-daemon', '--no-alt-screen', *self.flags]
         self.pane = self.tmux('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'fixture', '-x', '160', '-y', '40',
                               '-c', str(self.root), shlex.join(launch))
+        # Respawn inherits the private server's environment, not Node's caller
+        # environment. Keep every replacement in this empty fixture home/store.
+        for key in ('CODEX_HOME', 'RELAY_STATE_DIR', 'RELAY_TMUX_SOCKET'):
+            self.tmux('set-environment', '-g', key, self.env[key])
         self.until(lambda: 'Ask Codex to do anything' in self.screen(), 'native TUI startup')
         self.owner = self.tmux('display-message', '-p', '-t', self.pane, '#{pane_pid}')
         rows = [line.split() for line in subprocess.check_output(['ps','-axo','pid=,ppid=,comm='],text=True).splitlines()]
@@ -426,11 +435,20 @@ class NativeCodex(unittest.TestCase):
                 fixture='localhost-only native Codex; released Relay without APNs sender',
                 pane=self.pane, owner_pid=self.owner, native_pid=self.native,
                 stops=self.records(self.stop_payloads), callbacks=self.records(self.callbacks),
-                request_metadata=self.requests, store=self.store()), indent=2))
+                request_metadata=self.requests, reload=getattr(self, 'reloaded', None),
+                recovery=getattr(self, 'recovery', None), store=self.evidence_store()), indent=2))
         if hasattr(self, 'tmux_socket'): subprocess.run(['tmux','-S',self.tmux_socket,'kill-server'],capture_output=True)
         if hasattr(self, 'service'): self.service.kill(); self.service.communicate(timeout=3)
         if hasattr(self, 'model'): self.model.shutdown(); self.model.server_close(); self.thread.join(timeout=2)
         if hasattr(self, 'temp'): self.temp.cleanup()
+
+    def evidence_store(self):
+        # The unavailable-service test deliberately removes its socket. Read
+        # only this fixture's durable database so cleanup never needs service.
+        with closing(sqlite3.connect(self.state / 'db')) as db:
+            db.row_factory = sqlite3.Row
+            return {table: [dict(row) for row in db.execute('SELECT * FROM ' + table)]
+                    for table in ('events', 'runs', 'codex_candidates', 'outbox', 'sources')}
 
     def screen(self): return self.tmux('capture-pane', '-p', '-t', self.pane)
 
@@ -560,6 +578,142 @@ class NativeCodex(unittest.TestCase):
 
     def test_native_controller_lifecycle_unknown_and_error_never_complete(self):
         self.exercise_suppression()
+
+    def reload_worker(self, path=None):
+        # Run the real switch and cleanup against this fixture's provider only.
+        # Override homedir in this child before imports so repository trust and
+        # skill synchronization cannot write the owner's global installation.
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        (self.root / '.gitignore').write_text('*\n')
+        subprocess.run(['git', '-C', str(self.root), 'add', '-f', '.gitignore'], check=True)
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=fixture',
+                        '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+        (self.codexhome / 'models_cache.json').write_text(json.dumps(dict(
+            fetched_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            models=[dict(slug='gpt-6.1-sol')])))
+        bin_path = self.root / 'switch-bin'; bin_path.mkdir(exist_ok=True)
+        tmux = bin_path / 'tmux'
+        tmux.write_text('#!/bin/sh\nexec ' + shlex.join([shutil.which('tmux'), '-S', self.tmux_socket]) + ' "$@"\n')
+        tmux.chmod(0o700)
+        script = '''
+import os from 'node:os';
+import {syncBuiltinESMExports} from 'node:module';
+os.homedir=()=>process.argv[1]; syncBuiltinESMExports();
+const {loadTask,saveTask}=await import('./fm2/lib/config.mjs');
+const {rememberSession}=await import('./fm2/lib/sessions.mjs');
+const {switchTask}=await import('./fm2/lib/switch.mjs');
+const task=loadTask('worker'), source=task.sessions.codex;
+saveTask({...task,worktree:process.argv[1],project:process.argv[1],pane:process.argv[2],panel:'fixture'});
+rememberSession({task:'worker',agent:'codex',sessionId:source.id,transcriptPath:source.transcript,
+  cwd:source.cwd,pane:process.argv[2],providerPid:Number(process.argv[3]),backend:'embedded'});
+let result;
+try {
+  const changed=switchTask('worker',{agent:'codex'});
+  result={ok:true,resumed:changed.resumed,preserved:changed.worktreePreserved};
+} catch(error) { result={ok:false,error:error.message}; }
+const final=loadTask('worker');
+console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessions.codex.id,
+  agent:final.agent,handoffs:final.handoffs?.length??0}));
+'''
+        environment = dict(self.env, CODEX_SKILLS_DIR=str(self.root / 'skills'),
+                           FM2_TABTAIL_RELAY=str(Path(bridge.RELAY_ADAPTER).parent),
+                           PATH=str(bin_path) + ':' + (path or os.environ['PATH']))
+        result = subprocess.run(['node', '--input-type=module', '-e', script,
+                                 str(self.root), self.pane, str(self.native)],
+                                cwd=ROOT.parent, env=environment, text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.reloaded = json.loads(result.stdout)
+        return self.reloaded
+
+    def exact_source_running(self):
+        source = json.loads((self.fmhome / 'sessions/worker/codex.json').read_text())
+        owner = int(self.tmux('display-message', '-p', '-t', self.pane, '#{pane_pid}'))
+        rows = [line.split(maxsplit=2) for line in subprocess.check_output(
+            ['ps', '-axo', 'pid=,ppid=,comm='], text=True).splitlines()]
+        owned = {owner}
+        for _ in rows:
+            new = {int(pid) for pid, parent, command in rows if int(parent) in owned}
+            if new <= owned: break
+            owned.update(new)
+        for pid, parent, command in rows:
+            if int(pid) not in owned or Path(command).name != 'codex': continue
+            args = shlex.split(subprocess.check_output(['ps', '-p', pid, '-o', 'args='], text=True, timeout=5))
+            if 'resume' in args and source['id'] in args:
+                self.recovery = dict(id=source['id'], transcript=source['transcript'],
+                                     owner_pid=owner, native_pid=int(pid))
+                return source['id'] == self.reloaded['sourceId']
+        return False
+
+    def continue_without_new_hook_trust(self):
+        # Exercise normal native review instead of bypassing it. Only this
+        # disposable TUI is controlled; these new hooks remain untrusted.
+        self.until(lambda: 'Hooks need review' in self.screen(), 'normal new-hook review')
+        self.tmux('send-keys', '-t', self.pane, 'Down', 'Down', 'Enter')
+        self.until(lambda: 'Hooks need review' not in self.screen()
+                   and ('Ask Codex to do anything' in self.screen() or 'context left' in self.screen()),
+                   'resume after declining hook trust')
+
+    def test_native_reload_waits_for_slow_optional_bootstrap(self):
+        self.submit(); self.finished(0)
+        (self.state / 'response-delay').write_text('.4')
+        result = self.reload_worker()
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['resumed'], result['sourceId'])
+        self.assertEqual(result['recordedId'], result['sourceId'])
+        self.assertEqual((result['agent'], result['handoffs'], result['preserved']), ('codex', 1, True))
+        self.continue_without_new_hook_trust()
+        self.until(self.exact_source_running, 'slow bootstrap exact source running')
+        self.submit()
+        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
+
+    def test_native_reload_retains_provider_when_optional_service_is_unavailable(self):
+        self.submit(); self.finished(0)
+        self.service.kill(); self.service.communicate(timeout=3)
+        (self.state / 'notifications.sock').unlink()
+        result = self.reload_worker()
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['resumed'], result['sourceId'])
+        self.assertEqual((result['agent'], result['handoffs']), ('codex', 1))
+        self.continue_without_new_hook_trust()
+        self.until(self.exact_source_running, 'unavailable service exact source running')
+        self.submit()
+        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
+
+    def test_native_failed_reload_stops_setup_before_restoring_exact_source(self):
+        self.submit(); self.finished(0)
+        # A disposable executable delays its first real launch beyond the
+        # startup budget; inventory still delegates to the installed Codex.
+        # Recovery's second launch resumes normally. No live CLI is replaced.
+        bin_path = self.root / 'delayed-provider'; bin_path.mkdir()
+        delayed = bin_path / 'codex'
+        marker, started, child = [self.root / name for name in ('delayed.pid', 'late-start', 'child.pid')]
+        native = shutil.which('codex')
+        delayed.write_text('#!' + sys.executable + '\nimport os,subprocess,sys,time\nfrom pathlib import Path\n'
+            'marker=Path(' + repr(str(marker)) + ')\n'
+            'if sys.argv[1:2]!=["app-server"] and not marker.exists():\n'
+            ' marker.write_text(str(os.getpid()))\n'
+            ' child=subprocess.Popen(["/bin/sleep","10000"])\n'
+            ' Path(' + repr(str(child)) + ').write_text(str(child.pid))\n'
+            ' time.sleep(8)\n'
+            ' Path(' + repr(str(started)) + ').write_text("unexpected late launch")\n'
+            'os.execv(' + repr(native) + ',[' + repr(native) + ',*sys.argv[1:]])\n')
+        delayed.chmod(0o700)
+        result = self.reload_worker(path=str(bin_path) + ':' + os.environ['PATH'])
+        self.assertFalse(result['ok'], result)
+        self.assertIn('did not start its codex provider', result['error'])
+        self.assertEqual((result['agent'], result['handoffs']), ('codex', 0))
+        self.assertEqual(result['recordedId'], result['sourceId'])
+        for path in (marker, child):
+            self.assertTrue(path.exists())
+            with self.assertRaises(ProcessLookupError): os.kill(int(path.read_text()), 0)
+        self.assertFalse(started.exists(), 'failed replacement remained capable of executing Codex')
+        self.continue_without_new_hook_trust()
+        # New hook definitions retain normal trust; a stale SessionStart record
+        # is not proof of recovery. Observe its explicit resume argv and a real
+        # subsequent model request from that exact native conversation.
+        self.until(self.exact_source_running, 'failed launch exact source running')
+        self.submit()
+        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
 
 
 if __name__ == '__main__':

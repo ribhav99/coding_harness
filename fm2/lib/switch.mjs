@@ -23,7 +23,7 @@ import {
 } from './sessions.mjs';
 import { tmux, panePid } from './tmux.mjs';
 import { ensureCodexTrust, launchCommand, writeWorkerSettings } from './launch.mjs';
-import { beginTabtailHandoff } from './tabtail.mjs';
+import { beginTabtailHandoff, tabtailEnabled } from './tabtail.mjs';
 import { assertProviderStarted, clearStartupPrompts, openPane } from './panes.mjs';
 import { preserveSession, refreshPreservedTranscript, worktreeState } from './handoff.mjs';
 
@@ -42,9 +42,10 @@ const SWITCH_RUNTIME = {
     try { return tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']) === '0'; }
     catch { return false; }
   },
-  interrupt(pane, { from, source, task, explicit = false, targetLaunch = false } = {}) {
+  interrupt(pane, { from, source, task, explicit = false, targetLaunch = false, launchPid = null } = {}) {
     return stopProvider({ id: pane, pid: panePid(pane), cwd: task.worktree }, { tmux, agent: from, source,
-      explicit, allowUnrecordedEmbedded: targetLaunch && from === 'codex', allowMissingProvider: targetLaunch });
+      explicit, allowUnrecordedEmbedded: targetLaunch && from === 'codex', allowMissingProvider: targetLaunch,
+      launchPid: targetLaunch ? launchPid : null });
   },
   replace: replacePane,
   open: openPane,
@@ -105,6 +106,8 @@ export function switchTask(id, {
 
   const endTabtailHandoff = beginTabtailHandoff(id, source);
   let pane = task.pane;
+  let targetLaunchPid = null;
+  const startup = (agent, pid) => ({ launchPid: pid, waitMs: tabtailEnabled(agent) ? 6000 : 0 });
   let sourceStopped = false, targetAttempted = false;
   try {
     if (wasAlive) {
@@ -124,6 +127,7 @@ export function switchTask(id, {
           { encoding: 'utf8', timeout: 35_000, stdio: ['ignore', 'pipe', 'pipe'] });
       }
       const window = task.kind === 'review' ? 'reviews' : 'workers';
+      targetAttempted = true;
       pane = runtime.open(
         window,
         task.worktree,
@@ -134,16 +138,18 @@ export function switchTask(id, {
         to,
       );
     }
+    if (runtime === SWITCH_RUNTIME && tabtailEnabled(to)) targetLaunchPid = panePid(pane);
     runtime.clear(pane, { agent: to });
-    runtime.assert(pane, id, to);
+    runtime.assert(pane, id, to, startup(to, targetLaunchPid));
   } catch (error) {
     // If replacing a live provider failed, resume the exact source session in
     // the same pane. A failed target launch must not turn a provider switch into
     // a dead task.
     let targetStopped = !targetAttempted;
-    if (sourceStopped && targetAttempted && runtime === SWITCH_RUNTIME) {
+    if (targetAttempted && runtime === SWITCH_RUNTIME) {
       try {
-        if (runtime.alive(pane)) runtime.interrupt(pane, { from: to, source: recordedSession(task, to), task, targetLaunch: true, explicit: true });
+        if (runtime.alive(pane)) runtime.interrupt(pane, { from: to, source: recordedSession(task, to), task,
+          targetLaunch: true, explicit: true, launchPid: targetLaunchPid });
         targetStopped = true;
       } catch { /* keep the source stopped until target termination is verified */ }
     } else if (runtime !== SWITCH_RUNTIME) targetStopped = true;
@@ -160,8 +166,9 @@ export function switchTask(id, {
           effort: sourceEffort,
         });
         runtime.replace(task.pane, task.worktree, oldCommand);
+        const sourceLaunchPid = runtime === SWITCH_RUNTIME && tabtailEnabled(from) ? panePid(task.pane) : null;
         runtime.clear(task.pane, { agent: from });
-        runtime.assert(task.pane, id, from);
+        runtime.assert(task.pane, id, from, startup(from, sourceLaunchPid));
       } catch { /* the preserved handoff is the recovery point */ }
     }
     // A Codex target can run SessionStart and install the shared bar before a
