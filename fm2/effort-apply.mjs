@@ -37,7 +37,7 @@ export function reloadController(identity, request) {
     briefPath: preserved.promptPath, effort: request.from,
   });
   let stopped = false, targetAttempted = false, launchPid = null;
-  const optedIn = tabtailEnabled(request.agent);
+  const optedIn = tabtailEnabled(request.agent, identity);
   try {
     stopProvider({ id: record.pane, pid: panePid(record.pane), cwd }, {
       tmux, agent: request.agent, source, explicit: true,

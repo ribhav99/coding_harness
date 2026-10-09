@@ -107,7 +107,7 @@ export function switchTask(id, {
   const endTabtailHandoff = beginTabtailHandoff(id, source);
   let pane = task.pane;
   let targetLaunchPid = null;
-  const startup = (agent, pid) => ({ launchPid: pid, waitMs: tabtailEnabled(agent) ? 6000 : 0 });
+  const startup = (agent, pid) => ({ launchPid: pid, waitMs: tabtailEnabled(agent, id) ? 6000 : 0 });
   let sourceStopped = false, targetAttempted = false;
   try {
     if (wasAlive) {
@@ -138,7 +138,7 @@ export function switchTask(id, {
         to,
       );
     }
-    if (runtime === SWITCH_RUNTIME && tabtailEnabled(to)) targetLaunchPid = panePid(pane);
+    if (runtime === SWITCH_RUNTIME && tabtailEnabled(to, id)) targetLaunchPid = panePid(pane);
     runtime.clear(pane, { agent: to });
     runtime.assert(pane, id, to, startup(to, targetLaunchPid));
   } catch (error) {
@@ -166,7 +166,7 @@ export function switchTask(id, {
           effort: sourceEffort,
         });
         runtime.replace(task.pane, task.worktree, oldCommand);
-        const sourceLaunchPid = runtime === SWITCH_RUNTIME && tabtailEnabled(from) ? panePid(task.pane) : null;
+        const sourceLaunchPid = runtime === SWITCH_RUNTIME && tabtailEnabled(from, id) ? panePid(task.pane) : null;
         runtime.clear(task.pane, { agent: from });
         runtime.assert(task.pane, id, from, startup(from, sourceLaunchPid));
       } catch { /* the preserved handoff is the recovery point */ }

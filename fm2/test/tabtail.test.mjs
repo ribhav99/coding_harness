@@ -160,6 +160,7 @@ test('future worker/controller opt-in preserves exact resumes, hooks, effort and
   const f = fixture(t);
   for (const enabled of ['', '1']) {
     process.env.FM2_TABTAIL = enabled;
+    process.env.FM2_TASK = ''; // Explicit pilot applies to each launch built by this external caller.
     const settingsFile = writeWorkerSettings('worker', 'codex');
     const worker = launchCommand({ agent: 'codex', id: 'worker', settingsFile, resume: 'exact-session', effort: 'xhigh', project: f.home });
     const controller = supervisorCommand({ agent: 'codex', panel: 'fixture', resume: 'exact-controller', effort: 'xhigh' });

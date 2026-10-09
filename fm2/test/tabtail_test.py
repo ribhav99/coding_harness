@@ -212,6 +212,7 @@ class ReleasedRelay(unittest.TestCase):
         self.state = self.root / 'state'; self.state.mkdir(mode=0o700)
         self.control = self.root / 'provider.sock'
         self.fmhome = self.root / 'fm'; (self.fmhome / 'tasks').mkdir(parents=True)
+        (self.fmhome / 'tabtail.json').write_text(json.dumps(dict(version=1, enabled=True, relay=str(Path(bridge.RELAY_ADAPTER).parent))))
         (self.fmhome / 'tasks/worker.json').write_text(json.dumps(dict(id='worker', agent='codex')))
         self.env = dict(os.environ, RELAY_STATE_DIR=str(self.state), RELAY_TMUX_SOCKET=self.tmux_socket,
                         FM2_HOME=str(self.fmhome), FM2_TASK='worker', FM2_AGENT='codex', FM2_PANEL='',
@@ -327,7 +328,18 @@ class NativeCodex(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.tmux_socket = str(self.root / 'tmux')
         self.state = self.root / 'state'; self.state.mkdir(mode=0o700)
+        self.launch_python = sys.executable
+        self.runtime = Path(bridge.RELAY_ADAPTER).parent
+        if 'shim' in self._testMethodName:
+            self.runtime = self.root / 'retained-app-runtime'
+            (self.runtime / 'venv/bin').mkdir(parents=True)
+            (self.runtime / 'adapter').symlink_to(Path(bridge.RELAY_ADAPTER))
+            shim = self.runtime / 'venv/bin/python'
+            shim.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' -B "$@"\n')
+            shim.chmod(0o700)
+            self.launch_python = str(shim)
         self.fmhome = self.root / 'fm'; (self.fmhome / 'tasks').mkdir(parents=True)
+        (self.fmhome / 'tabtail.json').write_text(json.dumps(dict(version=1, enabled=True, relay=str(self.runtime))))
         (self.fmhome / 'tasks/worker.json').write_text(json.dumps(dict(id='worker', agent='codex')))
         self.codexhome = self.root / 'codex-home'; self.codexhome.mkdir()
         self.responses = queue.Queue()
@@ -386,14 +398,22 @@ class NativeCodex(unittest.TestCase):
         aggregate = ROOT / ('hooks/supervisor-stop.mjs' if controller else 'hooks/worker-stop.mjs')
         latest = self.root / 'stop.json'
         gate = 'cat > ' + shlex.quote(str(latest)) + '; cat ' + shlex.quote(str(latest)) + ' >> ' + shlex.quote(str(self.stop_payloads)) + '; printf "\\n" >> ' + shlex.quote(str(self.stop_payloads)) + '; ' + shlex.join(['node', str(aggregate)]) + ' < ' + shlex.quote(str(latest))
-        self.stop = shlex.join([sys.executable, str(BRIDGE), 'stop', '--', '/bin/sh', '-c', gate])
+        self.stop = shlex.join([self.launch_python, str(BRIDGE), 'stop', '--', '/bin/sh', '-c', gate])
         self.flags = ['-c', 'hooks.Stop=[{hooks=[{type="command",command=' + json.dumps(self.stop) + '}]}]']
         self.env = {key: value for key, value in os.environ.items()
                     if key in ('PATH', 'HOME', 'TMPDIR', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE',
                                'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE')}
         self.env.update(RELAY_STATE_DIR=str(self.state), RELAY_TMUX_SOCKET=self.tmux_socket,
+                        FM2_TABTAIL_RELAY=str(self.runtime),
                         FM2_HOME=str(self.fmhome), FM2_TASK=task, FM2_AGENT='codex', FM2_PANEL='',
                         FM2_TABTAIL='1', FM_REMOTE='yes', CODEX_HOME=str(self.codexhome))
+        if 'scheduler' in self._testMethodName:
+            private_bin = self.root / 'scheduler-bin'; private_bin.mkdir()
+            wrapper = private_bin / 'tmux'
+            wrapper.write_text('#!/bin/sh\nexec ' + shlex.join([shutil.which('tmux'), '-S', self.tmux_socket]) + ' "$@"\n')
+            wrapper.chmod(0o700)
+            self.env.update(HOME=str(self.root), PATH=str(private_bin) + ':' + self.env['PATH'],
+                            CODEX_SKILLS_DIR=str(self.root / 'skills'))
         self.service = subprocess.Popen([sys.executable, '-u', '-c', SERVICE, str(self.state)],
                                         env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.assertEqual(self.service.stdout.readline(), 'ready\n')
@@ -411,7 +431,7 @@ class NativeCodex(unittest.TestCase):
             if old is None: os.environ.pop('CODEX_HOME', None)
             else: os.environ['CODEX_HOME'] = old
         self.original = original
-        launch = ['env', *[k + '=' + v for k, v in self.env.items()], sys.executable, str(BRIDGE), 'launch', '--',
+        launch = ['env', *[k + '=' + v for k, v in self.env.items()], self.launch_python, str(BRIDGE), 'launch', '--',
                   shutil.which('codex'), '--no-daemon', '--no-alt-screen', *self.flags]
         self.pane = self.tmux('new-session', '-d', '-P', '-F', '#{pane_id}', '-s', 'fixture', '-x', '160', '-y', '40',
                               '-c', str(self.root), shlex.join(launch))
@@ -419,6 +439,14 @@ class NativeCodex(unittest.TestCase):
         # environment. Keep every replacement in this empty fixture home/store.
         for key in ('CODEX_HOME', 'RELAY_STATE_DIR', 'RELAY_TMUX_SOCKET'):
             self.tmux('set-environment', '-g', key, self.env[key])
+        if 'scheduler' in self._testMethodName:
+            # The scheduler runs via this private tmux server, whose selection
+            # deliberately disagrees with the provider. No live server changes.
+            for key in ('HOME', 'PATH', 'CODEX_SKILLS_DIR'):
+                self.tmux('set-environment', '-g', key, self.env[key])
+            for key in ('FM2_TABTAIL', 'FM2_TABTAIL_RELAY', 'FM2_TABTAIL_BOOTSTRAPPED',
+                        'FM2_TABTAIL_FINAL', 'TABTAIL_AGENT_PID', 'TABTAIL_RUN'):
+                self.tmux('set-environment', '-g', key, 'stale-server-fixture')
         self.until(lambda: 'Ask Codex to do anything' in self.screen(), 'native TUI startup')
         self.owner = self.tmux('display-message', '-p', '-t', self.pane, '#{pane_pid}')
         rows = [line.split() for line in subprocess.check_output(['ps','-axo','pid=,ppid=,comm='],text=True).splitlines()]
@@ -518,6 +546,17 @@ class NativeCodex(unittest.TestCase):
         self.assertEqual(len(self.store()['outbox']), 1)
         self.alive()
 
+    def test_native_app_python_shim_keeps_exact_hook_trust_and_delivers_one_local_completion(self):
+        self.assertNotEqual(self.launch_python, sys.executable)
+        self.submit(); self.finished(0)
+        self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'shim establishes root readiness')
+        self.subscribe('device-11111111')
+        self.submit(); stop, callback = self.finished(1)
+        self.assertEqual(len(callback['candidates']), 1)
+        self.until(lambda: len(self.store()['outbox']) == 1, 'shim subscribed local completion')
+        self.assertEqual(json.loads(callback['argv'][-1])['thread-id'], stop['session_id'])
+        self.alive()
+
     def test_native_controller_block_continues_without_candidate_then_accepts(self):
         self.submit(); self.finished(0)
         self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'controller readiness')
@@ -610,7 +649,15 @@ rememberSession({task:identity,agent:'codex',sessionId:source.id,transcriptPath:
 let result;
 try {
   let changed;
-  if(route==='controller') {
+  if(route==='scheduler') {
+    if(identity.startsWith('controller:')) {
+      const {recordSupervisor}=await import('./fm2/lib/presence.mjs');
+      recordSupervisor(process.argv[2],{panel:'fixture',task:identity,agent:'codex',sessionId:source.id,cwd:source.cwd});
+    }
+    const {requestEffort}=await import('./fm2/lib/effort.mjs');
+    requestEffort(identity,'codex','xhigh',{current:'high'});
+    changed={resumed:source.id,worktreePreserved:true};
+  } else if(route==='controller') {
     const {recordSupervisor}=await import('./fm2/lib/presence.mjs');
     const {reloadController}=await import('./fm2/effort-apply.mjs');
     recordSupervisor(process.argv[2],{panel:'fixture',task:identity,agent:'codex',sessionId:source.id,cwd:source.cwd});
@@ -642,6 +689,10 @@ console.log(JSON.stringify({...result,source,sourceId:source.id,recordedId:final
         environment = dict(self.env, CODEX_SKILLS_DIR=str(self.root / 'skills'),
                            FM2_TABTAIL_RELAY=str(Path(bridge.RELAY_ADAPTER).parent),
                            PATH=str(bin_path) + ':' + (path or os.environ['PATH']))
+        if route != 'scheduler':
+            environment.pop('FM2_TABTAIL', None)
+            environment.pop('FM2_TABTAIL_RELAY', None)
+            environment['FM2_TASK'] = ''
         result = subprocess.run(['node', '--input-type=module', '-e', script,
                                  str(self.root), self.pane, str(self.native), self.task, route],
                                 cwd=ROOT.parent, env=environment, text=True, capture_output=True, timeout=30)
@@ -677,6 +728,42 @@ console.log(JSON.stringify({...result,source,sourceId:source.id,recordedId:final
         self.until(lambda: 'Hooks need review' not in self.screen()
                    and ('Ask Codex to do anything' in self.screen() or 'context left' in self.screen()),
                    'resume after declining hook trust')
+
+    def exercise_actual_effort_scheduler(self):
+        self.submit(); self.finished(0)
+        result = self.reload_worker(route='scheduler')
+        self.assertTrue(result['ok'], result)
+        self.until(lambda: self.store()['runs'][0]['ready'] == 1, 'scheduler initial readiness')
+        self.subscribe('device-11111111')
+        old_run = self.store()['runs'][0]['run']
+        self.submit()  # The real native Stop hook schedules tmux run-shell.
+        effort = self.fmhome / 'efforts' / (self.task.replace(':', '%3A') + '.json')
+        self.until(lambda: effort.exists() and json.loads(effort.read_text()).get('pending') is None,
+                   'actual effort scheduler completion')
+        state = json.loads(effort.read_text())
+        self.assertEqual(state['current']['codex'], 'xhigh', state)
+        self.assertNotIn('last_failure', state)
+        saved = json.loads((self.fmhome / 'tabtail-launches' / (self.task.replace(':', '%3A') + '.json')).read_text())
+        self.assertEqual(saved, dict(version=1, enabled=True, relay=str(Path(bridge.RELAY_ADAPTER).parent)))
+        self.assertEqual(self.store()['outbox'], [], 'effort handoff became completion')
+        self.assertEqual(self.store()['codex_candidates'], [])
+        self.continue_without_new_hook_trust()
+        self.until(self.exact_source_running, 'scheduler resumed exact source')
+        self.until(lambda: len(self.requests) >= 3, 'automatic Stop continuation on resumed source')
+        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
+        self.responses.put('complete')
+        self.until(lambda: any(run['run'] != old_run for run in self.store()['runs']), 'fresh run after scheduler restart')
+        fresh = [run for run in self.store()['runs'] if run['run'] != old_run]
+        self.assertEqual(len(fresh), 1)
+        self.assertTrue(fresh[0]['pane'].endswith(':' + str(self.recovery['owner_pid'])))
+        self.assertNotEqual(fresh[0]['run'], 'stale-server-fixture')
+        self.assertEqual(fresh[0]['ready'], 0, 'old readiness crossed the restart')
+
+    def test_native_worker_actual_effort_scheduler_preserves_choice_and_exact_source(self):
+        self.exercise_actual_effort_scheduler()
+
+    def test_native_controller_actual_effort_scheduler_preserves_choice_and_exact_source(self):
+        self.exercise_actual_effort_scheduler()
 
     def test_native_reload_waits_for_slow_optional_bootstrap(self):
         self.submit(); self.finished(0)

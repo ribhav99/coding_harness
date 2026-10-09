@@ -7,6 +7,8 @@ import { dir, home } from './config.mjs';
 import { normalizeAgent } from './sessions.mjs';
 import { shellQuote } from './shell.mjs';
 import { writeJsonAtomic } from './json-file.mjs';
+import { tabtailSelection } from './tabtail-config.mjs';
+import { tabtailCleanPrefix } from './tabtail.mjs';
 
 export const DEFAULT_EFFORT = 'high';
 export const EFFORT_LEVELS = Object.freeze({
@@ -95,8 +97,10 @@ export function schedulePendingEffort(id, agent, { hookPid = process.pid, run = 
   const scheduled = { ...pending, status: 'scheduled', scheduled_at: new Date().toISOString() };
   writeState(id, { ...state, pending: scheduled });
   const log = join(dir('logs'), 'effort.log');
+  const choice = tabtailSelection(id);
   const command =
-    `FM2_HOME=${shellQuote(home())} ${shellQuote(process.execPath)} ${shellQuote(APPLY)} ` +
+    `${tabtailCleanPrefix()} FM2_TABTAIL=${shellQuote(choice.enabled ? '1' : '0')} FM2_TABTAIL_RELAY=${shellQuote(choice.relay)} ` +
+    `FM2_TASK=${shellQuote(id)} FM2_AGENT=${shellQuote(provider)} FM2_HOME=${shellQuote(home())} ${shellQuote(process.execPath)} ${shellQuote(APPLY)} ` +
     `${shellQuote(id)} ${shellQuote(pending.token)} ${shellQuote(hookPid)} >> ${shellQuote(log)} 2>&1`;
   try {
     run('tmux', ['run-shell', '-b', command], { stdio: 'ignore', timeout: 10_000 });

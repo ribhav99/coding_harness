@@ -325,6 +325,13 @@ test('a failed upgrade still reopens every session that was stopped', t => {
 
 test('Codex update resumes its exact native thread without --last or a synthetic prompt', t => {
   const root = fixture(t);
+  const relay = join(root, 'reviewed-relay');
+  mkdirSync(join(relay, 'venv/bin'), { recursive: true });
+  mkdirSync(join(relay, 'adapter/relay_adapter'), { recursive: true });
+  writeFileSync(join(relay, 'venv/bin/python'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  mkdirSync(join(process.env.FM2_HOME, 'tabtail-launches'));
+  writeFileSync(join(process.env.FM2_HOME, 'tabtail-launches/codex-worker.json'),
+    JSON.stringify({ version: 1, enabled: true, relay }));
   const repo = gitRepo(root);
   const transcript = codexTranscript(root, '11111111-2222-3333-4444-555555555555', repo);
   saveTask({ id: 'codex-worker', agent: 'codex', pane: '%4', panel: 'codex-panel', worktree: repo, project: repo, brief: null });
@@ -350,6 +357,10 @@ test('Codex update resumes its exact native thread without --last or a synthetic
   const manifest = prepareProviderUpdate(request, { runtime });
   executeProviderUpdate(manifest, { runtime });
   assert.match(resumed, /codex' resume |codex resume /u);
+  assert.match(resumed, /tabtail\.py/);
+  assert.ok(resumed.includes(relay));
+  assert.match(resumed, /--no-daemon/);
+  assert.doesNotMatch(resumed, /--dangerously-bypass-hook-trust/);
   assert.match(resumed, /'11111111-2222-3333-4444-555555555555'/u);
   assert.doesNotMatch(resumed, /--last|--continue|continue\.md|\$\(cat/u);
 });

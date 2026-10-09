@@ -1,10 +1,77 @@
-# Firstmate TabTail root-turn completion pilot
+# Firstmate TabTail root-turn completion integration
 
-`FM2_TABTAIL=1` opts future local Codex launches or exact-ID resumes into TabTail
-root-turn notifications. A completion means the **current root turn ended**;
+TabTail.app can enable future local embedded Codex launches and exact-ID resumes
+through one private machine configuration. Users need no per-chat environment
+variables or hook installation. A completion means the **current root turn ended**;
 it does not mean every background job, persistent goal or task has finished,
-or that a PR is approved or merged. Default/off behavior is unchanged.
-No global configuration, running conversation, release or service is changed.
+or that a PR is approved or merged. Absent configuration and no saved choice
+preserve ordinary behavior. Existing live chats are never retrofitted by merge.
+
+## App-owned setup contract (version 1)
+
+The Mac setup owner atomically writes `~/.fm2/tabtail.json` as a user-owned regular
+file (prefer mode 0600; never group/world writable or a symlink). An isolated
+`FM2_HOME` redirects both this file and per-identity preferences for tests.
+The complete enabled form is:
+
+```json
+{"version":1,"enabled":true,"relay":"/absolute/stable/reviewed/runtime-root"}
+```
+
+The retained app root (for example the expanded absolute
+`~/.local/share/tabtail/mac/versions/0.1.0-BUILD`, never a moving `current` link)
+contains executable `venv/bin/python` and directory
+`adapter/relay_adapter`, matching the released Relay installation layout. A compatibility shim may add
+`-B` and exec bundled Python: no pip or real virtualenv is required. Exact Stop
+matching uses the configured interpreter path rather than assuming it equals
+Python's `sys.executable`.
+The app/installer owns acquiring and verifying that runtime and starting its
+local service; the harness only consumes the configured path. Use a stable
+location across app updates. No secrets, APNs data, global hooks, callback bytes
+or hook-trust records belong in this file. Unknown versions, malformed files,
+unsafe file types/permissions, relative paths and missing runtimes select the
+ordinary launch, without trying package installation or network discovery.
+Reads are capped at 4 KiB; optional preference writes cannot block launch on an
+ordinary filesystem error. Existing bounded Relay failure handling is unchanged.
+
+Selection is resolved for the **target fm identity**, including a controller's
+stable `controller:<panel>` identity, rather than copied from whichever worker
+asked for a switch. Precedence:
+
+1. A disabled or invalid machine file disables integration on future launches.
+2. An explicit pilot environment choice applies only to the caller's own fm
+   identity, or to an external caller without `FM2_TASK`.
+3. The owned identity's saved enabled/disabled choice and reviewed runtime path.
+4. An enabled machine default, otherwise ordinary behavior.
+
+Launch construction records only `{version, enabled, relay}` in
+`~/.fm2/tabtail-launches/<encoded-fm-identity>.json`. Default-off is not recorded;
+closing a registered task removes its preference so a later task reusing the
+name cannot inherit it. Choices follow task/panel/provider round trips and
+provider updates. Unsupported Claude launches retain the preference but do not
+activate a bridge. Automatic effort Stop scheduling explicitly forwards only
+choice/path and the scheduler's fm identity/home; it works even when the tmux
+server has different settings. Provider-update maintenance clears its caller's
+selection and resolves each resumed identity separately.
+
+Every launch removes previous `TABTAIL_AGENT_PID`, provider, embedded flag,
+source run/shell PID, outcome fd and bridge inventory/finality/readiness fields.
+The new root regenerates them; no old ownership evidence is persisted or
+forwarded. Existing exact native ID validation, writer termination, reports,
+callbacks and Stop continuation remain authoritative.
+
+To opt out, the app atomically writes `{"version":1,"enabled":false}`. This
+leaves saved preferences and live conversations intact; re-enabling the valid
+machine config restores eligible future launches. A deliberate per-identity
+pilot can also use `FM2_TABTAIL=0` on its next launch/resume. Removing the machine
+file removes automatic defaults, but **does not revoke saved explicit choices**;
+use the disabled file for recovery. No provider restart is part of setup.
+
+See [this Mac's deployment reconciliation](firstmate-tabtail-adoption.md) before
+changing installed commands. Mac app packaging/onboarding and phone pairing
+remain owned by the mobile workers. Normal provider review of exact new hooks
+is still required. Physical phone delivery needs a future user-enabled test
+subscription and an observed fresh alert.
 
 ## Deliberate pilot
 
@@ -121,6 +188,14 @@ real continuation without a candidate; the accepted continuation produces one
 completion. Native quiet, worker/controller lifecycle handoff, unknown-state and
 failed-response cases stay silent. No terminal-output heuristic produces alerts.
 
+Native worker and controller fixtures now exercise the actual Stop scheduler,
+`tmux run-shell`, effort-apply and exact-ID resume against conflicting private
+tmux selection/ownership values. They verify xhigh effort, fresh run/PID, no old
+readiness, silent lifecycle handoff, preserved callbacks and automatic Stop
+continuation. They decline changed hook trust normally. Other native restart
+fixtures select the runtime through the machine config with no opt-in environment
+in the lifecycle caller.
+
 Native restart fixtures also exercise successful 400 ms service replies and a
 replacement that exceeds the startup budget through task, panel-runtime and
 controller-effort callers, plus a task reload with an unavailable optional service.
@@ -165,6 +240,6 @@ setup and a physical delivery check remain separate adoption requirements.
 Merge requires six-judge/meta/current-head review; this task does not deploy the
 harness.
 
-Removal is reversible: omit `FM2_TABTAIL=1` on the next deliberate launch or
-exact-ID resume. Leave existing conversations running. There are no global
-hook/notify edits, release changes, service files or secrets to undo.
+Removal is reversible through the app-owned disabled config described above.
+Leave existing conversations running. There are no global hook/notify edits,
+release changes, service files or secrets introduced by this harness change.

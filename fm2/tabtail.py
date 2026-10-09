@@ -20,6 +20,7 @@ from types import SimpleNamespace
 HERE = str(Path(__file__).resolve())
 BUDGET = 2.0
 RELAY_ADAPTER = str(Path(os.environ.get('FM2_TABTAIL_RELAY', str(Path.home() / '.local/share/relay'))) / 'adapter')
+STOP_PYTHON = str(Path(RELAY_ADAPTER).parent / 'venv/bin/python')
 # Process-local module search; preserve the provider and tools' PYTHONPATH.
 sys.path.insert(0, RELAY_ADAPTER)
 
@@ -148,7 +149,7 @@ def launch(command):
         initial = inventory.get('data', [])
         stops = [hook for entry in initial for hook in entry.get('hooks', []) if hook.get('eventName') == 'stop']
         expected = shlex.split(stops[0].get('command', '')) if len(stops) == 1 else []
-        bridge_prefix = [sys.executable, HERE, 'stop', '--']
+        bridge_prefix = [STOP_PYTHON, HERE, 'stop', '--']
         initial_sole = '1' if (expected[:4] == bridge_prefix and
             sole_trusted_stop(inventory, expected, require_trust=False)) else '0'
     except Exception:
@@ -177,7 +178,7 @@ def stop(gate):
     try:
         command, config, cwd = json.loads(os.environ['FM2_TABTAIL_CODEX'])
         inventory, _ = inspect_codex(command, config, cwd)
-        expected = [sys.executable, HERE, 'stop', '--', *gate]
+        expected = [STOP_PYTHON, HERE, 'stop', '--', *gate]
         if os.environ.get('FM2_TABTAIL_INITIAL_SOLE_STOP') == '1' and sole_trusted_stop(inventory, expected):
             os.environ['FM2_TABTAIL_FINAL'] = '1'
     except Exception:

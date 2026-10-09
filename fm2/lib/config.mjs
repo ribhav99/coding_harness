@@ -6,7 +6,7 @@
 // machine with Slack and a home machine without it, against projects that track
 // work three different ways.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -58,6 +58,7 @@ export function removeTask(id) {
   if (existsSync(f)) {
     writeFileSync(join(dir('closed'), `${id}.json`), readFileSync(f));
     execFileSync('rm', ['-f', f]);
+    rmSync(join(home(), 'tabtail-launches', `${encodeURIComponent(id)}.json`), { force: true });
     return true;
   }
   return false;

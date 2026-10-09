@@ -79,6 +79,14 @@ function fixture(t) {
 
 test('whole panel switches and back with every split, live shells, flushed transcripts, reports and worktrees preserved', (t) => {
   const f = fixture(t);
+  const relay = join(f.base, 'reviewed-relay');
+  mkdirSync(join(relay, 'venv/bin'), { recursive: true });
+  mkdirSync(join(relay, 'adapter/relay_adapter'), { recursive: true });
+  writeFileSync(join(relay, 'venv/bin/python'), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  mkdirSync(join(process.env.FM2_HOME, 'tabtail-launches'), { recursive: true });
+  for (const id of ['worker', controllerId(f.panel)]) writeFileSync(
+    join(process.env.FM2_HOME, 'tabtail-launches', `${encodeURIComponent(id)}.json`),
+    JSON.stringify({ version: 1, enabled: true, relay }));
   const before = capturePanel(f.panel, { tmux: f.runtime.tmux });
   const shellPid = f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{pane_pid}']);
   const handoff = preparePanelSwitch({ panel: f.panel, agent: 'codex', targetSession: 'fm-test-codex', runtime: f.runtime });
@@ -87,6 +95,7 @@ test('whole panel switches and back with every split, live shells, flushed trans
   assert.equal(f.opens.length, 1); assert.equal(f.opens[0].target, 'fm-test-codex');
   assert.equal(f.opens[0].options.socketPath, before.socketPath, 'iTerm must attach to the captured tmux server');
   assert.deepEqual(f.opens[0].args, ['-S', before.socketPath, '-CC', 'attach-session', '-t', '=fm-test-codex']);
+  assert.equal(f.launches.filter(({ command }) => command.includes('tabtail.py')).length, 2);
   assert.equal(f.launches.length, 3); assert.equal(f.launches.at(-1).cwd, f.project, 'controller starts after workers');
   assert.ok(f.launches.every(({ command }) => /model_reasoning_effort="high"/.test(command)));
   assert.equal(f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{session_name}']), result.to);
@@ -110,6 +119,10 @@ test('whole panel switches and back with every split, live shells, flushed trans
   assert.equal(loadTask('worker').agent, 'claude');
   for (const entry of back.entries) assert.equal(entry.target.id, handoff.entries.find((old) => old.task.id === entry.task.id).source.id);
   assert.match(f.launches.at(-1).command, /--resume/);
+  const again = preparePanelSwitch({ panel: back.to, agent: 'codex', targetSession: 'fm-test-codex-again', runtime: f.runtime });
+  executePanelSwitch(again, { runtime: f.runtime, open: false });
+  assert.equal(f.launches.slice(-3).filter(({ command }) => command.includes('tabtail.py')).length, 2);
+  for (const entry of again.entries) assert.equal(entry.target.id, back.entries.find(old => old.task.id === entry.task.id).source.id);
   assert.equal(f.runtime.tmux(['display-message', '-p', '-t', f.shell, '#{pane_pid}']), shellPid);
 });
 
