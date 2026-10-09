@@ -100,7 +100,8 @@ Released Relay retains event hashing, deduplication, pane/run validation and
 subscription ordering; mismatched, early, nested and auxiliary callbacks cannot
 complete another root turn.
 
-An opted-in task switch/reload waits up to six seconds for the actual provider,
+An opted-in task switch/reload, panel switch or controller effort restart waits
+up to six seconds for the actual provider,
 covering bounded inventory, bootstrap and agent-claim setup. The temporary
 inventory server does not count as provider readiness. The switch captures the
 replacement's exact pane PID; failed-start cleanup freezes and stops that owned
@@ -120,10 +121,13 @@ real continuation without a candidate; the accepted continuation produces one
 completion. Native quiet, worker/controller lifecycle handoff, unknown-state and
 failed-response cases stay silent. No terminal-output heuristic produces alerts.
 
-Native reload fixtures also exercise successful 400 ms service replies, an
-unavailable optional service, and a replacement that exceeds the startup budget.
+Native restart fixtures also exercise successful 400 ms service replies and a
+replacement that exceeds the startup budget through task, panel-runtime and
+controller-effort callers, plus a task reload with an unavailable optional service.
 The failed replacement and its child must exit before exact-source recovery;
 the replacement cannot start later and failed handoff bookkeeping stays absent.
+Normal hook-review prompts remain visible; the fixtures decline new hook trust
+and verify a subsequent native request belongs to the exact source conversation.
 
 Claude Code 2.1.295's documented Stop lacks the real `background_tasks` and
 `session_crons` arrays required by released Relay's Claude accepted-stop parser.

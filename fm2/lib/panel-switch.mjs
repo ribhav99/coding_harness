@@ -16,6 +16,8 @@ import { providerAt, sessionOwnership, stopProvider } from './provider-processes
 import { providerAvailable } from './provider-command.mjs';
 import { readJson, writeJson } from './json-file.mjs';
 import { sleepSync } from './wait.mjs';
+import { assertProviderStarted } from './panes.mjs';
+import { tabtailEnabled } from './tabtail.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const safe = (value) => String(value).replace(/[^A-Za-z0-9._-]/g, '-');
@@ -27,11 +29,18 @@ function tmux(args) {
 
 function stopPane(pane, entry) {
   return stopProvider(pane, { tmux, agent: entry.from, source: entry.source, explicit: entry.explicit,
-    allowUnrecordedEmbedded: entry.targetLaunch === true && entry.from === 'codex', allowMissingProvider: entry.targetLaunch === true });
+    allowUnrecordedEmbedded: entry.targetLaunch === true && entry.from === 'codex', allowMissingProvider: entry.targetLaunch === true,
+    launchPid: entry.targetLaunch === true ? entry.targetLaunchPid ?? null : null });
 }
 
-function startPane(pane, cwd, command, agent) {
+function startPane(pane, cwd, command, agent, { onLaunch = () => {} } = {}) {
   tmux(['respawn-pane', '-k', '-t', pane, '-c', cwd, command]);
+  if (tabtailEnabled(agent)) {
+    const launchPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+    onLaunch(launchPid);
+    assertProviderStarted(pane, pane, agent, { waitMs: 6000, launchPid });
+    return;
+  }
   sleepSync(700);
   const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
   const currentCommand = tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}']);
@@ -174,7 +183,8 @@ export function executePanelSwitch(manifest, { runtime = PANEL_RUNTIME, open = t
     }
     for (const entry of [...manifest.entries.filter((entry) => !entry.controller), control]) {
       started.push(entry);
-      runtime.start(paneMap[entry.pane], entry.task.worktree, entry.command, manifest.agent);
+      runtime.start(paneMap[entry.pane], entry.task.worktree, entry.command, manifest.agent,
+        { onLaunch: (pid) => { entry.targetLaunchPid = pid; } });
     }
     runtime.tmux(['set-option', '-t', manifest.from, '@fm-successor', manifest.to]);
     runtime.tmux(['set-option', '-t', manifest.to, '@fm-agent', manifest.agent]);

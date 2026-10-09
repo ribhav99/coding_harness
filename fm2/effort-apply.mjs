@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { claimEffort, finishEffort, setEffort } from './lib/effort.mjs';
 import { loadTask } from './lib/config.mjs';
 import { tmux, panePid } from './lib/tmux.mjs';
@@ -13,10 +14,11 @@ import { resolveSession } from './lib/sessions.mjs';
 import { supervisorCommand } from './supervisor.mjs';
 import { providerExecutable } from './lib/provider-command.mjs';
 import { sleepSync, waitForExit } from './lib/wait.mjs';
+import { tabtailEnabled } from './lib/tabtail.mjs';
 
 const [id, token, hookPidText] = process.argv.slice(2);
 
-function reloadController(identity, request) {
+export function reloadController(identity, request) {
   const panel = identity.slice('controller:'.length);
   const record = supervisorRecord(panel);
   if (!record?.pane) throw new Error(`no control pane recorded for ${panel}`);
@@ -34,22 +36,40 @@ function reloadController(identity, request) {
     agent: request.agent, id: identity, panel, cwd, resume: source.id,
     briefPath: preserved.promptPath, effort: request.from,
   });
-  let stopped = false;
+  let stopped = false, targetAttempted = false, launchPid = null;
+  const optedIn = tabtailEnabled(request.agent);
   try {
     stopProvider({ id: record.pane, pid: panePid(record.pane), cwd }, {
       tmux, agent: request.agent, source, explicit: true,
     });
     stopped = true;
     refreshPreservedTranscript(preserved, source);
+    targetAttempted = true;
     tmux(['respawn-pane', '-k', '-t', record.pane, '-c', cwd, targetCommand]);
+    if (optedIn) launchPid = panePid(record.pane);
     clearStartupPrompts(record.pane, { agent: request.agent });
-    assertProviderStarted(record.pane, identity, request.agent, { verb: 'restart' });
+    assertProviderStarted(record.pane, identity, request.agent,
+      { verb: 'restart', waitMs: optedIn ? 6000 : 0, launchPid });
     return preserved.manifestPath;
   } catch (error) {
-    if (stopped) {
+    let targetStopped = !targetAttempted || !optedIn;
+    if (stopped && targetAttempted && optedIn) {
+      try {
+        if (tmux(['display-message', '-p', '-t', record.pane, '#{pane_dead}']) === '0') {
+          stopProvider({ id: record.pane, pid: panePid(record.pane), cwd }, { tmux,
+            agent: request.agent, source, explicit: true, allowUnrecordedEmbedded: true,
+            allowMissingProvider: true, launchPid });
+        }
+        targetStopped = true;
+      } catch { /* never restore a second writer before target termination */ }
+    }
+    if (stopped && targetStopped) {
       try {
         tmux(['respawn-pane', '-k', '-t', record.pane, '-c', cwd, oldCommand]);
+        const sourcePid = optedIn ? panePid(record.pane) : null;
         clearStartupPrompts(record.pane, { agent: request.agent });
+        if (optedIn) assertProviderStarted(record.pane, identity, request.agent,
+          { verb: 'restart', waitMs: 6000, launchPid: sourcePid });
       } catch { /* the preserved transcript and manifest remain the recovery point */ }
     }
     throw error;
@@ -82,4 +102,4 @@ async function main() {
   }
 }
 
-await main();
+if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) await main();

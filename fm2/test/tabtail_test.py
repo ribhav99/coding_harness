@@ -579,7 +579,7 @@ class NativeCodex(unittest.TestCase):
     def test_native_controller_lifecycle_unknown_and_error_never_complete(self):
         self.exercise_suppression()
 
-    def reload_worker(self, path=None):
+    def reload_worker(self, path=None, route='task'):
         # Run the real switch and cleanup against this fixture's provider only.
         # Override homedir in this child before imports so repository trust and
         # skill synchronization cannot write the owner's global installation.
@@ -600,33 +600,57 @@ import os from 'node:os';
 import {syncBuiltinESMExports} from 'node:module';
 os.homedir=()=>process.argv[1]; syncBuiltinESMExports();
 const {loadTask,saveTask}=await import('./fm2/lib/config.mjs');
-const {rememberSession}=await import('./fm2/lib/sessions.mjs');
+const {rememberSession,recordedSession}=await import('./fm2/lib/sessions.mjs');
 const {switchTask}=await import('./fm2/lib/switch.mjs');
-const task=loadTask('worker'), source=task.sessions.codex;
-saveTask({...task,worktree:process.argv[1],project:process.argv[1],pane:process.argv[2],panel:'fixture'});
-rememberSession({task:'worker',agent:'codex',sessionId:source.id,transcriptPath:source.transcript,
+const identity=process.argv[4], route=process.argv[5];
+const task=loadTask('worker'), source=recordedSession({id:identity},'codex');
+saveTask({...task,id:identity,worktree:process.argv[1],project:process.argv[1],pane:process.argv[2],panel:'fixture',sessions:{codex:source}});
+rememberSession({task:identity,agent:'codex',sessionId:source.id,transcriptPath:source.transcript,
   cwd:source.cwd,pane:process.argv[2],providerPid:Number(process.argv[3]),backend:'embedded'});
 let result;
 try {
-  const changed=switchTask('worker',{agent:'codex'});
+  let changed;
+  if(route==='controller') {
+    const {recordSupervisor}=await import('./fm2/lib/presence.mjs');
+    const {reloadController}=await import('./fm2/effort-apply.mjs');
+    recordSupervisor(process.argv[2],{panel:'fixture',task:identity,agent:'codex',sessionId:source.id,cwd:source.cwd});
+    reloadController(identity,{agent:'codex',effort:'xhigh',from:'high'});
+    changed={resumed:source.id,worktreePreserved:true};
+  } else if(route==='panel') {
+    const {PANEL_RUNTIME}=await import('./fm2/lib/panel-switch.mjs');
+    const {launchCommand,writeWorkerSettings}=await import('./fm2/lib/launch.mjs');
+    const {panePid}=await import('./fm2/lib/tmux.mjs');
+    const pane=process.argv[2], cwd=source.cwd;
+    const command=launchCommand({agent:'codex',id:identity,settingsFile:writeWorkerSettings(identity,'codex'),resume:source.id,panel:'fixture'});
+    const entry={from:'codex',source:recordedSession({id:identity},'codex'),explicit:true};
+    PANEL_RUNTIME.stop({id:pane,pid:panePid(pane),cwd},entry);
+    let targetLaunchPid=null;
+    try { PANEL_RUNTIME.start(pane,cwd,command,'codex',{onLaunch:pid=>{targetLaunchPid=pid;}}); }
+    catch(error) {
+      PANEL_RUNTIME.stop({id:pane,pid:panePid(pane),cwd},{...entry,targetLaunch:true,targetLaunchPid});
+      PANEL_RUNTIME.start(pane,cwd,command,'codex');
+      throw error;
+    }
+    changed={resumed:source.id,worktreePreserved:true};
+  } else changed=switchTask(identity,{agent:'codex'});
   result={ok:true,resumed:changed.resumed,preserved:changed.worktreePreserved};
 } catch(error) { result={ok:false,error:error.message}; }
-const final=loadTask('worker');
-console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessions.codex.id,
+const final=loadTask(identity);
+console.log(JSON.stringify({...result,source,sourceId:source.id,recordedId:final.sessions.codex.id,
   agent:final.agent,handoffs:final.handoffs?.length??0}));
 '''
         environment = dict(self.env, CODEX_SKILLS_DIR=str(self.root / 'skills'),
                            FM2_TABTAIL_RELAY=str(Path(bridge.RELAY_ADAPTER).parent),
                            PATH=str(bin_path) + ':' + (path or os.environ['PATH']))
         result = subprocess.run(['node', '--input-type=module', '-e', script,
-                                 str(self.root), self.pane, str(self.native)],
+                                 str(self.root), self.pane, str(self.native), self.task, route],
                                 cwd=ROOT.parent, env=environment, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.reloaded = json.loads(result.stdout)
         return self.reloaded
 
     def exact_source_running(self):
-        source = json.loads((self.fmhome / 'sessions/worker/codex.json').read_text())
+        source = self.reloaded['source']
         owner = int(self.tmux('display-message', '-p', '-t', self.pane, '#{pane_pid}'))
         rows = [line.split(maxsplit=2) for line in subprocess.check_output(
             ['ps', '-axo', 'pid=,ppid=,comm='], text=True).splitlines()]
@@ -648,7 +672,8 @@ console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessio
         # Exercise normal native review instead of bypassing it. Only this
         # disposable TUI is controlled; these new hooks remain untrusted.
         self.until(lambda: 'Hooks need review' in self.screen(), 'normal new-hook review')
-        self.tmux('send-keys', '-t', self.pane, 'Down', 'Down', 'Enter')
+        time.sleep(.2)
+        self.tmux('send-keys', '-t', self.pane, '3', 'Enter')
         self.until(lambda: 'Hooks need review' not in self.screen()
                    and ('Ask Codex to do anything' in self.screen() or 'context left' in self.screen()),
                    'resume after declining hook trust')
@@ -666,6 +691,31 @@ console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessio
         self.submit()
         self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
 
+    def exercise_slow_restart(self, route):
+        self.submit(); self.finished(0)
+        (self.state / 'response-delay').write_text('.4')
+        result = self.reload_worker(route=route)
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['resumed'], result['sourceId'])
+        self.continue_without_new_hook_trust()
+        self.until(self.exact_source_running, route + ' exact source running')
+        self.prove_source_turn(result)
+
+    def prove_source_turn(self, result):
+        if self.task.startswith('controller:'):
+            # Controller recovery carries its preserved handoff as a prompt.
+            self.until(lambda: len(self.requests) > 1, 'resumed controller model request')
+            self.responses.put('complete')
+        else:
+            self.submit()
+        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
+
+    def test_native_panel_restart_waits_for_slow_optional_bootstrap(self):
+        self.exercise_slow_restart('panel')
+
+    def test_native_controller_restart_waits_for_slow_optional_bootstrap(self):
+        self.exercise_slow_restart('controller')
+
     def test_native_reload_retains_provider_when_optional_service_is_unavailable(self):
         self.submit(); self.finished(0)
         self.service.kill(); self.service.communicate(timeout=3)
@@ -680,6 +730,15 @@ console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessio
         self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
 
     def test_native_failed_reload_stops_setup_before_restoring_exact_source(self):
+        self.exercise_failed_restart('task')
+
+    def test_native_failed_panel_restart_stops_setup_before_restoring_exact_source(self):
+        self.exercise_failed_restart('panel')
+
+    def test_native_failed_controller_restart_stops_setup_before_restoring_exact_source(self):
+        self.exercise_failed_restart('controller')
+
+    def exercise_failed_restart(self, route):
         self.submit(); self.finished(0)
         # A disposable executable delays its first real launch beyond the
         # startup budget; inventory still delegates to the installed Codex.
@@ -698,9 +757,9 @@ console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessio
             ' Path(' + repr(str(started)) + ').write_text("unexpected late launch")\n'
             'os.execv(' + repr(native) + ',[' + repr(native) + ',*sys.argv[1:]])\n')
         delayed.chmod(0o700)
-        result = self.reload_worker(path=str(bin_path) + ':' + os.environ['PATH'])
+        result = self.reload_worker(path=str(bin_path) + ':' + os.environ['PATH'], route=route)
         self.assertFalse(result['ok'], result)
-        self.assertIn('did not start its codex provider', result['error'])
+        self.assertIn('its codex provider', result['error'])
         self.assertEqual((result['agent'], result['handoffs']), ('codex', 0))
         self.assertEqual(result['recordedId'], result['sourceId'])
         for path in (marker, child):
@@ -712,8 +771,7 @@ console.log(JSON.stringify({...result,sourceId:source.id,recordedId:final.sessio
         # is not proof of recovery. Observe its explicit resume argv and a real
         # subsequent model request from that exact native conversation.
         self.until(self.exact_source_running, 'failed launch exact source running')
-        self.submit()
-        self.assertEqual(self.requests[-1]['session_id'], result['sourceId'])
+        self.prove_source_turn(result)
 
 
 if __name__ == '__main__':
