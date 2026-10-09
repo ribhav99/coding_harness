@@ -8,7 +8,9 @@ import { tabtailChoice, rememberTabtailChoice } from '../lib/tabtail-config.mjs'
 import { launchCommand, writeWorkerSettings } from '../lib/launch.mjs';
 import { supervisorCommand } from '../supervisor.mjs';
 import { TABTAIL_LAUNCH_STATE } from '../lib/tabtail.mjs';
-import { removeTask, saveTask } from '../lib/config.mjs';
+import { loadTask, removeTask, saveTask } from '../lib/config.mjs';
+import { requestEffort, schedulePendingEffort } from '../lib/effort.mjs';
+import { shellQuote } from '../lib/shell.mjs';
 import { seedModelCatalog } from './model-fixture.mjs';
 
 function fixture(t) {
@@ -131,4 +133,60 @@ test('optional persistence failure and unusable runtime remain bounded, with val
   rmSync(join(f.relay, 'venv/bin/python'));
   assert.doesNotMatch(f.worker(), /tabtail\.py/);
   assert.equal(tabtailChoice('one').enabled, false);
+});
+
+for (const selection of ['default', 'explicit-off', 'machine-disabled']) {
+  test(`effort scheduling preserves ${selection} selection across later app enable`, t => {
+    const f = fixture(t);
+    const probe = join(f.root, 'replacement-launch.mjs');
+    writeFileSync(probe, `
+      import { launchCommand, writeWorkerSettings } from ${JSON.stringify(new URL('../lib/launch.mjs', import.meta.url).href)};
+      import { supervisorCommand } from ${JSON.stringify(new URL('../supervisor.mjs', import.meta.url).href)};
+      const id = process.env.FM2_TASK;
+      if (id.startsWith('controller:')) supervisorCommand({ agent: 'codex', id, panel: 'test', resume: 'exact-native-id' });
+      else launchCommand({ agent: 'codex', id, settingsFile: writeWorkerSettings(id, 'codex'), resume: 'exact-native-id', project: null });
+    `);
+    for (const id of ['worker', 'controller:test']) {
+      rmSync(join(f.root, 'tabtail.json'), { force: true });
+      process.env.FM2_TASK = id;
+      if (selection !== 'default') {
+        f.config({ version: 1, enabled: true, relay: f.relay });
+        if (selection === 'explicit-off') process.env.FM2_TABTAIL = '0';
+        f.worker(id);
+        delete process.env.FM2_TABTAIL;
+        if (selection === 'machine-disabled') f.config({ version: 1, enabled: false });
+      }
+      requestEffort(id, 'codex', 'xhigh', { current: 'high' });
+      let command;
+      schedulePendingEffort(id, 'codex', { run: (_, args) => { command = args[2]; } });
+      // Execute the real scheduler environment with an isolated launch builder
+      // instead of stopping a provider. The native suite covers actual apply.
+      const replacement = command.replace(shellQuote(new URL('../effort-apply.mjs', import.meta.url).pathname), shellQuote(probe));
+      assert.notEqual(replacement, command);
+      const result = spawnSync('/bin/sh', ['-c', replacement], {
+        env: { ...process.env, FM2_TABTAIL: '1', FM2_TABTAIL_RELAY: '/stale-server-runtime' },
+        encoding: 'utf8', timeout: 5000,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const saved = join(f.root, 'tabtail-launches', `${encodeURIComponent(id)}.json`);
+      if (selection === 'default') assert.equal(existsSync(saved), false, 'ordinary default became a saved opt-out');
+      f.config({ version: 1, enabled: true, relay: f.relay });
+      assert.equal(tabtailChoice(id).enabled, selection !== 'explicit-off');
+    }
+  });
+}
+
+test('task closure tolerates absent optional storage and retains a retryable record on cleanup failure', t => {
+  const f = fixture(t);
+  saveTask({ id: 'one' });
+  writeFileSync(join(f.root, 'tabtail-launches'), 'blocked');
+  assert.equal(removeTask('one'), true);
+  assert.equal(loadTask('one'), null);
+  rmSync(join(f.root, 'tabtail-launches'));
+  mkdirSync(join(f.root, 'tabtail-launches/one.json'), { recursive: true });
+  saveTask({ id: 'one' });
+  assert.throws(() => removeTask('one'), { code: 'ERR_FS_EISDIR' });
+  assert.deepEqual(loadTask('one'), { id: 'one' });
+  rmSync(join(f.root, 'tabtail-launches/one.json'), { recursive: true });
+  assert.equal(removeTask('one'), true);
 });

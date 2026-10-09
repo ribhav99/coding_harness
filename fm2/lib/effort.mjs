@@ -98,8 +98,12 @@ export function schedulePendingEffort(id, agent, { hookPid = process.pid, run = 
   writeState(id, { ...state, pending: scheduled });
   const log = join(dir('logs'), 'effort.log');
   const choice = tabtailSelection(id);
+  // Off resolves from the identity's saved preference or machine recovery
+  // switch. Synthesizing an explicit 0 would persist an ordinary default-off.
+  const selection = choice.enabled
+    ? `FM2_TABTAIL='1' FM2_TABTAIL_RELAY=${shellQuote(choice.relay)} ` : '';
   const command =
-    `${tabtailCleanPrefix()} FM2_TABTAIL=${shellQuote(choice.enabled ? '1' : '0')} FM2_TABTAIL_RELAY=${shellQuote(choice.relay)} ` +
+    `${tabtailCleanPrefix()} ${selection}` +
     `FM2_TASK=${shellQuote(id)} FM2_AGENT=${shellQuote(provider)} FM2_HOME=${shellQuote(home())} ${shellQuote(process.execPath)} ${shellQuote(APPLY)} ` +
     `${shellQuote(id)} ${shellQuote(pending.token)} ${shellQuote(hookPid)} >> ${shellQuote(log)} 2>&1`;
   try {
