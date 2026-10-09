@@ -24,6 +24,7 @@ import { renderPage, findingId, ACCEPTED } from './lib/render.mjs';
 import { embeddedHtml, assertPageSize } from './lib/page.mjs';
 import { isDesign, designQuestions, parseDesignFeedback } from './lib/design.mjs';
 import { buildStamp } from './lib/build.mjs';
+import { sourceSession } from './lib/source-session.mjs';
 import {
   lookup,
   withRegistryLock,
@@ -159,6 +160,7 @@ function summary(entry, review = readReview(entry)) {
     id: entry.id, title: String(spec.title || entry.id), pr: typeof spec.pr === 'string' ? spec.pr : null,
     project: entry.project ? entry.project.split('/').filter(Boolean).at(-1) : 'Reviews',
     remote: entry.remote === true, round, status: decided ? 'sent' : 'waiting',
+    source_session: sourceSession(entry),
     registered_at: entry.registered_at, submitted_at: decided?.submitted_at || null,
     submission_id: decided?.submission_id || null,
   };

@@ -529,12 +529,14 @@ test('the server reports the build it is running, and a source change changes it
   const copy = mkdtempSync(join(tmpdir(), 'surface-build-'));
   cpSync(ROOT, copy, { recursive: true });
   t.after(() => rmSync(copy, { recursive: true, force: true }));
-  const source = join(copy, 'server.mjs');
-  const original = readFileSync(source, 'utf8');
-  writeFileSync(source, `${original}\n// touched by the build-stamp test\n`);
-  assert.notEqual(buildStamp({ root: copy }), health.build, 'editing the source did not change the stamp');
-  writeFileSync(source, original);
-  assert.equal(buildStamp({ root: copy }), health.build, 'restoring the source did not restore the stamp');
+  for (const name of ['server.mjs', 'lib/source-session.mjs']) {
+    const source = join(copy, name);
+    const original = readFileSync(source, 'utf8');
+    writeFileSync(source, `${original}\n// touched by the build-stamp test\n`);
+    assert.notEqual(buildStamp({ root: copy }), health.build, `editing ${name} did not change the stamp`);
+    writeFileSync(source, original);
+    assert.equal(buildStamp({ root: copy }), health.build, 'restoring the source did not restore the stamp');
+  }
 });
 
 test('a claim from before the pane existed does not block the review running in it', async () => {
