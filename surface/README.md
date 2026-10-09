@@ -217,3 +217,46 @@ node --test surface/test/surface.test.mjs
 `reference/` holds two real review pages from the tool this replaces. They are
 the target to match, not markup to inherit — their hand-written decision forms
 are exactly the bug class above.
+
+### Optional phone source-session metadata
+
+`GET /api/reviews` summaries and `GET /api/:id/page` add an optional
+`source_session` string. It is read-only metadata; protocol stays at 1 and old
+clients can ignore it. No registry filtering, registration, decisions, receipts,
+media or wake behavior changes.
+
+Version 1 is `surface-pane-v1:` plus a lowercase 64-character SHA-256 digest of
+`JSON.stringify([entry.pane_socket, entry.pane, entry.pane_identity])`. These are
+recorded ownership values, never a lookup of the process currently in a pane.
+The field is omitted unless the recorded pane is `%` plus digits, the socket is
+an absolute path without NUL, and the identity has the `PID:ps lstart` format
+with a positive PID and parseable English start date at or before the parseable
+registration timestamp. No raw pane, socket, PID, start time or spec path is
+added to the phone API. Hashing separates identical pane IDs on different
+sockets and process lifetimes without disclosing socket paths.
+
+Consumers must scope this identity to the current host, treat unknown versions
+or missing/invalid fields as unknown (keep rows separate), and continue to open
+and submit using actual review ID/round. This describes the registered owning
+pane-root process lifetime; it is not a provider conversation UUID. Rebinding
+one conversation to a different process can produce separate identities, and
+conversations within an unchanged root have no finer recorded distinction.
+Legacy registrations are not backfilled from live panes. The field remains
+stable when a process exits or a pane ID is reused; an ordinary re-registration
+can record a new owner. Phone clients may use existing `registered_at` to select
+the latest row; Surface continues to return every readable registration.
+
+Standalone verification (disposable tmux socket, registry, ephemeral HTTP port):
+
+```sh
+node --test surface/test/source-session.test.mjs
+node --test surface/test/remote.test.mjs surface/test/surface.test.mjs surface/test/media.test.mjs
+```
+
+The source-session test captures two real pane ownerships, models historical
+same-owner records in isolated fixture state, and verifies list/page identities,
+legacy omission, pane reuse, server-side retention and unchanged spec/registry
+bytes. TabTail's separate opt-in `test_review_surface_contract.py` exercises this
+contract through its existing adapter and real phone selector. The feature needs
+compatible Surface source on each Mac, but no adapter transport change; deploy
+only through the controller's reviewed rollout.
