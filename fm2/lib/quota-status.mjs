@@ -1,8 +1,8 @@
-// Codex's native status line exposes the percentage left in account limits, but
-// not their reset countdown. Every Codex transcript already records both values
-// in token_count events, so fm adds the missing countdown to tmux's existing
-// session status bar. Quotas are account-wide but may differ by model family,
-// so fm aggregates the freshest recent snapshot for each reported limit.
+// Codex quota information belongs in its native footer by default. Keep the
+// older tmux countdown display available only when a panel explicitly enables
+// @fm-quota-status-enabled. Session hooks also remove existing default installs.
+// Quotas are account-wide but may differ by model family, so the optional tmux
+// display aggregates the freshest recent snapshot for each reported limit.
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -240,7 +240,8 @@ export function configurePanelQuotaStatus(panel, agent, {
   }) || '').replace(/\r?\n$/, '');
   const set = (args) => run('tmux', ['set-option', ...args], { stdio: 'ignore', timeout: 2000 });
   try {
-    if (provider === 'codex') {
+    const enabled = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-enabled']) === '1';
+    if (provider === 'codex' && enabled) {
       let base = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base']);
       let baseLength = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-length']);
       const active = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-active']) === '1';
@@ -270,14 +271,21 @@ export function configurePanelQuotaStatus(panel, agent, {
       set(['-t', panel, 'status-right-length', String(Math.max(160, Number(baseLength) || 0))]);
     } else {
       const active = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-active']) === '1';
-      if (!active) return true;
-      // A Claude controller can coexist with explicitly Codex workers. Its
-      // prompt hook must not remove the shared bar from under those panes.
-      if (panelHasCodexSession(panel, fm2Home)) return true;
+      const unmarkedLegacy = !active
+        && read(['show-option', '-qv', '-t', panel, 'status-right']).includes('quota-status.mjs');
+      if (!active && !unmarkedLegacy) return true;
+      // Preserve an explicitly enabled shared bar while Codex workers remain,
+      // including when this hook belongs to a Claude controller.
+      if (enabled && panelHasCodexSession(panel, fm2Home)) return true;
       const base = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base']);
       const baseLength = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-length']);
-      const baseWasLocal = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-local']) === '1';
-      const lengthWasLocal = read(['show-option', '-qv', '-t', panel, '@fm-quota-status-length-local']) === '1';
+      // Older installs could save the quota command itself as the local base.
+      // As on opt-in repair, fall back to inherited options for that old state.
+      const legacyBase = unmarkedLegacy || base.includes('quota-status.mjs');
+      const baseWasLocal = !legacyBase
+        && read(['show-option', '-qv', '-t', panel, '@fm-quota-status-base-local']) === '1';
+      const lengthWasLocal = !legacyBase
+        && read(['show-option', '-qv', '-t', panel, '@fm-quota-status-length-local']) === '1';
       set(baseWasLocal ? ['-t', panel, 'status-right', base] : ['-u', '-t', panel, 'status-right']);
       set(lengthWasLocal
         ? ['-t', panel, 'status-right-length', baseLength]

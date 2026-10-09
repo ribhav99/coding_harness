@@ -76,11 +76,15 @@ A launch names its model, reasoning effort (default `high`), approval policy, sa
 status line outright, the same way the Claude path names `--model opus`: a
 default is not a choice. They are passed as `-c` overrides rather than flags,
 because `codex` and `codex resume` do not accept the same flags and `-c` works on
-both. The native footer mirrors the non-quota fields in the Claude status line:
-project, branch, model and effort, fast mode, and context use. Codex's native
-limit fields report only the percentage left and cannot show a reset countdown,
-so fm puts quota usage in the existing tmux status bar instead. That shared bar
-shows the percentage used and a live days/hours/minutes countdown, aggregating
+both. The native footer includes project, branch, model and effort, fast mode,
+context use, and the available five-hour and weekly limits. Stock Codex's native
+limit fields report only the percentage left. The local
+[native footer patch](native-footer/README.md) adds live reset countdowns to those
+same fields inside Codex.
+Quota information stays inside the Codex pane by default; existing automatic
+tmux quota displays are removed on the next session hook. The older tmux display
+is available by explicitly setting the panel option `@fm-quota-status-enabled`
+to `1`. That optional bar shows percentage used and a days/hours/minutes countdown, aggregating
 the account and model-family windows reported by Codex sessions on the
 machine, including app tasks and subagents outside the fm panel. An
 unavailable five-hour window is omitted rather than shown as zero.

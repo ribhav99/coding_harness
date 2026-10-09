@@ -17,39 +17,32 @@ untracked `output/`. `/opt/homebrew/bin/fm` points at that checkout's
 Do not reset, stash, clean, stage, push or overwrite the primary's files/commits.
 Do not run bare `./install` on this Mac: it would also relink Surface.
 
-The primary predates the shared-module refactor and PR14. Its local footer work
-cannot be adopted by copying the old `fm2/lib/tasks.mjs` over the reviewed source.
-Use a separate stable integration checkout based on the controller-approved
-merged harness head, preserving these narrowly identified behaviors:
+The primary predates the shared-module refactor and PR14. The focused runtime
+preservation port is based on final PR15 merge
+`2e619c05dbf03c82d902beb3885887a17673ced2`, whose tree equals reviewed
+`03c3e2aae756982b58e95517e4386497f9f0e1d8`. It retains:
 
-- The upstream stop-submit fix from PR12 is already present, including
-  `pane-input.mjs`, queued knocks and bracketed-paste submission. Retain it and
-  run the native input gate; there is no reason to restore the older tasks file.
-- Port `five-hour-limit` and `weekly-limit` into `CODEX_STATUS_LINE` in
-  `fm2/lib/launch.mjs`, then adjust the corresponding launch assertions in
-  `fm2/test/fm2.test.mjs` and `provider-sessions.test.mjs`.
-- Port the behavioral hunks and tests from local `2abf8caf`:
-  `configurePanelQuotaStatus` enables its shared bar only with explicit
-  `@fm-quota-status-enabled=1`, otherwise restoring an old installed bar.
-  Keep the refactored shared `shellQuote` and `readJson` imports.
-- Preserve the three `codex/native-footer/` assets from local `2b39d8d8`, plus
-  the native-footer explanation in `codex/README.md`. Do not rebuild, reinstall
-  or replace the already patched CLI as part of this harness adoption. A future
-  provider update needs a separate patch/version verification; never overwrite
-  newer companions with the old custom binary.
-- Carry the exact CLI/API-only app release rule from local `56605702` into the
-  integration checkout's AGENTS.md. App releases stay with their release owners;
-  harness adoption does not authorize browser release operations.
+- `five-hour-limit` and `weekly-limit` in the shared worker/controller native
+  footer selection, including the reset countdowns in this Mac's existing binary.
+- The primary's exact `@fm-quota-status-enabled=1` fallback: otherwise restore
+  the previous tmux bar, including inherited and intentionally empty local bars.
+  An opted-in mixed-provider panel retains its bar while Codex workers remain.
+- The primary's three `codex/native-footer/` assets and exact CLI/API-only release
+  rule. Those assets record the prior native build; this integration does not
+  rebuild, replace or reinstall that binary or its companions.
+- The final upstream stop-submit transport, shared module imports, PR14 trust/
+  event boundaries and both PR15 corrections: default-off does not become sticky,
+  and preference cleanup failures retain retryable task bookkeeping.
 
-The author rehearses this port in disposable sibling
-`coding_harness-tabtail-adoption-rehearsal`, without committing/publishing the
-primary's history. The separately reviewable behavioral delta is retained at
-`~/.fm2/briefs/tabtail-harness-adoption/evidence/primary-runtime-integration.patch`,
-with Node/installer/native evidence and a primary/link preservation manifest in
-that directory. It is a follow-up integration patch, **not part of this PR's
-runtime**. The controller must review the patch against its final merged head,
-rerun gates after any changes, and establish the stable installation checkout.
-Do not install from the disposable rehearsal or author checkout.
+The authored preservation patch is retained at
+`~/.fm2/briefs/tabtail-harness-adoption/evidence/primary-runtime-integration.patch`
+(SHA256 `eb48fc2914aa0dbcbc3c4f6a684c9fb7208ae25c5b8dab7c5d8edaca20659321`).
+Its author rehearsal and PR15 review do not independently approve this port.
+The new candidate adds real private-tmux fallback verification and a concrete
+[selective installation and rollback plan](firstmate-tabtail-runtime-installation.md).
+Fresh candidate verification is recorded separately under
+`~/.fm2/briefs/tabtail-runtime-integration/`; the original patch/rehearsal stay
+retained until the candidate's independent review safely supersedes them.
 
 Required integration gates are `node --test fm2/test/*.test.mjs codex/install.test.mjs`,
 `FM2_CODEX_TUI_TEST=1 node --test fm2/test/pane-input.test.mjs`, and the released
@@ -58,10 +51,12 @@ Run installer mutation/check only in a private HOME/bin with a minimal PATH that
 cannot resolve installed fm/fmp/surface. On the real Mac, `./install --check` is
 read-only; its proposed Surface relink is deliberately not adopted.
 
-After cold review and merge, the controller may selectively repoint only fm/fmp
-from the stable reviewed installation, keeping the retained Surface link exact.
-Verify the resolved targets and required skill links before launching anything.
-Do not push the primary branch or incorporate its unrelated dirty files.
+A separate rollout step must receive the exact independently reviewed merged
+commit and establish a stable retained checkout before selectively repointing
+fm/fmp and managed skills. Do not install from this author, a reviewer or the
+rehearsal checkout. Keep the retained Surface link exact. No live provider
+restart, automatic conversation adoption or native binary update belongs to
+that link-only step.
 
 ## App setup and a deliberately selected pilot
 

@@ -1,0 +1,279 @@
+diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
+index 6dc0ab9..a43c5b7 100644
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -448,7 +448,15 @@ impl ChatWidget {
+     ) -> Option<String> {
+         let window = window?;
+         let remaining = (100.0f64 - window.used_percent).clamp(0.0f64, 100.0f64);
+-        Some(format!("{label} {remaining:.0}% left"))
++        let usage = format!("{label} {remaining:.0}% left");
++        let reset = crate::status::format_limit_reset_countdown(
++            window.reset_timestamp,
++            Local::now().timestamp(),
++        );
++        Some(match reset {
++            Some(reset) => format!("{usage} ({reset})"),
++            None => usage,
++        })
+     }
+ 
+     pub(super) fn status_line_reasoning_effort_label(
+diff --git a/codex-rs/tui/src/chatwidget/status_surfaces.rs b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+index 616dd6d..a9813f2 100644
+--- a/codex-rs/tui/src/chatwidget/status_surfaces.rs
++++ b/codex-rs/tui/src/chatwidget/status_surfaces.rs
+@@ -256,9 +256,22 @@ impl ChatWidget {
+         self.last_terminal_title_requires_action =
+             self.terminal_title_shows_action_required_with_selections(selections);
+         let now = Instant::now();
+-        self.terminal_title_next_refresh = self
+-            .terminal_title_animation_interval_with_selections(selections)
+-            .map(|interval| now + interval);
++        let title_interval = self.terminal_title_animation_interval_with_selections(selections);
++        let countdown_interval = selections
++            .status_line_items
++            .iter()
++            .any(|item| {
++                matches!(
++                    item,
++                    StatusLineItem::FiveHourLimit | StatusLineItem::WeeklyLimit
++                )
++            })
++            .then_some(Duration::from_secs(60));
++        let interval = match (title_interval, countdown_interval) {
++            (Some(title), Some(countdown)) => Some(title.min(countdown)),
++            (title, countdown) => title.or(countdown),
++        };
++        self.terminal_title_next_refresh = interval.map(|interval| now + interval);
+         if selections.terminal_title_items.is_empty() {
+             if let Err(err) = self.clear_managed_terminal_title() {
+                 tracing::debug!(error = %err, "failed to clear terminal title");
+@@ -314,6 +327,8 @@ impl ChatWidget {
+         let selections = self.status_surface_selections();
+         self.warn_invalid_terminal_title_items_once(&selections.invalid_terminal_title_items);
+         self.sync_status_surface_shared_state(&selections);
++        // The same foreground timer keeps limit countdowns moving while idle.
++        self.refresh_status_line_from_selections(&selections);
+         self.refresh_terminal_title_from_selections(&selections);
+     }
+ 
+diff --git a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+index abe4b66..1599634 100644
+--- a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
++++ b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+@@ -715,6 +715,40 @@ async fn test_rate_limit_warnings_use_secondary_fallback_for_unsupported_window(
+     );
+ }
+ 
++#[tokio::test]
++async fn status_line_weekly_limit_includes_live_server_reset_and_idle_refresh() {
++    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++    let reset = Local::now().timestamp() + 3 * 86_400 + 4 * 3600 + 12 * 60;
++    chat.setup_status_line(
++        vec![crate::bottom_pane::StatusLineItem::WeeklyLimit],
++        /*use_theme_colors*/ true,
++    );
++    chat.on_rate_limit_snapshot(Some(RateLimitSnapshot {
++        limit_id: None,
++        limit_name: None,
++        normal_model_slug: None,
++        primary: None,
++        secondary: Some(RateLimitWindow {
++            used_percent: 31,
++            window_duration_mins: Some(7 * 24 * 60),
++            resets_at: Some(reset),
++        }),
++        credits: None,
++        individual_limit: None,
++        plan_type: None,
++        spend_control_reached: None,
++        rate_limit_reached_type: None,
++    }));
++    assert_eq!(
++        chat.status_line_value_for_item(crate::bottom_pane::StatusLineItem::WeeklyLimit),
++        Some("weekly 69% left (resets in 3d 4h 12m)".to_string()),
++    );
++    let deadline = chat
++        .terminal_title_next_refresh
++        .expect("idle countdown refresh");
++    assert!(deadline <= Instant::now() + Duration::from_secs(60));
++}
++
+ #[tokio::test]
+ async fn status_line_uses_secondary_fallback_for_unsupported_window() {
+     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+diff --git a/codex-rs/tui/src/status/limit_countdown.rs b/codex-rs/tui/src/status/limit_countdown.rs
+new file mode 100644
+index 0000000..3947935
+--- /dev/null
++++ b/codex-rs/tui/src/status/limit_countdown.rs
+@@ -0,0 +1,27 @@
++//! Live reset durations for the native footer, using server timestamps only.
++
++pub(crate) fn format_limit_reset_countdown(reset: Option<i64>, now: i64) -> Option<String> {
++    let reset = reset.filter(|reset| *reset > 0)?;
++    chrono::DateTime::<chrono::Utc>::from_timestamp(reset, /*nsecs*/ 0)?;
++    let seconds = reset.saturating_sub(now);
++    if seconds <= 0 {
++        return Some("reset due".to_string());
++    }
++    // Round up so an unexpired window never appears to have already reset.
++    let minutes = seconds / 60 + i64::from(seconds % 60 != 0);
++    let days = minutes / (24 * 60);
++    let hours = minutes / 60 % 24;
++    let minutes = minutes % 60;
++    let duration = if days > 0 {
++        format!("{days}d {hours}h {minutes}m")
++    } else if hours > 0 {
++        format!("{hours}h {minutes}m")
++    } else {
++        format!("{minutes}m")
++    };
++    Some(format!("resets in {duration}"))
++}
++
++#[cfg(test)]
++#[path = "limit_countdown_tests.rs"]
++mod tests;
+diff --git a/codex-rs/tui/src/status/limit_countdown_tests.rs b/codex-rs/tui/src/status/limit_countdown_tests.rs
+new file mode 100644
+index 0000000..3b49045
+--- /dev/null
++++ b/codex-rs/tui/src/status/limit_countdown_tests.rs
+@@ -0,0 +1,46 @@
++use super::format_limit_reset_countdown;
++
++#[test]
++fn server_timestamp_counts_down_without_usage_events() {
++    let now = 1_800_000_000;
++    let reset = Some(now + 3 * 86_400 + 4 * 3600 + 12 * 60);
++    assert_eq!(
++        format_limit_reset_countdown(reset, now),
++        Some("resets in 3d 4h 12m".to_string())
++    );
++    assert_eq!(
++        format_limit_reset_countdown(reset, now + 60),
++        Some("resets in 3d 4h 11m".to_string())
++    );
++}
++
++#[test]
++fn missing_and_invalid_timestamps_do_not_invent_a_reset() {
++    for reset in [None, Some(0), Some(-1), Some(i64::MAX)] {
++        assert_eq!(
++            format_limit_reset_countdown(reset, /*now*/ 1_800_000_000),
++            None
++        );
++    }
++}
++
++#[test]
++fn near_and_expired_resets_preserve_server_truth() {
++    let now = 1_800_000_000;
++    assert_eq!(
++        format_limit_reset_countdown(Some(now + 1), now),
++        Some("resets in 1m".to_string())
++    );
++    assert_eq!(
++        format_limit_reset_countdown(Some(now + 61), now),
++        Some("resets in 2m".to_string())
++    );
++    assert_eq!(
++        format_limit_reset_countdown(Some(now), now),
++        Some("reset due".to_string())
++    );
++    assert_eq!(
++        format_limit_reset_countdown(Some(now - 60), now),
++        Some("reset due".to_string())
++    );
++}
+diff --git a/codex-rs/tui/src/status/mod.rs b/codex-rs/tui/src/status/mod.rs
+index 8f46cfc..8c76cf6 100644
+--- a/codex-rs/tui/src/status/mod.rs
++++ b/codex-rs/tui/src/status/mod.rs
+@@ -10,6 +10,7 @@ mod account;
+ mod card;
+ mod format;
+ mod helpers;
++mod limit_countdown;
+ mod rate_limits;
+ pub(crate) mod remote_connection;
+ mod thread_usage;
+@@ -26,6 +27,7 @@ pub(crate) use helpers::format_directory_display;
+ pub(crate) use helpers::format_reset_timestamp;
+ pub(crate) use helpers::format_tokens_compact;
+ pub(crate) use helpers::plan_type_display_name;
++pub(crate) use limit_countdown::format_limit_reset_countdown;
+ pub(crate) use rate_limits::RateLimitSnapshotDisplay;
+ pub(crate) use rate_limits::RateLimitWindowDisplay;
+ #[cfg(test)]
+diff --git a/codex-rs/tui/src/status/rate_limits.rs b/codex-rs/tui/src/status/rate_limits.rs
+index c22868b..8ca2647 100644
+--- a/codex-rs/tui/src/status/rate_limits.rs
++++ b/codex-rs/tui/src/status/rate_limits.rs
+@@ -72,6 +72,8 @@ pub(crate) struct RateLimitWindowDisplay {
+     pub used_percent: f64,
+     /// Human-readable local reset time.
+     pub resets_at: Option<String>,
++    /// Original Unix reset timestamp for the live footer countdown.
++    pub reset_timestamp: Option<i64>,
+     /// Window length in minutes when provided by the server.
+     pub window_minutes: Option<i64>,
+ }
+@@ -92,6 +94,7 @@ impl RateLimitWindowDisplay {
+         Self {
+             used_percent: f64::from(window.used_percent),
+             resets_at,
++            reset_timestamp: resets_at_utc.map(|dt| dt.timestamp()),
+             window_minutes: window.window_duration_mins,
+         }
+     }
+@@ -460,6 +463,7 @@ mod tests {
+         RateLimitWindowDisplay {
+             used_percent,
+             resets_at: Some("soon".to_string()),
++            reset_timestamp: None,
+             window_minutes: Some(300),
+         }
+     }
+@@ -522,11 +526,13 @@ mod tests {
+             primary: Some(RateLimitWindowDisplay {
+                 used_percent: 20.0,
+                 resets_at: Some("soon".to_string()),
++                reset_timestamp: None,
+                 window_minutes: Some(60),
+             }),
+             secondary: Some(RateLimitWindowDisplay {
+                 used_percent: 40.0,
+                 resets_at: Some("later".to_string()),
++                reset_timestamp: None,
+                 window_minutes: Some(2 * 60),
+             }),
+             credits: None,
+diff --git a/codex-rs/tui/src/status/tests.rs b/codex-rs/tui/src/status/tests.rs
+index d2016ca..2d9fbda 100644
+--- a/codex-rs/tui/src/status/tests.rs
++++ b/codex-rs/tui/src/status/tests.rs
+@@ -70,6 +70,7 @@ fn stale_monthly_limit_marks_fresh_rolling_snapshot_stale() {
+         primary: Some(RateLimitWindowDisplay {
+             used_percent: 20.0,
+             resets_at: Some("soon".to_string()),
++            reset_timestamp: None,
+             window_minutes: Some(300),
+         }),
+         secondary: None,
+@@ -1874,11 +1875,13 @@ async fn transcript_overlay_remeasures_status_after_rate_limit_refresh() {
+             primary: Some(RateLimitWindowDisplay {
+                 used_percent: 45.0,
+                 resets_at: Some("soon".to_string()),
++                reset_timestamp: None,
+                 window_minutes: Some(300),
+             }),
+             secondary: Some(RateLimitWindowDisplay {
+                 used_percent: 30.0,
+                 resets_at: Some("later".to_string()),
++                reset_timestamp: None,
+                 window_minutes: Some(10_080),
+             }),
+             credits: None,
