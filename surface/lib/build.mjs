@@ -26,7 +26,7 @@ const ROOT = join(HERE, '..');
 // The files the server holds in memory once it has booted. Anything read
 // per-request - the static assets - is already current and does not belong
 // here; listing it would force restarts that change nothing.
-const SOURCES = ['server.mjs', 'lib/render.mjs', 'lib/store.mjs', 'lib/build.mjs', 'lib/media.mjs', 'lib/design.mjs', 'lib/page.mjs'];
+const SOURCES = ['server.mjs', 'lib/render.mjs', 'lib/store.mjs', 'lib/build.mjs', 'lib/media.mjs', 'lib/design.mjs', 'lib/page.mjs', 'lib/source-session.mjs'];
 
 export function buildStamp({ root = ROOT } = {}) {
   const hash = createHash('sha256');
